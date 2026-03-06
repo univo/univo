@@ -1,0 +1,15 @@
+{
+	"include": ["./**/*.ts"],
+	"compilerOptions": {
+		"strict": true,
+		"rootDir": ".",
+		"jsx": "react",
+		"outDir": "dist",
+		"target": "ESNext",
+		"module": "ESNext",
+		"esModuleInterop": true,
+		"moduleResolution": "Bundler",
+		"noUncheckedIndexedAccess": true,
+		"types": ["vitest/globals"]
+	}
+}
