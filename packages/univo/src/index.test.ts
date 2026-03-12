@@ -808,14 +808,208 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 	]);
 });
 
-test.concurrent("private_writeEvents returns error when accessing a property that wasn't provided", async () => {
+test.concurrent("private_writeEvents returns incomplete errors in handler", async () => {
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
 
 	univo.event({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => {
+			// The following property exists on the type but isn't provided
+			return [block.eth_getBlockByHash.difficulty];
+		},
 		storage: { upsert: async () => {} },
-		handler: (block) => [block.eth_getBlockByHash.difficulty],
+	});
+
+	const response = await test_indexer(univo).request({
+		method: "private_writeEvents",
+		params: [
+			{
+				events: ["test"],
+				blocks: [
+					{
+						eth_chainId: "0x1",
+						eth_getBlockByHash: {
+							number: "0x1",
+							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+						},
+					},
+					{
+						eth_chainId: "0x1",
+						eth_getBlockByHash: {
+							number: "0x2",
+							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+						},
+					},
+				] as any,
+			},
+		],
+	});
+
+	expect(response.failures).toStrictEqual([
+		{
+			status: "incomplete_error",
+			event_id: "test",
+			chain: "0x1",
+			block_number: "0x1",
+			block_hash: expect.any(String),
+			created_at: expect.any(Number),
+		},
+		{
+			status: "incomplete_error",
+			event_id: "test",
+			chain: "0x1",
+			block_number: "0x2",
+			block_hash: expect.any(String),
+			created_at: expect.any(Number),
+		},
+	]);
+});
+
+test.concurrent("private_writeEvents returns swallowed incomplete errors in handler", async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => {
+			try {
+				return [block.eth_getBlockByHash.difficulty];
+			} catch {
+				// It's perfectly valid to ignore transformation errors like this, but we still need
+				// to be able to detect when we have received an incomplete block
+
+				return [];
+			}
+		},
+		storage: { upsert: async () => {} },
+	});
+
+	const response = await test_indexer(univo).request({
+		method: "private_writeEvents",
+		params: [
+			{
+				events: ["test"],
+				blocks: [
+					{
+						eth_chainId: "0x1",
+						eth_getBlockByHash: {
+							number: "0x1",
+							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+						},
+					},
+					{
+						eth_chainId: "0x1",
+						eth_getBlockByHash: {
+							number: "0x2",
+							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+						},
+					},
+				] as any,
+			},
+		],
+	});
+
+	expect(response.failures).toStrictEqual([
+		{
+			status: "incomplete_error",
+			event_id: "test",
+			chain: "0x1",
+			block_number: "0x1",
+			block_hash: expect.any(String),
+			created_at: expect.any(Number),
+		},
+		{
+			status: "incomplete_error",
+			event_id: "test",
+			chain: "0x1",
+			block_number: "0x2",
+			block_hash: expect.any(String),
+			created_at: expect.any(Number),
+		},
+	]);
+});
+
+test.concurrent("private_writeEvents returns incomplete errors in upsert", async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block],
+		storage: {
+			upsert: async (blocks) => {
+				for (const block of blocks) {
+					// The following property exists on the type but isn't provided
+					block.eth_getBlockByHash.difficulty;
+				}
+			},
+		},
+	});
+
+	const response = await test_indexer(univo).request({
+		method: "private_writeEvents",
+		params: [
+			{
+				events: ["test"],
+				blocks: [
+					{
+						eth_chainId: "0x1",
+						eth_getBlockByHash: {
+							number: "0x1",
+							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+						},
+					},
+					{
+						eth_chainId: "0x1",
+						eth_getBlockByHash: {
+							number: "0x2",
+							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+						},
+					},
+				] as any,
+			},
+		],
+	});
+
+	expect(response.failures).toStrictEqual([
+		{
+			status: "incomplete_error",
+			event_id: "test",
+			chain: "0x1",
+			block_number: "0x1",
+			block_hash: expect.any(String),
+			created_at: expect.any(Number),
+		},
+		{
+			status: "incomplete_error",
+			event_id: "test",
+			chain: "0x1",
+			block_number: "0x2",
+			block_hash: expect.any(String),
+			created_at: expect.any(Number),
+		},
+	]);
+});
+
+test.concurrent("private_writeEvents returns swallowed incomplete errors in upsert", async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block],
+		storage: {
+			upsert: async (blocks) => {
+				try {
+					for (const block of blocks) {
+						block.eth_getBlockByHash.difficulty;
+					}
+				} catch {
+					//
+				}
+			},
+		},
 	});
 
 	const response = await test_indexer(univo).request({

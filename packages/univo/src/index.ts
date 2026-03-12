@@ -411,7 +411,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		"__lookupSetter__",
 	];
 
-	const getWriteEventsProxy = <T>(value: T, error: Error) => {
+	const getWriteEventsProxy = <T>(value: T, callback: () => void) => {
 		const createProxyHandler = (path: string) => {
 			return {
 				get(target: any, key: any, receiver: any) {
@@ -430,7 +430,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 							return value;
 						}
 
-						throw error;
+						return callback();
 					}
 
 					if (typeof value === "object" && value !== null) {
@@ -460,7 +460,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const failures: Record<string, Result> = {};
 
 		// Proxy the object so we can safely determine whenever the user accesses a key that wasn't provided
-		const proxied_blocks = getWriteEventsProxy(params.blocks, new Error(IncompleteBlockError));
+		let accessed_undefined_key = false;
+
+		const proxied_blocks = getWriteEventsProxy(params.blocks, () => {
+			// Setting this flag is designed as a back up to detect undefined key access.
+			// In userspace it is possible to wrap a handler or upsert function in a try/catch
+			// block that would prevent the below error from propagating
+			accessed_undefined_key = true;
+
+			// We throw to prevent any further execution in the handler/upsert fn
+			throw new Error(IncompleteBlockError);
+		});
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
 			// For all events that share the same storage adapter we push to the batch
@@ -475,6 +485,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						// Ignore blocks that don't match any of the defined event filters
 						if (!event.filters.some((filter) => matchFilter(block, filter))) continue;
 						const events = event.handler(block);
+						if (accessed_undefined_key) throw new Error(IncompleteBlockError);
 						for (const event of events) batch.push(event);
 					} catch (error) {
 						const status = catchException(error, IncompleteBlockError) ? "incomplete_error" : "handler_error";
@@ -502,7 +513,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			const start = Date.now();
 
-			await retry(storage.upsert, [batch], 2).catch((error) => {
+			try {
+				await retry(storage.upsert, [batch], 2);
+				if (accessed_undefined_key) throw new Error(IncompleteBlockError);
+			} catch (error) {
 				const status = catchException(error, IncompleteBlockError) ? "incomplete_error" : "upsert_error";
 
 				// Log upsert errors for user
@@ -527,7 +541,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						};
 					}
 				}
-			});
+			}
 
 			const stop = Date.now() - start;
 
