@@ -19,11 +19,11 @@ export const test_indexer = iife(() => {
 		return await indexer.fetch(context.req.raw);
 	});
 
-	start({ fetch: app.fetch, port: 3000 });
+	start({ fetch: app.fetch, port: 7483 });
 
 	return <TBlock>(indexer: Indexer<TBlock>) => {
 		const id = crypto.randomUUID();
-		const url = `http://localhost:3000/${id}`;
+		const url = `http://localhost:7483/${id}`;
 		cache.set(id, indexer);
 
 		// Signing key should be "test" for all test indexers
