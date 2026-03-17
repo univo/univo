@@ -724,10 +724,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const handler: Indexer<TBlock>["fetch"] = async (req) => {
 		// Parse request body
-		let body_buffer: Uint8Array<ArrayBuffer>;
+		let body_buffer: ArrayBuffer;
 
 		try {
-			body_buffer = new Uint8Array(await req.arrayBuffer());
+			body_buffer = await req.arrayBuffer();
 		} catch {
 			return Response.json(
 				{ jsonrpc: "2.0", id: null, error: { code: 0, message: "Invalid request body" } }, //
