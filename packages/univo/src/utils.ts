@@ -67,7 +67,7 @@ export type Prettify<T> = unknown & {
 	[K in keyof T]: T[K];
 };
 
-export async function getSignature(opts: { body: string | Uint8Array<ArrayBuffer>; key: string }) {
+export async function getSignature(opts: { body: string | ArrayBuffer; key: string }) {
 	const keyData = encoder.encode(opts.key);
 	const key = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
 
@@ -81,7 +81,7 @@ export async function getSignature(opts: { body: string | Uint8Array<ArrayBuffer
 	return [...new Uint8Array(hmac)].map((binary) => binary.toString(16).padStart(2, "0")).join("");
 }
 
-export async function verifySignature(opts: { body: string | Uint8Array<ArrayBuffer>; key: string; signature: string }) {
+export async function verifySignature(opts: { body: string | ArrayBuffer; key: string; signature: string }) {
 	const keyData = encoder.encode(opts.key);
 	const key = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
 
@@ -158,53 +158,12 @@ export function nonNullable<Type>(value: Type): value is NonNullable<Type> {
 	return value !== null && value !== undefined;
 }
 
-export async function compress(input: string): Promise<Uint8Array<ArrayBuffer>> {
-	const encoded = new TextEncoder().encode(input);
-	const stream = new CompressionStream("gzip");
-	const writer = stream.writable.getWriter();
-	writer.write(encoded);
-	writer.close();
-
-	const chunks: Uint8Array[] = [];
-	const reader = stream.readable.getReader();
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		chunks.push(value);
-	}
-
-	const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-	const result = new Uint8Array(totalLength);
-	let offset = 0;
-	for (const chunk of chunks) {
-		result.set(chunk, offset);
-		offset += chunk.length;
-	}
-
-	return result;
+export async function compress(input: string): Promise<ArrayBuffer> {
+	const compressed = new Blob([input]).stream().pipeThrough(new CompressionStream("gzip"));
+	return new Response(compressed).arrayBuffer();
 }
 
-export async function decompress(input: Uint8Array<ArrayBuffer>): Promise<string> {
-	const stream = new DecompressionStream("gzip");
-	const writer = stream.writable.getWriter();
-	writer.write(input);
-	writer.close();
-
-	const chunks: Uint8Array[] = [];
-	const reader = stream.readable.getReader();
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		chunks.push(value);
-	}
-
-	const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-	const result = new Uint8Array(totalLength);
-	let offset = 0;
-	for (const chunk of chunks) {
-		result.set(chunk, offset);
-		offset += chunk.length;
-	}
-
-	return new TextDecoder().decode(result);
+export async function decompress(input: ArrayBuffer): Promise<string> {
+	const decompressed = new Blob([input]).stream().pipeThrough(new DecompressionStream("gzip"));
+	return new Response(decompressed).text();
 }

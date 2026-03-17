@@ -23,7 +23,7 @@ function http(url: string, opts: { signingKey?: string } = {}) {
 	return {
 		async request<M extends keyof Rpc>({ jsonrpc, id, method, params }: Request<M>): Promise<Response<M>> {
 			try {
-				let body: string | Uint8Array<ArrayBuffer> = JSON.stringify({ jsonrpc, id, method, params });
+				let body: string | ArrayBuffer = JSON.stringify({ jsonrpc, id, method, params });
 
 				const headers = new Headers();
 				headers.set("Content-Type", "application/json");
