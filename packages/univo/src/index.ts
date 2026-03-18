@@ -116,7 +116,6 @@ type Head = {
 type Metadata = {
 	version: string;
 	language: string;
-	max_concurrency: number | undefined;
 };
 
 type Result = {
@@ -138,10 +137,6 @@ type IndexerOptions<TBlock> = {
 	 * Request signing key
 	 */
 	signingKey: string;
-	/**
-	 * Maximum number of concurrent connections to open when backfilling blocks
-	 */
-	maxConcurrency?: number;
 	/**
 	 * This function is to load each block when indexing blocks in realtime. This ensures that all block
 	 * data processed originates from a trusted RPC source and can be safely relied on.
@@ -184,7 +179,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return {
 			version,
 			language: "javascript",
-			max_concurrency: opts.maxConcurrency,
 		};
 	};
 
