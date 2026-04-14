@@ -167,3 +167,5 @@ export async function decompress(input: ArrayBuffer): Promise<string> {
 	const decompressed = new Blob([input]).stream().pipeThrough(new DecompressionStream("gzip"));
 	return new Response(decompressed).text();
 }
+
+export const decoder = new TextDecoder();

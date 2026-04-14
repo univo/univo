@@ -1,5 +1,5 @@
 import type { Rpc } from ".";
-import { compress, getSignature } from "./utils";
+import { compress, raise } from "./utils";
 import { createException, getException } from "./exceptions";
 
 type Request<M extends keyof Rpc> = {
@@ -16,9 +16,6 @@ type Response<M extends keyof Rpc> = {
 	error?: { code: number; message: string };
 };
 
-// Chosen based on limited testing. May need tuning.
-const MIN_GZIP_SIZE = 1024;
-
 function http(url: string, opts: { signingKey?: string } = {}) {
 	return {
 		async request<M extends keyof Rpc>({ jsonrpc, id, method, params }: Request<M>): Promise<Response<M>> {
@@ -29,23 +26,13 @@ function http(url: string, opts: { signingKey?: string } = {}) {
 				headers.set("Content-Type", "application/json");
 
 				if (method.startsWith("private_")) {
+					// Authenticate request
 					if (opts.signingKey === undefined) throw new Error(ClientUnauthorizedError);
+					headers.set("Authorization", `Bearer ${opts.signingKey}`);
 
-					// Compress large requests
-					if (body.length > MIN_GZIP_SIZE) {
-						body = await compress(body).catch((cause) => {
-							throw new Error(ClientCompressionError, { cause });
-						});
-
-						headers.set("Content-Encoding", "gzip");
-					}
-
-					// Attach signature for compressed body
-					const signature = await getSignature({ key: opts.signingKey, body }).catch((cause) => {
-						throw new Error(ClientSignatureError, { cause });
-					});
-
-					headers.set("X-Univo-Signature", signature);
+					// Compress request
+					body = await compress(body).catch((cause) => raise(ClientCompressionError, { cause }));
+					headers.set("Content-Encoding", "gzip");
 				}
 
 				const res = await fetch(url, { headers, body, method: "POST" }).catch((cause) => {
@@ -66,7 +53,6 @@ function http(url: string, opts: { signingKey?: string } = {}) {
 const ClientCompressionError = createException("An error occurred when compressing the request");
 const ClientConnectionError = createException("An errored occurred when connecting to the server");
 const ClientResponseError = createException("An error occurred when reading the servers response");
-const ClientSignatureError = createException("An error occurred with the outgoing request signature");
 const ClientUnauthorizedError = createException("Attempted to execute a private method without providing a request signing key");
 
 export { http };
