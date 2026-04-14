@@ -1,7 +1,7 @@
 import type { Flatten } from "./utils";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
-import { retry, nonNullable, getSignature, createLogger, verifySignature, hexToNumber, isAddressEqual, decompress } from "./utils";
+import { retry, nonNullable, getSignature, createLogger, hexToNumber, isAddressEqual, decompress, decoder } from "./utils";
 
 // Block ------------------------------------------------------------------------------------------------------------------------------------
 // This is the minimum set of block fields univo needs to function. These are mostly required to allow to perform
@@ -730,28 +730,33 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		// Determine authentication status
-		let authenticated = false;
-
-		const signature = req.headers.get("X-Univo-Signature");
-
-		if (signature) {
-			try {
-				authenticated = await verifySignature({ key: opts.signingKey, body: body_buffer, signature });
-			} catch {
-				return Response.json(
-					{ jsonrpc: "2.0", id: null, error: { code: 0, message: "Failed to verify request signature" } }, //
-					{ status: 400 },
-				);
-			}
-		}
+		const authorization = req.headers.get("Authorization");
+		const authenticated = authorization === `Bearer ${opts.signingKey}`;
 
 		// Decode request body
 		let body_string: string;
 
 		if (req.headers.get("Content-Encoding") === "gzip") {
+			// Compressed requests should be authenticated before decompression. This prevents unauthenticated clients
+			// from sending ZIP bombs that force the server to spend CPU and memory before rejecting the request.
+
+			if (!authorization) {
+				return Response.json(
+					{ jsonrpc: "2.0", id: null, error: { code: 0, message: "No bearer token provided" } }, //
+					{ status: 400 },
+				);
+			}
+
+			if (!authenticated) {
+				return Response.json(
+					{ jsonrpc: "2.0", id: null, error: { code: 0, message: "Invalid bearer token" } }, //
+					{ status: 400 },
+				);
+			}
+
 			body_string = await decompress(body_buffer);
 		} else {
-			body_string = new TextDecoder().decode(body_buffer);
+			body_string = decoder.decode(body_buffer);
 		}
 
 		// Parse request as JSON
@@ -766,24 +771,24 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			);
 		}
 
-		// Authorize request
+		// Authorize request for any private methods
 		if (json.method.startsWith("private_")) {
-			if (!signature) {
+			if (!authorization) {
 				return Response.json(
-					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "No request signature provided" } }, //
+					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "No bearer token provided" } }, //
 					{ status: 400 },
 				);
 			}
 
-			if (!authenticated) {
+			if (authorization !== `Bearer ${opts.signingKey}`) {
 				return Response.json(
-					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "Invalid request signature" } }, //
+					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "Invalid bearer token" } }, //
 					{ status: 400 },
 				);
 			}
 		}
 
-		// Peform RPC
+		// Perform RPC
 		try {
 			if (rpc[json.method as keyof Rpc] === undefined) throw new Error(UnknownMethodError);
 
