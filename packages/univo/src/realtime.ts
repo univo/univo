@@ -10,21 +10,37 @@ import { assert, createLogger, hexToNumber, mutex, raise, retry } from "./utils"
  */
 
 type SocketOptions = {
-	onOpen?: () => void;
-	onClose?: () => void;
-	onError?: (event: ErrorEvent) => void;
-	onMessage?: (event: MessageEvent) => void;
+	/**
+	 * An event listener to be called when the WebSocket connection's readyState changes to OPEN;
+	 * this indicates that the connection is ready to send and receive data. Note that this function
+	 * can be called multiple times over the lifetime of a socket as dropped connections are initialised
+	 */
+	onOpen?: () => Promise<void> | void;
+	/**
+	 * An event listener to be called when the WebSocket connection's readyState changes to CLOSED.
+	 */
+	onClose?: () => Promise<void> | void;
+	/**
+	 * An event listener to be called when an error occurs
+	 */
+	onError?: (event: ErrorEvent) => Promise<void> | void;
+	/**
+	 * An event listener to be called when a message is received from the server
+	 */
+	onMessage?: (event: MessageEvent) => Promise<void> | void;
 };
 
 function createSocket(url: `wss://${string}`, opts: SocketOptions) {
 	const ws = new WebSocket(url, [], { WebSocket: WS });
-	// No support for `binaryType` of "blob" yet so we set it to "arraybuffer"
-	// https://github.com/partykit/partykit/issues/774
+
+	// No support for `binaryType` of "blob" in Bun yet so we set it to "arraybuffer" https://github.com/partykit/partykit/issues/774
 	ws.binaryType = "arraybuffer";
+
 	if (opts.onOpen) ws.onopen = opts.onOpen;
 	if (opts.onError) ws.onerror = opts.onError;
 	if (opts.onClose) ws.onclose = opts.onClose;
 	if (opts.onMessage) ws.onmessage = opts.onMessage;
+
 	return ws;
 }
 
@@ -33,89 +49,182 @@ function createSocket(url: `wss://${string}`, opts: SocketOptions) {
  */
 
 type Transport = {
+	/**
+	 * Performs as JSON RPC request and returns the result
+	 */
 	request(opts: { method: string; params: any[] }): Promise<any>;
-	subscribe(param: string, handler: (message: any) => void): Promise<{ unsubscribe(): Promise<void> }>;
+	/**
+	 * Subscribes to specific event types and returns a function to unsubscribe.
+	 */
+	subscribe(param: "newHeads", handler: (message: any) => void): Promise<{ unsubscribe(): Promise<void> }>;
 };
 
-// TODO: Assert url is wss://
-// TODO: If subscribed to a node it could silently drop our subscription
-
 function defineTransport(url: string): Transport {
+	assert(url.startsWith("wss://"), "Websocket connections must start with `wss://`");
+
 	let id = 0;
 
-	const requests = new Map<number, { handler: (data: any) => void }>();
+	// Every request gets an identifier based on `id` above. This map represents that request in-flight
+	// and it's corresponding callback handler to invoke when a response is received on the connection.
+	const requests = new Map<number, (data: any) => void>();
+
+	// This is a key value store for a given subscription id to a given param
+	const subscriptions = new Map<string, { param: string; latest: number }>();
+
+	// For each param we keep a set of handlers to notify when we receive a response
+	const params = new Map<string, Set<(data: any) => void>>();
+
+	const socket = createSocket(url as "wss://", {
+		async onError(cause) {
+			console.error(new Error("Socket error", { cause }));
+		},
+
+		async onOpen() {
+			if (subscriptions.size === 0) return;
+
+			// If the socket connection is reinitalised this function will be called multiple times. When that
+			// happens we need to re-initialise all underlying subscriptions on the new connection.
+
+			const params: string[] = [];
+
+			for (const [id, subscription] of subscriptions) {
+				params.push(subscription.param);
+
+				// This isn't strictly needed for correctness. The fact that the websocket connection was dropped
+				// likely means the node automatically dropped our subscriptions. So we can fire-and-forget this.
+
+				request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
+					console.warn("Failed to cancel old susbcription");
+				});
+
+				subscriptions.delete(id);
+			}
+
+			for (const param of params) {
+				request({ method: "eth_subscribe", params: [param] }).then((id) => {
+					subscriptions.set(id, { param, latest: Date.now() });
+				});
+			}
+		},
+
+		async onMessage(event) {
+			const data = JSON.parse(event.data);
+
+			if (data.method === "eth_subscription") {
+				const subscription = subscriptions.get(data.params.subscription);
+
+				if (subscription === undefined) {
+					return await request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {
+						console.warn("Failed to unsubscribe stale subscription");
+					});
+				}
+
+				const handlers = params.get(subscription.param);
+
+				if (handlers === undefined) {
+					return await request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {
+						console.warn("Failed to unsubscribe stale subscription");
+					});
+				}
+
+				for (const handler of handlers) {
+					try {
+						handler(data.params.result);
+					} catch (cause) {
+						console.error(new Error("Handler error", { cause }));
+					}
+				}
+
+				subscription.latest = Date.now();
+
+				return;
+			}
+
+			const handler = requests.get(data.id);
+
+			if (handler === undefined) {
+				return console.warn(`Received unknown response for request id ${data.id}...`);
+			}
+
+			return handler(data.result);
+		},
+	});
 
 	async function request(opts: { method: string; params: any[] }) {
 		return await new Promise<any>((resolve) => {
 			const body = Object.assign({ id: id++ }, opts);
 
-			requests.set(body.id, {
-				handler: (data) => {
-					// TODO: Could set a timeout to clean up the request to mitigate memory leaks
-					requests.delete(body.id);
-					resolve(data);
-				},
+			requests.set(body.id, (data) => {
+				// TODO: Could set a timeout to clean up the request to mitigate memory leaks
+				requests.delete(body.id);
+				resolve(data);
 			});
 
 			socket.send(JSON.stringify(body));
 		});
 	}
 
-	const subscriptions = new Map<string, { param: string; latest: number; handler: (data: any) => void }>();
-
 	async function subscribe(param: string, handler: (messsage: any) => void) {
-		const id = await request({ method: "eth_subscribe", params: [param] });
-		subscriptions.set(id, { param, handler, latest: Date.now() });
+		const handlers = params.get(param);
+
+		if (handlers === undefined) {
+			const handlers = new Set<(data: any) => void>().add(handler);
+
+			params.set(param, handlers);
+
+			const id = await request({ method: "eth_subscribe", params: [param] }).catch((cause) => {
+				throw new Error(`Failed to initialise subscription for param ${param}`, { cause });
+			});
+
+			subscriptions.set(id, { param, latest: Date.now() });
+		} else {
+			handlers.add(handler);
+		}
 
 		return {
 			async unsubscribe() {
-				subscriptions.delete(id);
-				await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {});
+				const handlers = params.get(param);
+
+				if (handlers === undefined) {
+					return console.warn("Param already unsubscribed...");
+				}
+
+				handlers.delete(handler);
+
+				if (handlers.size === 0) {
+					await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
+						console.warn("Failed to unsubscribe unused subscription");
+					});
+				}
 			},
 		};
 	}
 
-	const socket = createSocket(url as "wss://", {
-		onError(cause) {
-			console.error(new Error("Socket error", { cause }));
-		},
+	function healthcheck() {
+		const params: string[] = [];
 
-		onOpen() {
-			if (subscriptions.size) {
-				const handlers = [];
+		for (const [id, subscription] of subscriptions) {
+			if (Date.now() - subscription.latest > 60 * 1000) {
+				params.push(subscription.param);
 
-				for (const [id, subscription] of subscriptions) {
-					handlers.push(subscription);
-					request({ method: "eth_unsubscribe", params: [id] }).catch(() => {});
-					subscriptions.delete(id);
-				}
+				request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
+					console.warn("Failed to cancel old susbcription");
+				});
 
-				for (const handler of handlers) {
-					request({ method: "eth_subscribe", params: [handler.param] }).then((id) => {
-						subscriptions.set(id, handler);
-					});
-				}
+				subscriptions.delete(id);
+
+				console.warn(`Subscription ${id} failed health check, reinitialising..`);
 			}
-		},
+		}
 
-		onMessage(event) {
-			const data = JSON.parse(event.data);
+		for (const param of params) {
+			request({ method: "eth_subscribe", params: [param] }).then((id) => {
+				subscriptions.set(id, { param, latest: Date.now() });
+			});
+		}
+	}
 
-			if (data.method === "eth_subscription") {
-				const subscription = subscriptions.get(data.params.subscription);
-
-				if (!subscription) {
-					return request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {});
-				}
-
-				subscription.latest = Date.now();
-				return subscription.handler(data.params.result);
-			}
-
-			const _request = requests.get(data.id);
-			if (_request) _request.handler(data.result);
-		},
-	});
+	setInterval(healthcheck, 60 * 1000);
 
 	return { request, subscribe };
 }

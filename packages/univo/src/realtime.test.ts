@@ -21,8 +21,8 @@ test("receives a block", async () => {
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		storage: { upsert: async () => {} },
-		handler: () => {
-			resolve(null);
+		handler: (block) => {
+			console.log(Number.parseInt(block.eth_getBlockByHash.number, 16));
 
 			return [];
 		},
@@ -42,8 +42,6 @@ test("receives a block", async () => {
 	realtime({ transport, endpoints: [url] });
 
 	await promise;
-
-	await new Promise((resolve) => setTimeout(resolve, 5_000));
 });
 
 test("retries blocks", async () => {
@@ -84,6 +82,4 @@ test("retries blocks", async () => {
 	realtime({ transport, endpoints: [url] });
 
 	await promise;
-
-	await new Promise((resolve) => setTimeout(resolve, 5_000));
 });
