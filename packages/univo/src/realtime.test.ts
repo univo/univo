@@ -21,8 +21,8 @@ test("receives a block", async () => {
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		storage: { upsert: async () => {} },
-		handler: (block) => {
-			console.log(Number.parseInt(block.eth_getBlockByHash.number, 16));
+		handler: () => {
+			resolve(null);
 
 			return [];
 		},
