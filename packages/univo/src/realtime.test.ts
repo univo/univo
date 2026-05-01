@@ -42,8 +42,6 @@ test("receives a block", async () => {
 	realtime({ transport, endpoints: [url] });
 
 	await promise;
-
-	await new Promise((resolve) => setTimeout(resolve, 5_000));
 });
 
 test("retries blocks", async () => {
@@ -84,6 +82,4 @@ test("retries blocks", async () => {
 	realtime({ transport, endpoints: [url] });
 
 	await promise;
-
-	await new Promise((resolve) => setTimeout(resolve, 5_000));
 });
