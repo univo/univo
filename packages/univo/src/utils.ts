@@ -117,7 +117,7 @@ export function mutex(fn: (...args: any[]) => Promise<void>) {
 	};
 }
 
-export function isAddressEqual(a: `0x${string}`, b: `0x${string}`) {
+export function isHexEqual(a: `0x${string}`, b: `0x${string}`) {
 	return a.toLowerCase() === b.toLowerCase();
 }
 

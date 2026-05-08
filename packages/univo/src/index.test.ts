@@ -49,7 +49,7 @@ test.concurrent(
 );
 
 test(
-	"public_writeBlocks returns no results when provided a block that matches no event filters",
+	"public_writeAndReturnBlocks returns no results when provided a block that matches no event filters",
 	{ skip: false }, //
 	async () => {
 		const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
@@ -69,7 +69,7 @@ test(
 		);
 
 		await test_indexer(univo).request({
-			method: "public_writeBlocks",
+			method: "public_writeAndReturnBlocks",
 			params: [
 				"https://endpoint.com",
 				[
@@ -85,7 +85,7 @@ test(
 );
 
 test(
-	"public_writeBlocks returns ok results if we return an empty handler",
+	"public_writeAndReturnBlocks returns ok results if we return an empty handler",
 	{ skip: false }, //
 	async () => {
 		const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
@@ -121,7 +121,7 @@ test(
 		);
 
 		await test_indexer(univo).request({
-			method: "public_writeBlocks",
+			method: "public_writeAndReturnBlocks",
 			params: [
 				"https://endpoint.com",
 				[
@@ -179,7 +179,7 @@ test(
 		);
 
 		await test_indexer(univo).request({
-			method: "public_writeBlocks",
+			method: "public_writeAndReturnBlocks",
 			params: [
 				"https://endpoint.com",
 				[
@@ -256,7 +256,7 @@ test(
 		);
 
 		await test_indexer(univo).request({
-			method: "public_writeBlocks",
+			method: "public_writeAndReturnBlocks",
 			params: [
 				"https://endpoint.com",
 				[
@@ -310,7 +310,7 @@ test(
 		);
 
 		await test_indexer(univo).request({
-			method: "public_writeBlocks",
+			method: "public_writeAndReturnBlocks",
 			params: [
 				"https://endpoint.com",
 				[
@@ -366,7 +366,7 @@ test(
 		);
 
 		await test_indexer(univo).request({
-			method: "public_writeBlocks",
+			method: "public_writeAndReturnBlocks",
 			params: [
 				"https://endpoint.com",
 				[
@@ -424,7 +424,7 @@ test(
 		);
 
 		await test_indexer(univo).request({
-			method: "public_writeBlocks",
+			method: "public_writeAndReturnBlocks",
 			params: [
 				"https://endpoint.com",
 				[
@@ -488,7 +488,7 @@ test(
 		);
 
 		await test_indexer(univo).request({
-			method: "public_writeBlocks",
+			method: "public_writeAndReturnBlocks",
 			params: [
 				"https://endpoint.com",
 				[

@@ -1,7 +1,7 @@
 import type { Flatten } from "./utils";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
-import { retry, nonNullable, getSignature, createLogger, hexToNumber, isAddressEqual, decompress, decoder } from "./utils";
+import { retry, nonNullable, getSignature, createLogger, hexToNumber, isHexEqual, decompress, decoder } from "./utils";
 
 // Block ------------------------------------------------------------------------------------------------------------------------------------
 // This is the minimum set of block fields univo needs to function. These are mostly required to allow to perform
@@ -71,7 +71,7 @@ const includesLogAddress: MatchFilter = (block, filter) => {
 
 	for (const receipt of block.eth_getBlockReceipts) {
 		for (const log of receipt.logs) {
-			if (isAddressEqual(log.address, filter.address)) return true;
+			if (isHexEqual(log.address, filter.address)) return true;
 		}
 	}
 
@@ -102,6 +102,7 @@ type Event<TBlock, TEvent> = {
 	/** Persist storage */
 	storage: {
 		upsert: (events: TEvent[]) => Promise<void>;
+		delete?: (events: TEvent[]) => Promise<void>;
 	};
 };
 
@@ -109,8 +110,8 @@ type Event<TBlock, TEvent> = {
 
 type Head = {
 	hash: `0x${string}`;
-	chain: `0x${string}`;
 	number: `0x${string}`;
+	chain: `0x${string}`;
 };
 
 type Metadata = {
@@ -141,7 +142,7 @@ type IndexerOptions<TBlock> = {
 	 * This function is to load each block when indexing blocks in realtime. This ensures that all block
 	 * data processed originates from a trusted RPC source and can be safely relied on.
 	 */
-	getBlock: (block: Head) => Promise<TBlock>;
+	getBlock: (block: { chain: `0x${string}`; hash: `0x${string}` }) => Promise<TBlock>;
 };
 
 type Indexer<TBlock> = {
@@ -150,7 +151,9 @@ type Indexer<TBlock> = {
 };
 
 type Rpc = {
-	public_writeBlocks(endpoint: string, heads: Head[]): Promise<void>;
+	public_deleteBlock(endpoint: string, block: string): Promise<void>;
+
+	public_writeAndReturnBlocks(endpoint: string, heads: Head[]): Promise<{ blocks: (string | null)[] }>;
 
 	private_getMetadata(): Promise<Metadata>;
 
@@ -214,7 +217,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		if (res.status !== 200) throw new Error("Received non-200 response from univo API");
 	};
 
-	const public_writeBlocks: Rpc["public_writeBlocks"] = async (endpoint, heads) => {
+	const public_writeAndReturnBlocks: Rpc["public_writeAndReturnBlocks"] = async (endpoint, heads) => {
 		log.debug(`Received ${heads.length} heads...`);
 
 		const blocks_start = Date.now();
@@ -224,10 +227,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const blocks_nullable = await Promise.all(
 			heads.map(async (head) => {
 				try {
-					if (opts.getBlock === undefined) {
-						throw new Error("Provide a `getBlock` function to `serve` so that univo can process events in realtime");
-					}
-
 					return await retry(opts.getBlock, [head], 2).catch(() => {
 						throw new Error("Failed to load block from the provided `getBlock` function after 3 attempts");
 					});
@@ -372,7 +371,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// It's possible that we have no results to record if we successfully loaded all heads
 		// and determined that none of those blocks matched the defined event filters.
 
-		if (results_array.length === 0) return log.debug(`No results to record for ${heads.length} heads`);
+		if (results_array.length === 0) {
+			return log.debug(`No results to record for ${heads.length} heads`);
+		}
 
 		// Otherwise we submit results to the univo endpoint
 
@@ -382,6 +383,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		} catch (error) {
 			log.error("Failed to submit realtime results to univo after 3 attempts");
 		}
+
+		const blocks_returned = blocks_nullable.map((block) => block);
+	};
+
+	const public_deleteBlock: Rpc["public_deleteBlock"] = async (endpoint, block) => {
+		//
 	};
 
 	// When calling `private_writeEvents` we want to ensure that a value exists for all keys that were accessed.
@@ -693,7 +700,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	const rpc: Rpc = {
-		public_writeBlocks,
+		public_deleteBlock,
+		public_writeAndReturnBlocks,
+
 		private_getEvents,
 		private_getMetadata,
 		private_writeEvents,
