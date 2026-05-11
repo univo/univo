@@ -262,12 +262,9 @@ type Blockchain = {
 	reconcile(newBlock: Head): Promise<void>;
 };
 
-// Could be globally cached per chain id
 function defineBlockchain(opts: BlockchainOptions): Blockchain {
 	const log = createLogger({ quiet: opts.quiet });
 
-	// TODO: convert to a KV api so that we can use unstorage and easily store the chain _anywhere_
-	// key would be block number, value is `Block`
 	const chain: Head[] = [];
 
 	function setHeadBlock(newBlock: Head) {
@@ -539,8 +536,6 @@ function realtime(opts: RealtimeOptions) {
 		};
 
 		const cache = new WeakMap<Head, string | null>();
-
-		// TODO: Could probably run the deleteBlock flow twice. Once for safe blocks and then again for finalized
 
 		/**
 		 * Writes a head to the server. Implements a retry strategy that doesn't spam the endpoint but retrying
