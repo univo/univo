@@ -189,33 +189,30 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const all_events: Event<any, any>[] = [];
 	const events_grouped_by_storage_map = new Map<Event<any, any>["storage"], Event<any, any>[]>();
 
-	// TODO: Refactor into a results.submit type object
+	const results = {
+		async __retry_submit(endpoint: string, results: Result[]) {
+			const body = JSON.stringify({ endpoint, results });
+			const signature = await getSignature({ body, key: opts.signingKey });
 
-	// The functioning of a monitoring service in general exists because this a distributed system.
-	// In the context of a single univo client and a single univo server connected to a single RPC
-	// node we can enforce correctness in simple ways. But that is not a valid goal to go after.
-	// The resilience of the system is dependent on multiple univo clients connected to multiple
-	// RPC nodes submitting data to multiple univo servers. This affords us availability, distribution,
-	// and eventually decentralization too. Centralizing monitoring is a relatively cheap thing to do,
-	// and importantly it's simple to compete with. This should foster competition so that vendor
-	// lock in isn't a thing and switching becomes simple.
+			const res = await fetch("https://api.univo.app/v1/results", {
+				body,
+				method: "POST",
+				headers: {
+					"X-Univo-Signature": signature,
+					"Content-Type": "application/json",
+				},
+			});
 
-	const createResultsForEndpoint = async (endpoint: string, results: Result[]) => {
-		const body = JSON.stringify({ endpoint, results });
-		const signature = await getSignature({ body, key: opts.signingKey });
+			if (res.status !== 200) {
+				throw new Error("Received non-200 response from univo API");
+			}
+		},
 
-		const res = await fetch("https://api.univo.app/v1/results", {
-			body,
-			method: "POST",
-			headers: {
-				"X-Univo-Signature": signature,
-				"Content-Type": "application/json",
-			},
-		});
+		async submit(endpoint: string, results: Result[]) {
+			await retry(this.__retry_submit, [endpoint, results], 2);
 
-		if (res.status !== 200) {
-			throw new Error("Received non-200 response from univo API");
-		}
+			log.debug(`Recorded ${results.length} result(s)`);
+		},
 	};
 
 	async function signCompressAndEncryptBlock(block: TBlock) {
@@ -419,12 +416,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// and determined that none of those blocks matched the defined event filters.
 
 		if (results_array.length > 0) {
-			try {
-				await retry(createResultsForEndpoint, [endpoint, results_array], 2);
-				log.debug(`Recorded ${results_array.length} results`);
-			} catch (error) {
+			await retry(results.submit, [endpoint, results_array], 2).catch(() => {
 				log.error("Failed to submit realtime results to univo after 3 attempts");
-			}
+			});
 		}
 
 		const blocks_returned = await Promise.all(
