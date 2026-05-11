@@ -164,7 +164,7 @@ type Indexer<TBlock> = {
 };
 
 type Rpc = {
-	public_deleteBlock(endpoint: string, head: Head, block: string | null): Promise<void>;
+	public_deleteBlock(endpoint: string, block: string): Promise<void>;
 
 	public_writeAndReturnBlocks(endpoint: string, heads: Head[]): Promise<{ blocks: (string | null)[] }>;
 
@@ -267,7 +267,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const blocks_start = Date.now();
 		const results_map: Record<string, Result> = {};
 
-		// Load blocks
 		const blocks_nullable = await Promise.all(
 			heads.map(async (head) => {
 				const block_nullable = await retry(opts.getBlock, [{ chain: head.chain, hash: head.hash }], 2).catch(() => {
@@ -275,6 +274,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 					return null;
 				});
+
+				// A null response is actually a common case during chain reorganisations. Because we load by block hash it
+				// is common the the client and server to be connected to different nodes. There is no guarantee that both
+				// those nodes see the same reorganisation so when we load the block on the server we get null. Because it's
+				// not possible for us to determine when this is the case versus the `getBlock` function just error we always
+				// report a block error result
 
 				if (block_nullable !== null) {
 					return block_nullable;
@@ -313,7 +318,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				for (const block of blocks) {
 					for (const event of grouped_events) {
 						try {
-							// Ignore blocks that don't match any of the defined event filters
 							if (!event.filters.some((filter) => matchFilter(block, filter))) {
 								log.debug(`Block matches no filters for event ${event.id}`);
 								continue;
@@ -421,6 +425,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			});
 		}
 
+		// Returning block data is a fundamental step in handling chain reorganisations. We can't know the exact
+		// chain until finalization, and by the time finalization occurs the initial block data used we indexed
+		// won't be available. Returning it heres allows clients to store it, and allows us to process it later
+		// once we are confident a block was reorganised. Compressing, encrypting, and signing the payload is
+		// what allows this server to trust the data wasn't tampered with and is exactly the initial data we used
+
 		const blocks_returned = await Promise.all(
 			blocks_nullable.map(async (block) => {
 				return block === null ? null : signCompressAndEncryptBlock(block);
@@ -430,12 +440,19 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { blocks: blocks_returned };
 	};
 
-	const public_deleteBlock: Rpc["public_deleteBlock"] = async (endpoint, head, block) => {
+	const public_deleteBlock: Rpc["public_deleteBlock"] = async (endpoint, block) => {
+		const decrypted = await verifyDecryptAndDecompressBlock(block);
+
+		const head = {
+			chain: decrypted.eth_chainId,
+			hash: decrypted.eth_getBlockByHash.hash,
+		};
+
 		// Loading blocks happens via the block hash. If this block was truly reorganised and is no longer
 		// part of the canonical chain than this request will return a null response. This is our proof that
 		// this block is no longer included in the chain and that is safe to delete data associated with the block
 
-		const canonical = await retry(opts.getBlock, [{ chain: head.chain, hash: head.hash }], 2).catch(() => {
+		const canonical = await retry(opts.getBlock, [head], 2).catch(() => {
 			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
 
 			return null;
@@ -451,39 +468,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return;
 		}
 
-		// From here, we are confident that the block isn't included as part of the canonical chain. However,
-		// there is no guarantee that we have the block data associated with this re-organised block. It's
-		// possible that when the server initially attempted to write the block data it actually failed to
-		// load the block. This can happen because of the delay between the univo client and server. Essentially,
-		// the RPC node that the server uses may have never seen that re-orged block and will therefore return null.
-		// This is okay because it means we never replicated events into our storage system that are not part
-		// of the canonical chain and therefore do not require deletion.
-
-		// THINKING
-		// Right now we have this complex dance to determine if the data exists. It balances clients existing for
-		// long enough to process a re-orged block. The storage system is the state, we should just consult the
-		// storage system for correctness
-
-		// THINKING
-		// A trusted source like univo could just issue a delete for all the re-orged blocks it processes
-
-		// Right now the question of whether or not data was inserted is based on whether or not the block data
-		// exists. This is a weak assumption. We should be checking whether or not the data exists in storage.
-
-		// Right now we always need a monitoring system. And if we always need a monitoring system we may as well
-		// use it (maximally rely on it) to simplify other parts of the system. Like yes we could store each
-		// block events inserted into a storage system. But then we would need transactions to perform multiple calls
-		// we also would need a way to expose all that. Whereas rn we can rely on a dance with this monitoring system.
-
-		if (block === null) {
-			return;
-		}
-
 		// We know the block is not included in the canonical chain and we know that our storage system upserted
 		// events with this block data. We use the block data to generate the same set of events that we upserted
 		// and provide them to each events delete function
-
-		const decrypted = await verifyDecryptAndDecompressBlock(block);
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
 			if (storage.delete === undefined) {
