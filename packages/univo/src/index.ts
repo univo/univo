@@ -189,31 +189,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const all_events: Event<any, any>[] = [];
 	const events_grouped_by_storage_map = new Map<Event<any, any>["storage"], Event<any, any>[]>();
 
-	// TODO: Move private methods up here
-
-	const private_getMetadata: Rpc["private_getMetadata"] = async () => {
-		return {
-			version,
-			language: "javascript",
-		};
-	};
-
-	const private_getEvents: Rpc["private_getEvents"] = async () => {
-		return all_events.map((event) => {
-			const filters = event.filters.map((filter) => {
-				return {
-					chain: filter.chain,
-					event: filter.event,
-					address: filter.address,
-					to_block: filter.toBlock,
-					from_block: filter.fromBlock,
-				};
-			});
-
-			return { id: event.id, filters };
-		});
-	};
-
 	// TODO: Refactor into a results.submit type object
 
 	// The functioning of a monitoring service in general exists because this a distributed system.
@@ -545,6 +520,29 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await Promise.all(promises);
 
 		// TODO: Submit results
+	};
+
+	const private_getMetadata: Rpc["private_getMetadata"] = async () => {
+		return {
+			version,
+			language: "javascript",
+		};
+	};
+
+	const private_getEvents: Rpc["private_getEvents"] = async () => {
+		return all_events.map((event) => {
+			const filters = event.filters.map((filter) => {
+				return {
+					chain: filter.chain,
+					event: filter.event,
+					address: filter.address,
+					to_block: filter.toBlock,
+					from_block: filter.fromBlock,
+				};
+			});
+
+			return { id: event.id, filters };
+		});
 	};
 
 	// When calling `private_writeEvents` we want to ensure that a value exists for all keys that were accessed.
