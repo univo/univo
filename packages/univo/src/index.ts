@@ -502,7 +502,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				const block_number = decrypted.eth_getBlockByHash.number;
 
 				results_map[chain + block_number + block_hash + event_id] ??= {
-					status: "reorg_error",
+					status: "delete_error",
 					chain,
 					event_id,
 					block_hash,
