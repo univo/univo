@@ -458,13 +458,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return null;
 		});
 
-		// It is possible that this block hash actually is included in the canonical chain. It's fine for the
-		// univo client to be pretty optismitic about what blocks it believes to be re-organised. For example,
-		// if the chain is constantly switching between forks because of a execution client bug. It's okay to
-		// just send all the possible re-organised blocks. In all cases, we are saved by the fact that if the
-		// above request returns a block we will not perform any data deletions.
-
 		if (canonical !== null) {
+			// It is possible that this block hash actually is included in the canonical chain. It's fine for the
+			// univo client to be pretty optismitic about what blocks it believes to be re-organised. For example,
+			// if the chain is constantly switching between forks because of a execution client bug. It's okay to
+			// just send all the possible re-organised blocks. In all cases, we are saved by the fact that if the
+			// above request returns a block we will not perform any data deletions.
+
 			return;
 		}
 
@@ -472,35 +472,75 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// events with this block data. We use the block data to generate the same set of events that we upserted
 		// and provide them to each events delete function
 
-		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
-			if (storage.delete === undefined) {
-				return;
-			}
+		const results_map: Record<string, Result> = {};
 
-			const batch = [];
+		const promises = all_events.map(async (event) => {
+			try {
+				if (event.storage.delete === undefined) {
+					return;
+				}
 
-			for (const event of grouped_events) {
 				if (!event.filters.some((filter) => matchFilter(decrypted, filter))) {
-					continue;
+					return;
 				}
 
 				const events = event.handler(decrypted);
 
-				for (const item of events) {
-					batch.push(item);
+				if (events.length === 0) {
+					return;
 				}
-			}
 
-			if (batch.length === 0) {
-				return;
-			}
+				await retry(event.storage.delete, [events], 2);
+			} catch (error) {
+				if (error instanceof Error) {
+					log.error(error.message);
+				}
 
-			await retry(storage.delete, [batch], 2);
+				const event_id = event.id;
+				const chain = decrypted.eth_chainId;
+				const block_hash = decrypted.eth_getBlockByHash.hash;
+				const block_number = decrypted.eth_getBlockByHash.number;
+
+				results_map[chain + block_number + block_hash + event_id] ??= {
+					status: "reorg_error",
+					chain,
+					event_id,
+					block_hash,
+					block_number,
+					created_at: Date.now(),
+				};
+			}
 		});
 
 		await Promise.all(promises);
 
-		// TODO: Submit results
+		// We optimistically send delete results for all events where an error wasn't already recorded.
+		// This is overkill for correctness in the sense we don't need to do this for events that don't
+		// expose a delete interface, or events where the block doesn't match one of the provided filters.
+		// However it makes it much simpler to detect errors, i.e. failing to delete events created from a
+		// reorganised block, simply from the absence of a successful delete result for a each event
+
+		for (const event of all_events) {
+			const event_id = event.id;
+			const chain = decrypted.eth_chainId;
+			const block_hash = decrypted.eth_getBlockByHash.hash;
+			const block_number = decrypted.eth_getBlockByHash.number;
+
+			results_map[chain + block_number + block_hash + event_id] ??= {
+				status: "delete",
+				chain,
+				event_id,
+				block_hash,
+				block_number,
+				created_at: Date.now(),
+			};
+		}
+
+		const results_array = Object.values(results_map);
+
+		await retry(results.submit, [endpoint, results_array], 2).catch(() => {
+			log.error("Failed to submit realtime results to univo after 3 attempts");
+		});
 	};
 
 	const private_getMetadata: Rpc["private_getMetadata"] = async () => {
