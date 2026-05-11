@@ -1,20 +1,7 @@
+import * as utils from "./utils";
 import type { Flatten } from "./utils";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
-import {
-	retry,
-	nonNullable,
-	verifySignature,
-	createLogger,
-	hexToNumber,
-	isHexEqual,
-	compress,
-	decompress,
-	encrypt,
-	decrypt,
-	decoder,
-	getSignature,
-} from "./utils";
 
 // Block ------------------------------------------------------------------------------------------------------------------------------------
 // This is the minimum set of block fields univo needs to function. These are mostly required to allow to perform
@@ -64,18 +51,18 @@ function matchFilter(block: Block, filter: Filter) {
 type MatchFilter = (block: Block, filter: Filter) => boolean;
 
 const chainValid: MatchFilter = (block, filter) => {
-	if (hexToNumber(block.eth_chainId) === filter.chain) return true;
+	if (utils.hexToNumber(block.eth_chainId) === filter.chain) return true;
 	return false;
 };
 
 const fromBlockValid: MatchFilter = (block, filter) => {
-	if (hexToNumber(block.eth_getBlockByHash.number) >= filter.fromBlock) return true;
+	if (utils.hexToNumber(block.eth_getBlockByHash.number) >= filter.fromBlock) return true;
 	return false;
 };
 
 const toBlockValid: MatchFilter = (block, filter) => {
 	if (filter.toBlock === undefined) return true;
-	if (hexToNumber(block.eth_getBlockByHash.number) <= filter.toBlock) return true;
+	if (utils.hexToNumber(block.eth_getBlockByHash.number) <= filter.toBlock) return true;
 	return false;
 };
 
@@ -84,7 +71,7 @@ const includesLogAddress: MatchFilter = (block, filter) => {
 
 	for (const receipt of block.eth_getBlockReceipts) {
 		for (const log of receipt.logs) {
-			if (isHexEqual(log.address, filter.address)) return true;
+			if (utils.isHexEqual(log.address, filter.address)) return true;
 		}
 	}
 
@@ -181,7 +168,7 @@ type Rpc = {
 };
 
 function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
-	const log = createLogger({ quiet: opts.quiet || false });
+	const log = utils.createLogger({ quiet: opts.quiet || false });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
 	// events that share the same storage adapter to be combined into the same batch for upsert.
@@ -192,7 +179,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const results = {
 		async __retry_submit(endpoint: string, results: Result[]) {
 			const body = JSON.stringify({ endpoint, results });
-			const signature = await getSignature({ body, key: opts.signingKey });
+			const signature = await utils.getSignature({ body, key: opts.signingKey });
 
 			const res = await fetch("https://api.univo.app/v1/results", {
 				body,
@@ -209,7 +196,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		},
 
 		async submit(endpoint: string, results: Result[]) {
-			await retry(this.__retry_submit, [endpoint, results], 2);
+			await utils.retry(this.__retry_submit, [endpoint, results], 2);
 
 			log.debug(`Recorded ${results.length} result(s)`);
 		},
@@ -217,9 +204,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	async function signCompressAndEncryptBlock(block: TBlock) {
 		const json = JSON.stringify(block);
-		const compressed = await compress(json);
-		const encrypted = await encrypt({ body: compressed, key: opts.signingKey });
-		const signature = await getSignature({ body: encrypted, key: opts.signingKey });
+		const compressed = await utils.compress(json);
+		const encrypted = await utils.encrypt({ body: compressed, key: opts.signingKey });
+		const signature = await utils.getSignature({ body: encrypted, key: opts.signingKey });
 		return `${signature}.${encrypted}`;
 	}
 
@@ -236,17 +223,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error(InvalidBlockError);
 		}
 
-		const valid = await verifySignature({ body: `${iv}.${body}`, key: opts.signingKey, signature });
+		const valid = await utils.verifySignature({ body: `${iv}.${body}`, key: opts.signingKey, signature });
 
 		if (!valid) {
 			throw new Error(InvalidBlockError);
 		}
 
-		const compressed = await decrypt({ body, iv, key: opts.signingKey }).catch(() => {
+		const compressed = await utils.decrypt({ body, iv, key: opts.signingKey }).catch(() => {
 			throw new Error(InvalidBlockError);
 		});
 
-		const json = await decompress(compressed).catch(() => {
+		const json = await utils.decompress(compressed).catch(() => {
 			throw new Error(InvalidBlockError);
 		});
 
@@ -269,7 +256,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const blocks_nullable = await Promise.all(
 			heads.map(async (head) => {
-				const block_nullable = await retry(opts.getBlock, [{ chain: head.chain, hash: head.hash }], 2).catch(() => {
+				const block_nullable = await utils.retry(opts.getBlock, [{ chain: head.chain, hash: head.hash }], 2).catch(() => {
 					log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
 
 					return null;
@@ -305,7 +292,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			}),
 		);
 
-		const blocks = blocks_nullable.filter(nonNullable);
+		const blocks = blocks_nullable.filter(utils.nonNullable);
 
 		log.debug(`Loaded ${blocks.length} block(s) in ${Date.now() - blocks_start}ms`);
 
@@ -353,7 +340,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				if (batch.length > 0) {
 					const start = Date.now();
 
-					await retry(storage.upsert, [batch], 2).catch((error) => {
+					await utils.retry(storage.upsert, [batch], 2).catch((error) => {
 						if (error instanceof Error) {
 							log.error(error.message);
 						}
@@ -420,7 +407,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// and determined that none of those blocks matched the defined event filters.
 
 		if (results_array.length > 0) {
-			await retry(results.submit, [endpoint, results_array], 2).catch(() => {
+			await utils.retry(results.submit, [endpoint, results_array], 2).catch(() => {
 				log.error("Failed to submit realtime results to univo after 3 attempts");
 			});
 		}
@@ -452,7 +439,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// part of the canonical chain than this request will return a null response. This is our proof that
 		// this block is no longer included in the chain and that is safe to delete data associated with the block
 
-		const canonical = await retry(opts.getBlock, [head], 2).catch(() => {
+		const canonical = await utils.retry(opts.getBlock, [head], 2).catch(() => {
 			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
 
 			return null;
@@ -490,7 +477,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					return;
 				}
 
-				await retry(event.storage.delete, [events], 2);
+				await utils.retry(event.storage.delete, [events], 2);
 			} catch (error) {
 				if (error instanceof Error) {
 					log.error(error.message);
@@ -538,7 +525,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const results_array = Object.values(results_map);
 
-		await retry(results.submit, [endpoint, results_array], 2).catch(() => {
+		await utils.retry(results.submit, [endpoint, results_array], 2).catch(() => {
 			log.error("Failed to submit realtime results to univo after 3 attempts");
 		});
 	};
@@ -690,7 +677,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const start = Date.now();
 
 			try {
-				await retry(storage.upsert, [batch], 2);
+				await utils.retry(storage.upsert, [batch], 2);
 				if (accessed_undefined_key) throw new Error(IncompleteBlockError);
 			} catch (error) {
 				const status = catchException(error, IncompleteBlockError) ? "incomplete_error" : "upsert_error";
@@ -938,9 +925,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				);
 			}
 
-			body_string = await decompress(body_buffer);
+			body_string = await utils.decompress(body_buffer);
 		} else {
-			body_string = decoder.decode(body_buffer);
+			body_string = utils.decoder.decode(body_buffer);
 		}
 
 		// Parse request as JSON
