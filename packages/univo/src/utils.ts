@@ -3,22 +3,36 @@ import { name, version } from "../package.json";
 export function createLogger(opts: { quiet: boolean }) {
 	return {
 		debug(...any: any[]) {
-			if (!opts.quiet && process.env.LOG_LEVEL === "DEBUG") {
+			if (opts.quiet) {
+				return;
+			}
+
+			if (process.env.LOG_LEVEL === "DEBUG") {
 				console.log(`[${name}@${version}] DEBUG`, ...any);
 			}
 		},
 		info(...any: any[]) {
-			if (!opts.quiet && (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO")) {
+			if (opts.quiet) {
+				return;
+			}
+
+			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO") {
 				console.log(`[${name}@${version}] INFO`, ...any);
 			}
 		},
 		warn(...any: any[]) {
-			if (!opts.quiet && (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN")) {
+			if (opts.quiet) {
+				return;
+			}
+
+			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN") {
 				console.log(`[${name}@${version}] WARN`, ...any);
 			}
 		},
 		error(...any: any[]) {
-			// Making the decision to ignore the `quiet` option for errors.
+			if (opts.quiet) {
+				return;
+			}
 
 			if (
 				process.env.LOG_LEVEL === "DEBUG" ||
@@ -169,3 +183,34 @@ export async function decompress(input: ArrayBuffer): Promise<string> {
 }
 
 export const decoder = new TextDecoder();
+
+function arrayBufferToHex(buffer: ArrayBuffer) {
+	return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToArrayBuffer(hex: string) {
+	const pairs = hex.match(/[\da-f]{2}/gi);
+	if (!pairs || pairs.join("").length !== hex.length) {
+		throw new Error("Invalid hex string");
+	}
+
+	return new Uint8Array(pairs.map((byte) => Number.parseInt(byte, 16))).buffer;
+}
+
+export async function encrypt(opts: { body: ArrayBuffer; key: string }) {
+	const digest = await crypto.subtle.digest("SHA-256", encoder.encode(opts.key));
+	const key = await crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt"]);
+	const iv = crypto.getRandomValues(new Uint8Array(12));
+	const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, opts.body);
+	const iv_hex = arrayBufferToHex(iv.buffer);
+	const body_hex = arrayBufferToHex(encrypted);
+	return `${iv_hex}.${body_hex}`;
+}
+
+export async function decrypt(opts: { body: string; iv: string; key: string }) {
+	const digest = await crypto.subtle.digest("SHA-256", encoder.encode(opts.key));
+	const key = await crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["decrypt"]);
+	const iv = hexToArrayBuffer(opts.iv);
+	const body = hexToArrayBuffer(opts.body);
+	return crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, body);
+}
