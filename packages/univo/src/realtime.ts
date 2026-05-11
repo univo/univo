@@ -612,12 +612,12 @@ function realtime(opts: RealtimeOptions) {
 			queues.reorged.push(head);
 		}
 
-		async function retry_deleteBlock(endpoint: string, block: string) {
+		async function retry_deleteBlock(endpoint: string, head: Head, block: string) {
 			const response = await client.request({
 				id: id++,
 				jsonrpc: "2.0",
-				params: [endpoint, block],
 				method: "public_deleteBlock",
+				params: [endpoint, head, block],
 			});
 
 			if (response.error) {
@@ -654,6 +654,12 @@ function realtime(opts: RealtimeOptions) {
 				// was reorged the server might not have been able to load and process it because the node it's connected
 				// to never saw or has already rejected the reorganised block
 
+				// TODO
+				// This scenario means we have no way to signal to the univo dashboard that it shouldn't create a delete error.
+				// If we included the head in addition to the block in the request payload we could just send the result. The
+				// only attack vector I can think of with this solution is people would be pretty easily able to spam univos
+				// results endpoint. Actually, this would happen after block loading so maybe not that bad
+
 				if (block === null) {
 					cache.delete(head);
 					return;
@@ -661,7 +667,7 @@ function realtime(opts: RealtimeOptions) {
 
 				// If the block was successfully returned by the server we need to delete all events created by it
 
-				await retry(retry_deleteBlock, [endpoint, block], 5);
+				await retry(retry_deleteBlock, [endpoint, head, block], 5);
 
 				queues.reorged = queues.reorged.filter((_head) => {
 					const isBlock = isHexEqual(head.chain, _head.chain) && isHexEqual(head.number, _head.number);

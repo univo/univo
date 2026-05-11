@@ -1,7 +1,20 @@
 import type { Flatten } from "./utils";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
-import { retry, nonNullable, getSignature, createLogger, hexToNumber, isHexEqual, decompress, decoder } from "./utils";
+import {
+	retry,
+	nonNullable,
+	verifySignature,
+	createLogger,
+	hexToNumber,
+	isHexEqual,
+	compress,
+	decompress,
+	encrypt,
+	decrypt,
+	decoder,
+	getSignature,
+} from "./utils";
 
 // Block ------------------------------------------------------------------------------------------------------------------------------------
 // This is the minimum set of block fields univo needs to function. These are mostly required to allow to perform
@@ -142,7 +155,7 @@ type IndexerOptions<TBlock> = {
 	 * This function is to load each block when indexing blocks in realtime. This ensures that all block
 	 * data processed originates from a trusted RPC source and can be safely relied on.
 	 */
-	getBlock: (block: { chain: `0x${string}`; hash: `0x${string}` }) => Promise<TBlock>;
+	getBlock: (block: { chain: `0x${string}`; hash: `0x${string}` }) => Promise<TBlock | null>;
 };
 
 type Indexer<TBlock> = {
@@ -151,7 +164,7 @@ type Indexer<TBlock> = {
 };
 
 type Rpc = {
-	public_deleteBlock(endpoint: string, block: string): Promise<void>;
+	public_deleteBlock(endpoint: string, head: Head, block: string | null): Promise<void>;
 
 	public_writeAndReturnBlocks(endpoint: string, heads: Head[]): Promise<{ blocks: (string | null)[] }>;
 
@@ -176,7 +189,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const all_events: Event<any, any>[] = [];
 	const events_grouped_by_storage_map = new Map<Event<any, any>["storage"], Event<any, any>[]>();
 
-	// Rpc implementation
+	// TODO: Move private methods up here
 
 	const private_getMetadata: Rpc["private_getMetadata"] = async () => {
 		return {
@@ -201,6 +214,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		});
 	};
 
+	// TODO: Refactor into a results.submit type object
+
+	// The functioning of a monitoring service in general exists because this a distributed system.
+	// In the context of a single univo client and a single univo server connected to a single RPC
+	// node we can enforce correctness in simple ways. But that is not a valid goal to go after.
+	// The resilience of the system is dependent on multiple univo clients connected to multiple
+	// RPC nodes submitting data to multiple univo servers. This affords us availability, distribution,
+	// and eventually decentralization too. Centralizing monitoring is a relatively cheap thing to do,
+	// and importantly it's simple to compete with. This should foster competition so that vendor
+	// lock in isn't a thing and switching becomes simple.
+
 	const createResultsForEndpoint = async (endpoint: string, results: Result[]) => {
 		const body = JSON.stringify({ endpoint, results });
 		const signature = await getSignature({ body, key: opts.signingKey });
@@ -214,8 +238,56 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			},
 		});
 
-		if (res.status !== 200) throw new Error("Received non-200 response from univo API");
+		if (res.status !== 200) {
+			throw new Error("Received non-200 response from univo API");
+		}
 	};
+
+	async function signCompressAndEncryptBlock(block: TBlock) {
+		const json = JSON.stringify(block);
+		const compressed = await compress(json);
+		const encrypted = await encrypt({ body: compressed, key: opts.signingKey });
+		const signature = await getSignature({ body: encrypted, key: opts.signingKey });
+		return `${signature}.${encrypted}`;
+	}
+
+	async function verifyDecryptAndDecompressBlock(block: string) {
+		const parts = block.split(".");
+
+		if (parts.length !== 3) {
+			throw new Error(InvalidBlockError);
+		}
+
+		const [signature, iv, body] = parts;
+
+		if (signature === undefined || iv === undefined || body === undefined) {
+			throw new Error(InvalidBlockError);
+		}
+
+		const valid = await verifySignature({ body: `${iv}.${body}`, key: opts.signingKey, signature });
+
+		if (!valid) {
+			throw new Error(InvalidBlockError);
+		}
+
+		const compressed = await decrypt({ body, iv, key: opts.signingKey }).catch(() => {
+			throw new Error(InvalidBlockError);
+		});
+
+		const json = await decompress(compressed).catch(() => {
+			throw new Error(InvalidBlockError);
+		});
+
+		let decrypted: Block;
+
+		try {
+			decrypted = JSON.parse(json) as Block;
+		} catch {
+			throw new Error(InvalidBlockError);
+		}
+
+		return decrypted;
+	}
 
 	const public_writeAndReturnBlocks: Rpc["public_writeAndReturnBlocks"] = async (endpoint, heads) => {
 		log.debug(`Received ${heads.length} heads...`);
@@ -223,36 +295,36 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const blocks_start = Date.now();
 		const results_map: Record<string, Result> = {};
 
-		// Load block
+		// Load blocks
 		const blocks_nullable = await Promise.all(
 			heads.map(async (head) => {
-				try {
-					return await retry(opts.getBlock, [head], 2).catch(() => {
-						throw new Error("Failed to load block from the provided `getBlock` function after 3 attempts");
-					});
-				} catch (error) {
-					if (error instanceof Error) {
-						log.error(error.message);
-					}
-
-					for (const event of all_events) {
-						const event_id = event.id;
-						const chain = head.chain;
-						const block_hash = head.hash;
-						const block_number = head.number;
-
-						results_map[chain + block_number + block_hash + event_id] ??= {
-							status: "block_error",
-							event_id,
-							chain,
-							block_hash,
-							block_number,
-							created_at: Date.now(),
-						};
-					}
+				const block_nullable = await retry(opts.getBlock, [{ chain: head.chain, hash: head.hash }], 2).catch(() => {
+					log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
 
 					return null;
+				});
+
+				if (block_nullable !== null) {
+					return block_nullable;
 				}
+
+				for (const event of all_events) {
+					const event_id = event.id;
+					const chain = head.chain;
+					const block_hash = head.hash;
+					const block_number = head.number;
+
+					results_map[chain + block_number + block_hash + event_id] ??= {
+						status: "block_error",
+						event_id,
+						chain,
+						block_hash,
+						block_number,
+						created_at: Date.now(),
+					};
+				}
+
+				return null;
 			}),
 		);
 
@@ -371,24 +443,108 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// It's possible that we have no results to record if we successfully loaded all heads
 		// and determined that none of those blocks matched the defined event filters.
 
-		if (results_array.length === 0) {
-			return log.debug(`No results to record for ${heads.length} heads`);
+		if (results_array.length > 0) {
+			try {
+				await retry(createResultsForEndpoint, [endpoint, results_array], 2);
+				log.debug(`Recorded ${results_array.length} results`);
+			} catch (error) {
+				log.error("Failed to submit realtime results to univo after 3 attempts");
+			}
 		}
 
-		// Otherwise we submit results to the univo endpoint
+		const blocks_returned = await Promise.all(
+			blocks_nullable.map(async (block) => {
+				return block === null ? null : signCompressAndEncryptBlock(block);
+			}),
+		);
 
-		try {
-			await retry(createResultsForEndpoint, [endpoint, results_array], 2);
-			log.debug(`Recorded ${results_array.length} results`);
-		} catch (error) {
-			log.error("Failed to submit realtime results to univo after 3 attempts");
-		}
-
-		const blocks_returned = blocks_nullable.map((block) => block);
+		return { blocks: blocks_returned };
 	};
 
-	const public_deleteBlock: Rpc["public_deleteBlock"] = async (endpoint, block) => {
-		//
+	const public_deleteBlock: Rpc["public_deleteBlock"] = async (endpoint, head, block) => {
+		// Loading blocks happens via the block hash. If this block was truly reorganised and is no longer
+		// part of the canonical chain than this request will return a null response. This is our proof that
+		// this block is no longer included in the chain and that is safe to delete data associated with the block
+
+		const canonical = await retry(opts.getBlock, [{ chain: head.chain, hash: head.hash }], 2).catch(() => {
+			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
+
+			return null;
+		});
+
+		// It is possible that this block hash actually is included in the canonical chain. It's fine for the
+		// univo client to be pretty optismitic about what blocks it believes to be re-organised. For example,
+		// if the chain is constantly switching between forks because of a execution client bug. It's okay to
+		// just send all the possible re-organised blocks. In all cases, we are saved by the fact that if the
+		// above request returns a block we will not perform any data deletions.
+
+		if (canonical !== null) {
+			return;
+		}
+
+		// From here, we are confident that the block isn't included as part of the canonical chain. However,
+		// there is no guarantee that we have the block data associated with this re-organised block. It's
+		// possible that when the server initially attempted to write the block data it actually failed to
+		// load the block. This can happen because of the delay between the univo client and server. Essentially,
+		// the RPC node that the server uses may have never seen that re-orged block and will therefore return null.
+		// This is okay because it means we never replicated events into our storage system that are not part
+		// of the canonical chain and therefore do not require deletion.
+
+		// THINKING
+		// Right now we have this complex dance to determine if the data exists. It balances clients existing for
+		// long enough to process a re-orged block. The storage system is the state, we should just consult the
+		// storage system for correctness
+
+		// THINKING
+		// A trusted source like univo could just issue a delete for all the re-orged blocks it processes
+
+		// Right now the question of whether or not data was inserted is based on whether or not the block data
+		// exists. This is a weak assumption. We should be checking whether or not the data exists in storage.
+
+		// Right now we always need a monitoring system. And if we always need a monitoring system we may as well
+		// use it (maximally rely on it) to simplify other parts of the system. Like yes we could store each
+		// block events inserted into a storage system. But then we would need transactions to perform multiple calls
+		// we also would need a way to expose all that. Whereas rn we can rely on a dance with this monitoring system.
+
+		if (block === null) {
+			return;
+		}
+
+		// We know the block is not included in the canonical chain and we know that our storage system upserted
+		// events with this block data. We use the block data to generate the same set of events that we upserted
+		// and provide them to each events delete function
+
+		const decrypted = await verifyDecryptAndDecompressBlock(block);
+
+		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
+			if (storage.delete === undefined) {
+				return;
+			}
+
+			const batch = [];
+
+			for (const event of grouped_events) {
+				if (!event.filters.some((filter) => matchFilter(decrypted, filter))) {
+					continue;
+				}
+
+				const events = event.handler(decrypted);
+
+				for (const item of events) {
+					batch.push(item);
+				}
+			}
+
+			if (batch.length === 0) {
+				return;
+			}
+
+			await retry(storage.delete, [batch], 2);
+		});
+
+		await Promise.all(promises);
+
+		// TODO: Submit results
 	};
 
 	// When calling `private_writeEvents` we want to ensure that a value exists for all keys that were accessed.
@@ -830,6 +986,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	return { fetch: handler, event };
 }
 
+const InvalidBlockError = createException("Received invalid block");
 const UnknownMethodError = createException("The requested method does not exist");
 const IncompleteBlockError = createException("Received block with missing required property");
 
