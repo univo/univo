@@ -518,11 +518,11 @@ function realtime(opts: RealtimeOptions) {
 	}
 
 	if (opts.endpoints.some((endpoint) => !endpoint.startsWith("https://"))) {
-		throw new Error("All endpoints must start with https://");
+		log.error("All endpoints must start with https://");
 	}
 
 	if (opts.endpoints.some((endpoint) => endpoint.includes("localhost"))) {
-		throw new Error("Endpoints cannot be on localhost");
+		log.error("Endpoints cannot be on localhost");
 	}
 
 	function createClient(endpoint: string) {
