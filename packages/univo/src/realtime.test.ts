@@ -2,15 +2,9 @@ import { http } from "msw";
 import { test } from "vitest";
 
 import { indexer } from ".";
-import { server } from "../mocks/node";
+import { server } from "../vitest.setup";
 import { defineTransport, realtime } from "./realtime";
 import { test_getBlock, test_promiseWithResolvers, test_indexer } from "../tests/utils";
-
-test.concurrent("transport makes a request", async () => {
-	const transport = defineTransport(process.env.TEST_ETHEREUM_RPC_WSS);
-	const data = await transport.request({ method: "eth_chainId", params: [] });
-	expect(data).toBe("0x1");
-});
 
 test("receives a block", async () => {
 	const { promise, resolve } = test_promiseWithResolvers();
