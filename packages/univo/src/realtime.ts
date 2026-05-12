@@ -255,10 +255,11 @@ type BlockchainOptions = {
 	quiet: boolean;
 	onBlockAdded(head: Head): void | Promise<void>;
 	onBlockRemoved(head: Head): void | Promise<void>;
-	getBlockByHash(hash: `0x${string}`): Promise<Head | null | undefined>;
+	getBlockByHash(hash: `0x${string}`): Promise<Head | null>;
 };
 
 type Blockchain = {
+	chain: Head[];
 	reconcile(newBlock: Head): Promise<void>;
 };
 
@@ -270,12 +271,19 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 	function setHeadBlock(newBlock: Head) {
 		chain.push(newBlock);
 		opts.onBlockAdded(newBlock);
-		if (chain.length > MAX_LENGTH) chain.shift();
+
+		if (chain.length > MAX_LENGTH) {
+			chain.shift(); // Bounds memory usage
+		}
 	}
 
 	function removeHeadBlock() {
 		const head = chain.pop();
-		if (head === undefined) return;
+
+		if (head === undefined) {
+			return;
+		}
+
 		opts.onBlockRemoved(head);
 	}
 
@@ -336,11 +344,14 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		// A re-org has taken place AND the new block _is_ the forked block itself
 		if (chain.some((block) => block.hash === newBlock.parentHash)) {
 			// We recursively remove our head block until we reach the common ancestor between the remote and local chains
-			while (getHeadBlock().hash !== newBlock.parentHash) removeHeadBlock();
+			while (getHeadBlock().hash !== newBlock.parentHash) {
+				removeHeadBlock();
+			}
+
 			return setHeadBlock(newBlock);
 		}
 
-		// 7.
+		// 6.
 		// - We have received a block newer than our local chain and we need to catch up to remote
 		// - Chain has re-orged but the new block received _is not_ the forked block itself and is further up the forked chain.
 		// In either case the fix is the same: we traverse the remote chain backwards until we reach a common ancestor with
@@ -348,19 +359,30 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 
 		// This is our recursive base case
 		if (newBlock.parentHash === "0x0000000000000000000000000000000000000000000000000000000000000000") {
-			while (chain.length > 0) removeHeadBlock();
+			while (chain.length > 0) {
+				removeHeadBlock();
+			}
+
 			return setHeadBlock(newBlock);
 		}
 
 		// Load the parent remote block and reconcile
 		const parentBlock = await retry(opts.getBlockByHash, [newBlock.parentHash], 5);
-		if (!parentBlock) throw new Error(`Failed to fetch parent block ${hexToNumber(newBlock.number)} ${newBlock.parentHash.slice(0, 16)}`);
-		assert(parentBlock.hash === newBlock.parentHash, "Expected block hashes to match");
-		await reconcile(parentBlock);
-		return await reconcile(newBlock);
+
+		if (parentBlock === null) {
+			throw new Error(`Failed to fetch parent block ${hexToNumber(newBlock.number)} ${newBlock.parentHash.slice(0, 16)}`);
+		}
+
+		assert(isHexEqual(parentBlock.hash, newBlock.parentHash), "Expected block hashes to match");
+
+		await reconcile(parentBlock); // Reconcile up to the parent block
+		return await reconcile(newBlock); // Finally we add this block
 	}
 
+	// TODO: We should move the mutex here to much higher up in the abstraction
+
 	return {
+		chain,
 		reconcile: mutex(reconcile),
 	};
 }
@@ -412,6 +434,7 @@ function createRealtimeStream(opts: CreateRealtimeStreamOpts): Stream {
 	}
 
 	// TODO
+	// Probably also add a chain-initialised event?
 	// Handle switching chains. Probably done by emitting a stream-closed event?
 	// Also need to think about if it's more appropriate to handle the chain id one layer up?
 	// Cause if the chain switches we should basically reinitialise everything?
@@ -473,12 +496,15 @@ function createRealtimeStream(opts: CreateRealtimeStreamOpts): Stream {
 						params: ["finalized", false], // We don't need transaction receipts
 					});
 
-					await finalized.reconcile({
-						chain,
-						hash: block.hash,
-						number: block.number,
-						parentHash: block.parentHash,
-					});
+					// We already have the chain state local to construct the finalized chain so all
+					// we have to do is iterate over the latest chain reconciling blocks less than
+					// the latest finalized block
+
+					for (const head of latest.chain) {
+						if (hexToNumber(head.number) <= hexToNumber(block.number)) {
+							await finalized.reconcile(head);
+						}
+					}
 				} catch {
 					log.error("Failed to reconcile finalized head");
 				}
