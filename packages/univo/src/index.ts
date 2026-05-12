@@ -27,15 +27,15 @@ type Block = {
 // Filters ------------------------------------------------------------------------------------------------------------------------------------
 
 type Filter = {
-	/** The chain id */
+	/** Index blocks with this chain id */
 	chain: number;
-	/** Block to querying/listening from */
+	/** Index blocks from this start block (inclusive) */
 	fromBlock: number;
-	/** Block to query/listen until  */
+	/** Index blocks until this stop block (inclusive)  */
 	toBlock?: number;
-	/** The event */
+	/** Index blocks where this event topic was emitted */
 	event?: `0x${string}`;
-	/** The contract address from which logs should originate */
+	/** Index blocks that involve this address */
 	address?: `0x${string}`;
 };
 
@@ -93,15 +93,69 @@ const includesLogEvent: MatchFilter = (block, filter) => {
 // Events --------------------------------------------------------------------------------------------------------------------------------------
 
 type Event<TBlock, TEvent> = {
-	/** Human-readable identifier for the event */
+	/**
+	 * A human-readable identifier for the event.
+	 */
 	id: string;
-	/** The set of filters that determines if the handler should execute for a given block */
+
+	/**
+	 * Filters let you define what the specific blocks you want this event to index.
+	 *
+	 * Blockchains are massive datasets and most of the time we are only ever interested in small portions of it.
+	 * Sometimes that can be specific events like ERC20 transfers and other times it could be all events emitted
+	 * by a specific contract. Filters provide a simple way for an event to define exactly which blocks we want
+	 * to index.
+	 *
+	 * Filters reduce costs and improve backfill performance by ensuring we only index the blocks we need and
+	 * ignore the blocks that don't have the data we are interested in.
+	 *
+	 * By default your event will not index any blocks, you must opt-in to indexing by providing atleast one filter.
+	 *
+	 * Each property in the filter operates like an AND statement. For example, if you specifiy an `address` and
+	 * an `event` it implies that you only want to index blocks where the specific `address` emitted the specific
+	 * `event` topic provided.
+	 *
+	 * However, when multiple filters are defined for a given event those filters operate like an OR statement. For
+	 * example, if we define a second filter looking for a different `address` and `event` our event will now index
+	 * any block that matches either the first filter or the second filter.
+	 *
+	 * Note that filters are a rudimentary method to dramatically reduce the number of blocks your application needs
+	 * to index. Any advanced filtering should be performed in the event `handler` itself.
+	 */
 	filters: Filter[];
-	/** The handler that transforms a block into a list of events */
+
+	/**
+	 * Synchronously transforms a raw block into a list of events.
+	 *
+	 * When a block matches any of filters defined by your event it will be passed to this function to be synchronously
+	 * transformed into a list of structured events.
+	 *
+	 * The shape of the input `block` is determined by the return value of `getBlock` function provided to your `indexer`.
+	 *
+	 * The returned output value should be an array containg any valid JavaScript values. Each event that you return from
+	 * your handler should not depend on any information outside of the input block data. It should directly map a given
+	 * input (the raw block) to a given output (structured events). This ensures that handler remains idempotent and that
+	 * repeated calls with the same input block produce the same output events.
+	 */
 	handler: (block: TBlock) => TEvent[];
-	/** Persist storage */
+
+	/**
+	 * Storage adapter to persist events in your off-chain storage.
+	 */
 	storage: {
+		/**
+		 * Upserts a batch of events into your storage system.
+		 *
+		 * After a block is transformed into a list of structured events by your `handler` function, that batch
+		 * is passed to this `upsert` function so they can be upserted into your storage system.
+		 *
+		 * This function must be idempotent. Functionally, this means that if the same batch of events is upserted
+		 * multiple times it only produces a single set of events in your storage system.
+		 */
 		upsert: (events: TEvent[]) => Promise<void>;
+		/**
+		 * Deletes a batch of events from your storage system.
+		 */
 		delete?: (events: TEvent[]) => Promise<void>;
 	};
 };
@@ -110,8 +164,8 @@ type Event<TBlock, TEvent> = {
 
 type Head = {
 	hash: `0x${string}`;
-	number: `0x${string}`;
 	chain: `0x${string}`;
+	number: `0x${string}`;
 };
 
 type Metadata = {
@@ -168,7 +222,7 @@ type Rpc = {
 };
 
 function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
-	const log = utils.createLogger({ quiet: opts.quiet || false });
+	const log = utils.createLogger({ quiet: opts.quiet ?? false });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
 	// events that share the same storage adapter to be combined into the same batch for upsert.
@@ -211,41 +265,25 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	async function verifyDecryptAndDecompressBlock(block: string) {
-		const parts = block.split(".");
-
-		if (parts.length !== 3) {
-			throw new Error(InvalidBlockError);
-		}
-
-		const [signature, iv, body] = parts;
-
-		if (signature === undefined || iv === undefined || body === undefined) {
-			throw new Error(InvalidBlockError);
-		}
-
-		const valid = await utils.verifySignature({ body: `${iv}.${body}`, key: opts.signingKey, signature });
-
-		if (!valid) {
-			throw new Error(InvalidBlockError);
-		}
-
-		const compressed = await utils.decrypt({ body, iv, key: opts.signingKey }).catch(() => {
-			throw new Error(InvalidBlockError);
-		});
-
-		const json = await utils.decompress(compressed).catch(() => {
-			throw new Error(InvalidBlockError);
-		});
-
-		let decrypted: Block;
-
 		try {
-			decrypted = JSON.parse(json) as Block;
+			const [signature, iv, body] = block.split(".");
+
+			if (signature === undefined || iv === undefined || body === undefined) {
+				throw new Error();
+			}
+
+			const valid = await utils.verifySignature({ body: `${iv}.${body}`, key: opts.signingKey, signature });
+
+			if (!valid) {
+				throw new Error();
+			}
+
+			const compressed = await utils.decrypt({ body, iv, key: opts.signingKey });
+			const json = await utils.decompress(compressed);
+			return JSON.parse(json) as Block;
 		} catch {
 			throw new Error(InvalidBlockError);
 		}
-
-		return decrypted;
 	}
 
 	const public_writeAndReturnBlocks: Rpc["public_writeAndReturnBlocks"] = async (endpoint, heads) => {

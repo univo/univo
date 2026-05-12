@@ -4,7 +4,7 @@ import { http, passthrough } from "msw";
 
 // Environment variables
 
-config();
+config({ quiet: true });
 
 if (process.env.TEST_ETHEREUM_RPC_WSS === undefined) {
 	throw new Error("Set a TEST_ETHEREUM_RPC_WSS environment variable");
