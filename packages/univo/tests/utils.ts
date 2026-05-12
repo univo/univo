@@ -1,14 +1,17 @@
 import { Hono } from "hono";
 import { join } from "node:path";
+import { http as msw_http, passthrough } from "msw";
 import { promises as fs } from "node:fs";
 import { serve as start } from "@hono/node-server";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
 import { http } from "../src/client";
+import { server } from "../vitest.setup";
 import type { Indexer, Rpc } from "../src";
 import { hexToNumber, iife, raise, retry } from "../src/utils";
 
-export const test_port = 7483;
+server.use(msw_http.all("http://localhost:7483/:key", passthrough));
+server.use(msw_http.all(process.env.TEST_ETHEREUM_RPC_URL, passthrough));
 
 export const test_indexer = iife(() => {
 	const app = new Hono();
@@ -25,7 +28,7 @@ export const test_indexer = iife(() => {
 
 	return <TBlock>(indexer: Indexer<TBlock>) => {
 		const id = crypto.randomUUID();
-		const url = `http://localhost:${test_port}/${id}`;
+		const url = `http://localhost:7483/${id}`;
 		cache.set(id, indexer);
 
 		// Signing key should be "test" for all test indexers

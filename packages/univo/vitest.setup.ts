@@ -1,8 +1,5 @@
 import { config } from "dotenv";
 import { setupServer } from "msw/node";
-import { http, passthrough } from "msw";
-
-import { test_port } from "./tests/utils";
 
 // Environment variables
 
@@ -27,11 +24,8 @@ declare global {
 
 // Mock service worker
 
-export const server = setupServer(
-	http.all(process.env.TEST_ETHEREUM_RPC_URL, passthrough),
-	http.all(`http://localhost:${test_port}/:key`, passthrough), //
-);
+export const server = setupServer();
 
-beforeAll(() => server.listen({ onUnhandledRequest: "warn" }));
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
