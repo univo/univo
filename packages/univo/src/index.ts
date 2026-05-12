@@ -231,7 +231,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const events_grouped_by_storage_map = new Map<Event<any, any>["storage"], Event<any, any>[]>();
 
 	const results = {
-		async __retry_submit(endpoint: string, results: Result[]) {
+		async submit(endpoint: string, results: Result[]) {
 			const body = JSON.stringify({ endpoint, results });
 			const signature = await utils.getSignature({ body, key: opts.signingKey });
 
@@ -247,10 +247,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			if (res.status !== 200) {
 				throw new Error("Received non-200 response from univo API");
 			}
-		},
-
-		async submit(endpoint: string, results: Result[]) {
-			await utils.retry(this.__retry_submit, [endpoint, results], 2);
 
 			log.debug(`Recorded ${results.length} result(s)`);
 		},
@@ -446,7 +442,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		if (results_array.length > 0) {
 			await utils.retry(results.submit, [endpoint, results_array], 2).catch(() => {
-				log.error("Failed to submit realtime results to univo after 3 attempts");
+				log.error("Failed to submit realtime results");
 			});
 		}
 
@@ -473,6 +469,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			hash: decrypted.eth_getBlockByHash.hash,
 		};
 
+		log.debug(`Received reorganised block ${utils.hexToNumber(head.chain)}:${utils.hexToNumber(decrypted.eth_getBlockByHash.number)}`);
+
 		// Loading blocks happens via the block hash. If this block was truly reorganised and is no longer
 		// part of the canonical chain than this request will return a null response. This is our proof that
 		// this block is no longer included in the chain and that is safe to delete data associated with the block
@@ -489,6 +487,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// if the chain is constantly switching between forks because of a execution client bug. It's okay to
 			// just send all the possible re-organised blocks. In all cases, we are saved by the fact that if the
 			// above request returns a block we will not perform any data deletions.
+			log.debug("Attempted to delete canonical block, ignoring...");
 
 			return;
 		}
@@ -564,7 +563,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const results_array = Object.values(results_map);
 
 		await utils.retry(results.submit, [endpoint, results_array], 2).catch(() => {
-			log.error("Failed to submit realtime results to univo after 3 attempts");
+			log.error("Failed to submit delete results");
 		});
 	};
 
