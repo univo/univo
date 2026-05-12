@@ -4,8 +4,8 @@ import { expect, test, assert } from "vitest";
 import { indexer } from ".";
 import type { Event } from ".";
 import { hexToNumber } from "./utils";
-import { server } from "../mocks/node";
 import { blocks } from "../tests/blocks";
+import { server } from "../vitest.setup";
 import { test_Block, test_getBlock, test_indexer } from "../tests/utils";
 
 test.concurrent(
