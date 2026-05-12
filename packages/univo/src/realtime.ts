@@ -430,7 +430,6 @@ function createRealtimeStream(opts: CreateRealtimeStreamOpts): Stream {
 					chain,
 					hash: block.hash,
 					number: block.number,
-					timestamp: block.timestamp,
 					parentHash: block.parentHash,
 				};
 			}
