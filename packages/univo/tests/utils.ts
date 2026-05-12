@@ -8,6 +8,8 @@ import { http } from "../src/client";
 import type { Indexer, Rpc } from "../src";
 import { hexToNumber, iife, raise, retry } from "../src/utils";
 
+export const test_port = 7483;
+
 export const test_indexer = iife(() => {
 	const app = new Hono();
 	const cache = new Map<string, Indexer<any>>();
@@ -23,7 +25,7 @@ export const test_indexer = iife(() => {
 
 	return <TBlock>(indexer: Indexer<TBlock>) => {
 		const id = crypto.randomUUID();
-		const url = `http://localhost:7483/${id}`;
+		const url = `http://localhost:${test_port}/${id}`;
 		cache.set(id, indexer);
 
 		// Signing key should be "test" for all test indexers
