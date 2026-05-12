@@ -1,12 +1,10 @@
+import { http } from "msw";
 import { test } from "vitest";
-import { http, ws } from "msw";
 
 import { indexer } from ".";
 import { server } from "../vitest.setup";
 import { defineTransport, realtime } from "./realtime";
 import { test_getBlock, test_promiseWithResolvers, test_indexer } from "../tests/utils";
-
-const wss = ws.link(process.env.TEST_ETHEREUM_RPC_WSS);
 
 test("receives a block", async () => {
 	const { promise, resolve } = test_promiseWithResolvers();
