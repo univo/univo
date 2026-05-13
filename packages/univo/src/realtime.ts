@@ -630,7 +630,7 @@ function realtime(opts: RealtimeOptions) {
 
 		async function queueBlock(head: Head) {
 			// It's okay to be be pretty optimistic about what blocks have been reorged. If there is a major consensus
-			// or execution bug that creates a long fork or means we constantly switch between forks it doesn't matter.
+			// or execution client bug that creates a long fork or means we constantly switch between forks it doesn't matter.
 			// Once the chain finalizes we will eventually send all these queued blocks, if a particular block is included
 			// in the canonical chain it will just be ignored by the delete process
 
