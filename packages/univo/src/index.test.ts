@@ -593,7 +593,7 @@ test("public_deleteBlock deletes events from reorganised blocks", async () => {
 	let upserted = false;
 
 	const univo = indexer({
-		quiet: false,
+		quiet: true,
 		signingKey: "test",
 		getBlock: async () => {
 			// The first request happens we are writing a block and we want this to be the reorganised block
