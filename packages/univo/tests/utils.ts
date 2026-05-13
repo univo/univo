@@ -60,7 +60,7 @@ export type test_Block = {
 };
 
 export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${string}` }) {
-	const cacheDir = ".blocks";
+	const cacheDir = "tests/blocks";
 	const cacheFile = join(cacheDir, `${hexToNumber(block.chain)}-${hexToNumber(block.number)}.json`);
 
 	// Try to read from cache first

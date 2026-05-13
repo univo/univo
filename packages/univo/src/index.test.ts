@@ -3,9 +3,8 @@ import { expect, test, assert } from "vitest";
 
 import { indexer } from ".";
 import type { Event } from ".";
-import { hexToNumber } from "./utils";
-import { blocks } from "../tests/blocks";
 import { server } from "../vitest.setup";
+import { hexToNumber, numberToHex } from "./utils";
 import { test_Block, test_getBlock, test_indexer } from "../tests/utils";
 
 test.concurrent("correctly infers the event type", () => {
@@ -631,18 +630,20 @@ test("private_writeEvents indexes only the events requested", async () => {
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
 				events: ["event1"],
-				blocks: [blocks[0]],
+				blocks: [block0],
 			},
 		],
 	});
 
 	expect(response.failures).toStrictEqual([]);
-	expect(upserted).toStrictEqual([`event1-${blocks[0].eth_getBlockByNumber.hash}`]);
+	expect(upserted).toStrictEqual([`event1-${block0.eth_getBlockByNumber.hash}`]);
 	expect(event2HandlerCalled).toBe(false);
 });
 
@@ -673,12 +674,14 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 		handler: (block) => [`event2-${block.eth_getBlockByNumber.hash}`],
 	});
 
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
 				events: ["event1", "event2"],
-				blocks: [blocks[0]],
+				blocks: [block0],
 			},
 		],
 	});
@@ -687,7 +690,7 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 
 	expect(count).toBe(1);
 
-	expect(batch).toStrictEqual([`event1-${blocks[0].eth_getBlockByNumber.hash}`, `event2-${blocks[0].eth_getBlockByNumber.hash}`]);
+	expect(batch).toStrictEqual([`event1-${block0.eth_getBlockByNumber.hash}`, `event2-${block0.eth_getBlockByNumber.hash}`]);
 });
 
 test.concurrent("private_writeEvents records events", async () => {
@@ -700,12 +703,14 @@ test.concurrent("private_writeEvents records events", async () => {
 		handler: (block) => [JSON.stringify(block)],
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
 				events: ["test"],
-				blocks: [blocks[22994233]],
+				blocks: [block22994233],
 			},
 		],
 	});
@@ -729,12 +734,16 @@ test.concurrent("private_writeEvents ignores events not explicitly requested", a
 		},
 	});
 
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
 				events: ["test-random"],
-				blocks: [blocks[0], blocks[1], blocks[2]],
+				blocks: [block0, block1, block2],
 			},
 		],
 	});
@@ -758,12 +767,16 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 		},
 	});
 
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
 				events: ["test"],
-				blocks: [blocks[0], blocks[1], blocks[2]],
+				blocks: [block0, block1, block2],
 			},
 		],
 	});
@@ -794,12 +807,16 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 		},
 	});
 
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
 				events: ["test"],
-				blocks: [blocks[0], blocks[1], blocks[2]],
+				blocks: [block0, block1, block2],
 			},
 		],
 	});
@@ -848,12 +865,16 @@ test.concurrent("private_writeEvents retries upsert errors", async () => {
 		},
 	});
 
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
 				events: ["test"],
-				blocks: [blocks[0], blocks[1], blocks[2]],
+				blocks: [block0, block1, block2],
 			},
 		],
 	});
@@ -904,12 +925,16 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 		},
 	});
 
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
 				events: ["test"],
-				blocks: [blocks[0], blocks[1], blocks[2]],
+				blocks: [block0, block1, block2],
 			},
 		],
 	});
@@ -1245,12 +1270,16 @@ test.concurrent("private_writeEvents never upserts if handler returns empty even
 		},
 	});
 
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
 				events: ["test"],
-				blocks: [blocks[0], blocks[1], blocks[2]],
+				blocks: [block0, block1, block2],
 			},
 		],
 	});
@@ -1285,9 +1314,11 @@ test("private_writeEventsAndGetKeys indexes only the events requested", async ()
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["event1"], block: blocks[0] }],
+		params: [{ events: ["event1"], block: block0 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1301,7 +1332,7 @@ test("private_writeEventsAndGetKeys indexes only the events requested", async ()
 		},
 	]);
 
-	expect(upserted).toStrictEqual([`event1-${blocks[0].eth_getBlockByNumber.hash}`]);
+	expect(upserted).toStrictEqual([`event1-${block0.eth_getBlockByNumber.hash}`]);
 	expect(event2HandlerCalled).toBe(false);
 });
 
@@ -1319,9 +1350,11 @@ test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns 
 		},
 	});
 
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[0] }],
+		params: [{ events: ["test"], block: block0 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1346,9 +1379,11 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1379,9 +1414,11 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 		handler: (block) => [block.eth_getBlockByNumber.baseFeePerGas],
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1417,9 +1454,11 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1455,9 +1494,11 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1493,9 +1534,11 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1533,9 +1576,11 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1573,9 +1618,11 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1614,9 +1661,11 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1656,9 +1705,11 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1698,9 +1749,11 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1742,9 +1795,11 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1776,9 +1831,11 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 		handler: (block) => [JSON.stringify(block)],
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1826,7 +1883,6 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 		"eth_getBlockByNumber.transactions/maxPriorityFeePerGas",
 		"eth_getBlockByNumber.transactions/to",
 		"eth_getBlockByNumber.transactions/value",
-		"eth_getBlockByNumber.transactions/accessList",
 		"eth_getBlockByNumber.transactions/input",
 		"eth_getBlockByNumber.transactions/r",
 		"eth_getBlockByNumber.transactions/s",
@@ -1838,6 +1894,10 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 		"eth_getBlockByNumber.transactions/transactionIndex",
 		"eth_getBlockByNumber.transactions/from",
 		"eth_getBlockByNumber.transactions/gasPrice",
+		"eth_getBlockByNumber.transactions/accessList/address",
+		"eth_getBlockByNumber.transactions/accessList/storageKeys",
+		"eth_getBlockByNumber.transactions/blobVersionedHashes",
+		"eth_getBlockByNumber.transactions/maxFeePerBlobGas",
 		"eth_getBlockByNumber.withdrawals/index",
 		"eth_getBlockByNumber.withdrawals/validatorIndex",
 		"eth_getBlockByNumber.withdrawals/address",
@@ -1865,6 +1925,8 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 		"eth_getBlockReceipts/from",
 		"eth_getBlockReceipts/to",
 		"eth_getBlockReceipts/contractAddress",
+		"eth_getBlockReceipts/blobGasUsed",
+		"eth_getBlockReceipts/blobGasPrice",
 	]);
 });
 
@@ -1878,9 +1940,11 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 		handler: (block) => [JSON.stringify(block.eth_getBlockByNumber.transactions)],
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1905,7 +1969,6 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 		"eth_getBlockByNumber.transactions/maxPriorityFeePerGas",
 		"eth_getBlockByNumber.transactions/to",
 		"eth_getBlockByNumber.transactions/value",
-		"eth_getBlockByNumber.transactions/accessList",
 		"eth_getBlockByNumber.transactions/input",
 		"eth_getBlockByNumber.transactions/r",
 		"eth_getBlockByNumber.transactions/s",
@@ -1917,6 +1980,10 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 		"eth_getBlockByNumber.transactions/transactionIndex",
 		"eth_getBlockByNumber.transactions/from",
 		"eth_getBlockByNumber.transactions/gasPrice",
+		"eth_getBlockByNumber.transactions/accessList/address",
+		"eth_getBlockByNumber.transactions/accessList/storageKeys",
+		"eth_getBlockByNumber.transactions/blobVersionedHashes",
+		"eth_getBlockByNumber.transactions/maxFeePerBlobGas",
 		"eth_getBlockByNumber.hash",
 	]);
 });
@@ -1931,9 +1998,11 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 		handler: (block) => [JSON.stringify(block.eth_getBlockByNumber.withdrawals)],
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1968,9 +2037,11 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 		handler: (block) => [JSON.stringify(block.eth_getBlockReceipts)],
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2010,6 +2081,8 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 		"eth_getBlockReceipts/from",
 		"eth_getBlockReceipts/to",
 		"eth_getBlockReceipts/contractAddress",
+		"eth_getBlockReceipts/blobGasUsed",
+		"eth_getBlockReceipts/blobGasPrice",
 		"eth_getBlockByNumber.hash",
 	]);
 });
@@ -2028,9 +2101,11 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2077,9 +2152,11 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2127,7 +2204,6 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 		"eth_getBlockByNumber.transactions/maxPriorityFeePerGas",
 		"eth_getBlockByNumber.transactions/to",
 		"eth_getBlockByNumber.transactions/value",
-		"eth_getBlockByNumber.transactions/accessList",
 		"eth_getBlockByNumber.transactions/input",
 		"eth_getBlockByNumber.transactions/r",
 		"eth_getBlockByNumber.transactions/s",
@@ -2139,6 +2215,10 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 		"eth_getBlockByNumber.transactions/transactionIndex",
 		"eth_getBlockByNumber.transactions/from",
 		"eth_getBlockByNumber.transactions/gasPrice",
+		"eth_getBlockByNumber.transactions/accessList/address",
+		"eth_getBlockByNumber.transactions/accessList/storageKeys",
+		"eth_getBlockByNumber.transactions/blobVersionedHashes",
+		"eth_getBlockByNumber.transactions/maxFeePerBlobGas",
 		"eth_getBlockByNumber.withdrawals/index",
 		"eth_getBlockByNumber.withdrawals/validatorIndex",
 		"eth_getBlockByNumber.withdrawals/address",
@@ -2166,6 +2246,8 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 		"eth_getBlockReceipts/from",
 		"eth_getBlockReceipts/to",
 		"eth_getBlockReceipts/contractAddress",
+		"eth_getBlockReceipts/blobGasUsed",
+		"eth_getBlockReceipts/blobGasPrice",
 	]);
 });
 
@@ -2185,9 +2267,11 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2212,7 +2296,6 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 		"eth_getBlockByNumber.transactions/maxPriorityFeePerGas",
 		"eth_getBlockByNumber.transactions/to",
 		"eth_getBlockByNumber.transactions/value",
-		"eth_getBlockByNumber.transactions/accessList",
 		"eth_getBlockByNumber.transactions/input",
 		"eth_getBlockByNumber.transactions/r",
 		"eth_getBlockByNumber.transactions/s",
@@ -2224,6 +2307,10 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 		"eth_getBlockByNumber.transactions/transactionIndex",
 		"eth_getBlockByNumber.transactions/from",
 		"eth_getBlockByNumber.transactions/gasPrice",
+		"eth_getBlockByNumber.transactions/accessList/address",
+		"eth_getBlockByNumber.transactions/accessList/storageKeys",
+		"eth_getBlockByNumber.transactions/blobVersionedHashes",
+		"eth_getBlockByNumber.transactions/maxFeePerBlobGas",
 		"eth_getBlockByNumber.hash",
 	]);
 });
@@ -2244,9 +2331,11 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2287,9 +2376,11 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2329,6 +2420,8 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 		"eth_getBlockReceipts/from",
 		"eth_getBlockReceipts/to",
 		"eth_getBlockReceipts/contractAddress",
+		"eth_getBlockReceipts/blobGasUsed",
+		"eth_getBlockReceipts/blobGasPrice",
 		"eth_getBlockByNumber.hash",
 	]);
 });
@@ -2351,9 +2444,11 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2401,9 +2496,11 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 		},
 	});
 
+	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
 	const response = await test_indexer(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: blocks[22994233] }],
+		params: [{ events: ["test"], block: block22994233 }],
 	});
 
 	expect(response.results).toStrictEqual([
