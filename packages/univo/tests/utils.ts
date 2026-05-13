@@ -55,7 +55,7 @@ export function test_promiseWithResolvers() {
 
 export type test_Block = {
 	eth_chainId: `0x${string}`;
-	eth_getBlockByHash: RpcBlock<"latest", true>;
+	eth_getBlockByNumber: RpcBlock<"latest", true>;
 	eth_getBlockReceipts: RpcTransactionReceipt[];
 };
 
@@ -72,17 +72,17 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${
 	}
 
 	// Fetch from network
-	const [eth_getBlockByHash, eth_getBlockReceipts] = await Promise.all([
+	const [eth_getBlockByNumber, eth_getBlockReceipts] = await Promise.all([
 		retry(rpc, [{ id: 1, method: "eth_getBlockByNumber", params: [block.number, true] }], 4),
 		retry(rpc, [{ id: 2, method: "eth_getBlockReceipts", params: [block.number] }], 4),
 	]);
 
-	if (!eth_getBlockByHash) throw new Error("eth_getBlockByHash is null");
+	if (!eth_getBlockByNumber) throw new Error("eth_getBlockByNumber is null");
 	if (!eth_getBlockReceipts) throw new Error("eth_getBlockReceipts is null");
 
 	const blockData: test_Block = {
 		eth_chainId: block.chain,
-		eth_getBlockByHash,
+		eth_getBlockByNumber,
 		eth_getBlockReceipts,
 	};
 

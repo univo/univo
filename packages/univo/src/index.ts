@@ -12,7 +12,7 @@ import { catchException, createException, getException } from "./exceptions";
 type Block = {
 	eth_chainId: `0x${string}`;
 
-	eth_getBlockByHash: {
+	eth_getBlockByNumber: {
 		hash: `0x${string}`;
 		number: `0x${string}`;
 	};
@@ -59,13 +59,13 @@ const chainValid: MatchFilter = (block, filter) => {
 };
 
 const fromBlockValid: MatchFilter = (block, filter) => {
-	if (utils.hexToNumber(block.eth_getBlockByHash.number) >= filter.fromBlock) return true;
+	if (utils.hexToNumber(block.eth_getBlockByNumber.number) >= filter.fromBlock) return true;
 	return false;
 };
 
 const toBlockValid: MatchFilter = (block, filter) => {
 	if (filter.toBlock === undefined) return true;
-	if (utils.hexToNumber(block.eth_getBlockByHash.number) <= filter.toBlock) return true;
+	if (utils.hexToNumber(block.eth_getBlockByNumber.number) <= filter.toBlock) return true;
 	return false;
 };
 
@@ -268,8 +268,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error("Provided `getBlock` function returned null");
 		}
 
-		if (!utils.isHexEqual(head.hash, block.eth_getBlockByHash.hash)) {
-			throw new Error("Method `eth_getBlockByHash` returned unexpected block hash");
+		if (!utils.isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
+			throw new Error("Method `eth_getBlockByNumber` returned unexpected block hash");
 		}
 
 		for (const receipt of block.eth_getBlockReceipts) {
@@ -388,8 +388,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 							const event_id = event.id;
 							const chain = block.eth_chainId;
-							const block_hash = block.eth_getBlockByHash.hash;
-							const block_number = block.eth_getBlockByHash.number;
+							const block_hash = block.eth_getBlockByNumber.hash;
+							const block_number = block.eth_getBlockByNumber.number;
 
 							results_map[chain + block_number + block_hash + event_id] ??= {
 								status: "handler_error",
@@ -420,8 +420,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 								const event_id = event.id;
 								const chain = block.eth_chainId;
-								const block_hash = block.eth_getBlockByHash.hash;
-								const block_number = block.eth_getBlockByHash.number;
+								const block_hash = block.eth_getBlockByNumber.hash;
+								const block_number = block.eth_getBlockByNumber.number;
 
 								results_map[chain + block_number + block_hash + event_id] ??= {
 									status: "upsert_error",
@@ -447,8 +447,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 						const event_id = event.id;
 						const chain = block.eth_chainId;
-						const block_hash = block.eth_getBlockByHash.hash;
-						const block_number = block.eth_getBlockByHash.number;
+						const block_hash = block.eth_getBlockByNumber.hash;
+						const block_number = block.eth_getBlockByNumber.number;
 
 						results_map[chain + block_number + block_hash + event_id] ??= {
 							status: "ok",
@@ -498,8 +498,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const head = {
 			chain: decrypted.eth_chainId,
-			hash: decrypted.eth_getBlockByHash.hash,
-			number: decrypted.eth_getBlockByHash.number,
+			hash: decrypted.eth_getBlockByNumber.hash,
+			number: decrypted.eth_getBlockByNumber.number,
 		};
 
 		log.debug(`Received reorganised block ${utils.hexToNumber(head.chain)}:${utils.hexToNumber(head.number)}`);
@@ -514,7 +514,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.debug("Attempted to delete unknown block, ignoring...");
 		}
 
-		if (utils.isHexEqual(canonical.eth_getBlockByHash.hash, head.hash)) {
+		if (utils.isHexEqual(canonical.eth_getBlockByNumber.hash, head.hash)) {
 			return log.debug("Attempted to delete canonical block, ignoring...");
 		}
 
@@ -548,8 +548,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				const event_id = event.id;
 				const chain = decrypted.eth_chainId;
-				const block_hash = decrypted.eth_getBlockByHash.hash;
-				const block_number = decrypted.eth_getBlockByHash.number;
+				const block_hash = decrypted.eth_getBlockByNumber.hash;
+				const block_number = decrypted.eth_getBlockByNumber.number;
 
 				results_map[chain + block_number + block_hash + event_id] ??= {
 					status: "delete_error",
@@ -573,8 +573,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		for (const event of all_events) {
 			const event_id = event.id;
 			const chain = decrypted.eth_chainId;
-			const block_hash = decrypted.eth_getBlockByHash.hash;
-			const block_number = decrypted.eth_getBlockByHash.number;
+			const block_hash = decrypted.eth_getBlockByNumber.hash;
+			const block_number = decrypted.eth_getBlockByNumber.number;
 
 			results_map[chain + block_number + block_hash + event_id] ??= {
 				status: "delete",
@@ -723,12 +723,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 							}
 						}
 
-						failures[event.id + block.eth_getBlockByHash.number] ??= {
+						failures[event.id + block.eth_getBlockByNumber.number] ??= {
 							status,
 							event_id: event.id,
 							chain: block.eth_chainId,
-							block_hash: block.eth_getBlockByHash.hash,
-							block_number: block.eth_getBlockByHash.number,
+							block_hash: block.eth_getBlockByNumber.hash,
+							block_number: block.eth_getBlockByNumber.number,
 							created_at: Date.now(),
 						};
 					}
@@ -757,12 +757,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						// Ignore blocks that don't match any of the defined event filters
 						if (!event.filters.some((filter) => matchFilter(block, filter))) continue;
 
-						failures[event.id + block.eth_getBlockByHash.number] ??= {
+						failures[event.id + block.eth_getBlockByNumber.number] ??= {
 							status,
 							event_id: event.id,
 							chain: block.eth_chainId,
-							block_hash: block.eth_getBlockByHash.hash,
-							block_number: block.eth_getBlockByHash.number,
+							block_hash: block.eth_getBlockByNumber.hash,
+							block_number: block.eth_getBlockByNumber.number,
 							created_at: Date.now(),
 						};
 					}
@@ -842,12 +842,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						log.error(error.message);
 					}
 
-					results[event.id + proxy.eth_getBlockByHash.number] = {
+					results[event.id + proxy.eth_getBlockByNumber.number] = {
 						status: "handler_error",
 						event_id: event.id,
 						chain: proxy.eth_chainId,
-						block_hash: proxy.eth_getBlockByHash.hash,
-						block_number: proxy.eth_getBlockByHash.number,
+						block_hash: proxy.eth_getBlockByNumber.hash,
+						block_number: proxy.eth_getBlockByNumber.number,
 						created_at: Date.now(),
 					};
 
@@ -855,12 +855,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				}
 
 				if (events.length === 0) {
-					results[event.id + proxy.eth_getBlockByHash.number] = {
+					results[event.id + proxy.eth_getBlockByNumber.number] = {
 						status: "ok",
 						event_id: event.id,
 						chain: proxy.eth_chainId,
-						block_hash: proxy.eth_getBlockByHash.hash,
-						block_number: proxy.eth_getBlockByHash.number,
+						block_hash: proxy.eth_getBlockByNumber.hash,
+						block_number: proxy.eth_getBlockByNumber.number,
 						created_at: Date.now(),
 					};
 
@@ -877,24 +877,24 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						log.error(error.message);
 					}
 
-					results[event.id + proxy.eth_getBlockByHash.number] = {
+					results[event.id + proxy.eth_getBlockByNumber.number] = {
 						status: "upsert_error",
 						event_id: event.id,
 						chain: proxy.eth_chainId,
-						block_hash: proxy.eth_getBlockByHash.hash,
-						block_number: proxy.eth_getBlockByHash.number,
+						block_hash: proxy.eth_getBlockByNumber.hash,
+						block_number: proxy.eth_getBlockByNumber.number,
 						created_at: Date.now(),
 					};
 
 					return;
 				}
 
-				results[event.id + proxy.eth_getBlockByHash.number] = {
+				results[event.id + proxy.eth_getBlockByNumber.number] = {
 					status: "ok",
 					event_id: event.id,
 					chain: proxy.eth_chainId,
-					block_hash: proxy.eth_getBlockByHash.hash,
-					block_number: proxy.eth_getBlockByHash.number,
+					block_hash: proxy.eth_getBlockByNumber.hash,
+					block_number: proxy.eth_getBlockByNumber.number,
 					created_at: Date.now(),
 				};
 			}),
@@ -914,7 +914,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			if (ignored.some((ignored) => key.endsWith(ignored))) return false;
 
 			// Some are unnecessary because there exists another key with a deeper segment. For example when we record the keys
-			// `eth_getBlockHash` and `eth_getBlockByHash.number`, the first key is made redundant by the second key
+			// `eth_getBlockHash` and `eth_getBlockByNumber.number`, the first key is made redundant by the second key
 			if (keys_array.some((_key) => _key.startsWith(`${key}/`) || _key.startsWith(`${key}.`))) return false;
 
 			// Otherwise we keep it

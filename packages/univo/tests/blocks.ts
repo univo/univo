@@ -3,7 +3,7 @@ import type { test_Block } from "./utils";
 const _blocks = {
 	0: {
 		eth_chainId: "0x1",
-		eth_getBlockByHash: {
+		eth_getBlockByNumber: {
 			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 			parentHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
 			sha3Uncles: "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
@@ -29,7 +29,7 @@ const _blocks = {
 	},
 	1: {
 		eth_chainId: "0x1",
-		eth_getBlockByHash: {
+		eth_getBlockByNumber: {
 			hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
 			parentHash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 			sha3Uncles: "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
@@ -55,7 +55,7 @@ const _blocks = {
 	},
 	2: {
 		eth_chainId: "0x1",
-		eth_getBlockByHash: {
+		eth_getBlockByNumber: {
 			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
 			parentHash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
 			sha3Uncles: "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
@@ -81,7 +81,7 @@ const _blocks = {
 	},
 	22994233: {
 		eth_chainId: "0x1",
-		eth_getBlockByHash: {
+		eth_getBlockByNumber: {
 			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			parentHash: "0x669f942b62f752555953f31e89400cd95251691cf26f8ecdb220a91dd74fc1ee",
 			sha3Uncles: "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",

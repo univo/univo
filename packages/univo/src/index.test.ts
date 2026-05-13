@@ -127,7 +127,7 @@ test("public_writeAndReturnBlocks reports ok results if we successfully upsert e
 
 	univo.event({
 		id: "test",
-		handler: (block) => [block.eth_getBlockByHash.hash],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
 		storage: {
 			async upsert(events) {
 				upserted.push(...events);
@@ -302,7 +302,7 @@ test("public_writeAndReturnBlocks reports any upsert errors", async () => {
 
 	univo.event({
 		id: "test",
-		handler: (block) => [block.eth_getBlockByHash.hash],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
 		storage: {
 			async upsert() {
 				throw new Error("Upsert failed");
@@ -356,7 +356,7 @@ test("public_writeAndReturnBlocks retries upsert errors", async () => {
 	univo.event({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByHash.hash],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
 		storage: {
 			async upsert() {
 				count++;
@@ -406,14 +406,14 @@ test("public_writeAndReturnBlocks deduplicates events with the same storage adap
 		storage,
 		id: "event1",
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [`event1-${block.eth_getBlockByHash.hash}`],
+		handler: (block) => [`event1-${block.eth_getBlockByNumber.hash}`],
 	});
 
 	univo.event({
 		storage,
 		id: "event2",
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [`event2-${block.eth_getBlockByHash.hash}`],
+		handler: (block) => [`event2-${block.eth_getBlockByNumber.hash}`],
 	});
 
 	// Mock univo endpoint
@@ -451,7 +451,7 @@ test("public_writeAndReturnBlocks returns blocks", async () => {
 	univo.event({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByHash.hash],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
 		storage: {
 			async upsert() {
 				//
@@ -494,7 +494,7 @@ test("public_writeAndReturnBlocks only returns blocks it successfully loaded", a
 	univo.event({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByHash.hash],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
 		storage: {
 			async upsert() {
 				//
@@ -551,7 +551,7 @@ test("public_deleteBlock never deletes events from canonical blocks", async () =
 	univo.event({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByHash.hash],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
 		storage: {
 			async upsert() {
 				upserted = true;
@@ -612,7 +612,7 @@ test("private_writeEvents indexes only the events requested", async () => {
 
 	univo.event({
 		id: "event1",
-		handler: (block) => [`event1-${block.eth_getBlockByHash.hash}`],
+		handler: (block) => [`event1-${block.eth_getBlockByNumber.hash}`],
 		storage: {
 			async upsert(events) {
 				upserted.push(...events);
@@ -642,7 +642,7 @@ test("private_writeEvents indexes only the events requested", async () => {
 	});
 
 	expect(response.failures).toStrictEqual([]);
-	expect(upserted).toStrictEqual([`event1-${blocks[0].eth_getBlockByHash.hash}`]);
+	expect(upserted).toStrictEqual([`event1-${blocks[0].eth_getBlockByNumber.hash}`]);
 	expect(event2HandlerCalled).toBe(false);
 });
 
@@ -663,14 +663,14 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 		storage,
 		id: "event1",
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [`event1-${block.eth_getBlockByHash.hash}`],
+		handler: (block) => [`event1-${block.eth_getBlockByNumber.hash}`],
 	});
 
 	univo.event({
 		storage,
 		id: "event2",
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [`event2-${block.eth_getBlockByHash.hash}`],
+		handler: (block) => [`event2-${block.eth_getBlockByNumber.hash}`],
 	});
 
 	const response = await test_indexer(univo).request({
@@ -687,7 +687,7 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 
 	expect(count).toBe(1);
 
-	expect(batch).toStrictEqual([`event1-${blocks[0].eth_getBlockByHash.hash}`, `event2-${blocks[0].eth_getBlockByHash.hash}`]);
+	expect(batch).toStrictEqual([`event1-${blocks[0].eth_getBlockByNumber.hash}`, `event2-${blocks[0].eth_getBlockByNumber.hash}`]);
 });
 
 test.concurrent("private_writeEvents records events", async () => {
@@ -721,7 +721,7 @@ test.concurrent("private_writeEvents ignores events not explicitly requested", a
 		storage: { upsert: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
 		handler(block) {
-			if (hexToNumber(block.eth_getBlockByHash.number) === 1) {
+			if (hexToNumber(block.eth_getBlockByNumber.number) === 1) {
 				throw new Error("Test error message");
 			}
 
@@ -750,7 +750,7 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 		storage: { upsert: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
 		handler(block) {
-			if (hexToNumber(block.eth_getBlockByHash.number) === 1) {
+			if (hexToNumber(block.eth_getBlockByNumber.number) === 1) {
 				throw new Error("Test error message");
 			}
 
@@ -950,7 +950,7 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => {
 			// The following property exists on the type but isn't provided
-			return [block.eth_getBlockByHash.difficulty];
+			return [block.eth_getBlockByNumber.difficulty];
 		},
 		storage: { upsert: async () => {} },
 	});
@@ -963,14 +963,14 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 				blocks: [
 					{
 						eth_chainId: "0x1",
-						eth_getBlockByHash: {
+						eth_getBlockByNumber: {
 							number: "0x1",
 							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 						},
 					},
 					{
 						eth_chainId: "0x1",
-						eth_getBlockByHash: {
+						eth_getBlockByNumber: {
 							number: "0x2",
 							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
 						},
@@ -1008,7 +1008,7 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => {
 			try {
-				return [block.eth_getBlockByHash.difficulty];
+				return [block.eth_getBlockByNumber.difficulty];
 			} catch {
 				// It's perfectly valid to ignore transformation errors like this, but we still need
 				// to be able to detect when we have received an incomplete block
@@ -1027,14 +1027,14 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 				blocks: [
 					{
 						eth_chainId: "0x1",
-						eth_getBlockByHash: {
+						eth_getBlockByNumber: {
 							number: "0x1",
 							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 						},
 					},
 					{
 						eth_chainId: "0x1",
-						eth_getBlockByHash: {
+						eth_getBlockByNumber: {
 							number: "0x2",
 							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
 						},
@@ -1075,7 +1075,7 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 			upsert: async (blocks) => {
 				for (const block of blocks) {
 					// The following property exists on the type but isn't provided
-					block.eth_getBlockByHash.difficulty;
+					block.eth_getBlockByNumber.difficulty;
 				}
 			},
 		},
@@ -1089,14 +1089,14 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 				blocks: [
 					{
 						eth_chainId: "0x1",
-						eth_getBlockByHash: {
+						eth_getBlockByNumber: {
 							number: "0x1",
 							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 						},
 					},
 					{
 						eth_chainId: "0x1",
-						eth_getBlockByHash: {
+						eth_getBlockByNumber: {
 							number: "0x2",
 							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
 						},
@@ -1137,7 +1137,7 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 			upsert: async (blocks) => {
 				try {
 					for (const block of blocks) {
-						block.eth_getBlockByHash.difficulty;
+						block.eth_getBlockByNumber.difficulty;
 					}
 				} catch {
 					//
@@ -1154,14 +1154,14 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 				blocks: [
 					{
 						eth_chainId: "0x1",
-						eth_getBlockByHash: {
+						eth_getBlockByNumber: {
 							number: "0x1",
 							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 						},
 					},
 					{
 						eth_chainId: "0x1",
-						eth_getBlockByHash: {
+						eth_getBlockByNumber: {
 							number: "0x2",
 							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
 						},
@@ -1198,7 +1198,7 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 		id: "test",
 		storage: { upsert: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByHash.difficulty],
+		handler: (block) => [block.eth_getBlockByNumber.difficulty],
 	});
 
 	const response = await test_indexer(univo).request({
@@ -1209,7 +1209,7 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 				blocks: [
 					{
 						eth_chainId: "0x1",
-						eth_getBlockByHash: {
+						eth_getBlockByNumber: {
 							number: "0x1",
 							difficulty: null,
 							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
@@ -1217,7 +1217,7 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 					},
 					{
 						eth_chainId: "0x1",
-						eth_getBlockByHash: {
+						eth_getBlockByNumber: {
 							number: "0x2",
 							difficulty: null,
 							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
@@ -1266,7 +1266,7 @@ test("private_writeEventsAndGetKeys indexes only the events requested", async ()
 
 	univo.event({
 		id: "event1",
-		handler: (block) => [`event1-${block.eth_getBlockByHash.hash}`],
+		handler: (block) => [`event1-${block.eth_getBlockByNumber.hash}`],
 		storage: {
 			async upsert(events) {
 				upserted.push(...events);
@@ -1301,7 +1301,7 @@ test("private_writeEventsAndGetKeys indexes only the events requested", async ()
 		},
 	]);
 
-	expect(upserted).toStrictEqual([`event1-${blocks[0].eth_getBlockByHash.hash}`]);
+	expect(upserted).toStrictEqual([`event1-${blocks[0].eth_getBlockByNumber.hash}`]);
 	expect(event2HandlerCalled).toBe(false);
 });
 
@@ -1364,8 +1364,8 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1376,7 +1376,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 		id: "test",
 		storage: { upsert: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByHash.baseFeePerGas],
+		handler: (block) => [block.eth_getBlockByNumber.baseFeePerGas],
 	});
 
 	const response = await test_indexer(univo).request({
@@ -1397,9 +1397,9 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.baseFeePerGas",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.baseFeePerGas",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1411,7 +1411,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 		storage: { upsert: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler(block) {
-			return block.eth_getBlockByHash.transactions.map((transaction) => {
+			return block.eth_getBlockByNumber.transactions.map((transaction) => {
 				return transaction.from;
 			});
 		},
@@ -1435,9 +1435,9 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.transactions/from",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.transactions/from",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1449,7 +1449,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 		storage: { upsert: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler(block) {
-			return (block.eth_getBlockByHash.withdrawals || []).map((withdrawal) => {
+			return (block.eth_getBlockByNumber.withdrawals || []).map((withdrawal) => {
 				return withdrawal.address;
 			});
 		},
@@ -1473,9 +1473,9 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.withdrawals/address",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.withdrawals/address",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1511,9 +1511,9 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
+		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/from",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1551,9 +1551,9 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
+		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/logs/address",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1567,7 +1567,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 		storage: {
 			async upsert(batch) {
 				for (const block of batch) {
-					block.eth_getBlockByHash.hash;
+					block.eth_getBlockByNumber.hash;
 				}
 			},
 		},
@@ -1591,8 +1591,8 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1606,7 +1606,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 		storage: {
 			async upsert(batch) {
 				for (const block of batch) {
-					block.eth_getBlockByHash.transactions.map((transaction: any) => {
+					block.eth_getBlockByNumber.transactions.map((transaction: any) => {
 						transaction.from;
 					});
 				}
@@ -1632,9 +1632,9 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.transactions/from",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.transactions/from",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1648,7 +1648,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 		storage: {
 			async upsert(batch) {
 				for (const block of batch) {
-					block.eth_getBlockByHash.withdrawals?.map((withdrawal: any) => {
+					block.eth_getBlockByNumber.withdrawals?.map((withdrawal: any) => {
 						withdrawal.address;
 					});
 				}
@@ -1674,9 +1674,9 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.withdrawals/address",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.withdrawals/address",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1716,9 +1716,9 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
+		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/from",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1760,9 +1760,9 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
+		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/logs/address",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1794,54 +1794,54 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId",
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.hash",
-		"eth_getBlockByHash.parentHash",
-		"eth_getBlockByHash.sha3Uncles",
-		"eth_getBlockByHash.miner",
-		"eth_getBlockByHash.stateRoot",
-		"eth_getBlockByHash.transactionsRoot",
-		"eth_getBlockByHash.receiptsRoot",
-		"eth_getBlockByHash.logsBloom",
-		"eth_getBlockByHash.difficulty",
-		"eth_getBlockByHash.gasLimit",
-		"eth_getBlockByHash.gasUsed",
-		"eth_getBlockByHash.timestamp",
-		"eth_getBlockByHash.extraData",
-		"eth_getBlockByHash.mixHash",
-		"eth_getBlockByHash.nonce",
-		"eth_getBlockByHash.baseFeePerGas",
-		"eth_getBlockByHash.withdrawalsRoot",
-		"eth_getBlockByHash.blobGasUsed",
-		"eth_getBlockByHash.excessBlobGas",
-		"eth_getBlockByHash.parentBeaconBlockRoot",
-		"eth_getBlockByHash.requestsHash",
-		"eth_getBlockByHash.size",
-		"eth_getBlockByHash.uncles",
-		"eth_getBlockByHash.transactions/type",
-		"eth_getBlockByHash.transactions/chainId",
-		"eth_getBlockByHash.transactions/nonce",
-		"eth_getBlockByHash.transactions/gas",
-		"eth_getBlockByHash.transactions/maxFeePerGas",
-		"eth_getBlockByHash.transactions/maxPriorityFeePerGas",
-		"eth_getBlockByHash.transactions/to",
-		"eth_getBlockByHash.transactions/value",
-		"eth_getBlockByHash.transactions/accessList",
-		"eth_getBlockByHash.transactions/input",
-		"eth_getBlockByHash.transactions/r",
-		"eth_getBlockByHash.transactions/s",
-		"eth_getBlockByHash.transactions/yParity",
-		"eth_getBlockByHash.transactions/v",
-		"eth_getBlockByHash.transactions/hash",
-		"eth_getBlockByHash.transactions/blockHash",
-		"eth_getBlockByHash.transactions/blockNumber",
-		"eth_getBlockByHash.transactions/transactionIndex",
-		"eth_getBlockByHash.transactions/from",
-		"eth_getBlockByHash.transactions/gasPrice",
-		"eth_getBlockByHash.withdrawals/index",
-		"eth_getBlockByHash.withdrawals/validatorIndex",
-		"eth_getBlockByHash.withdrawals/address",
-		"eth_getBlockByHash.withdrawals/amount",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
+		"eth_getBlockByNumber.sha3Uncles",
+		"eth_getBlockByNumber.miner",
+		"eth_getBlockByNumber.stateRoot",
+		"eth_getBlockByNumber.transactionsRoot",
+		"eth_getBlockByNumber.receiptsRoot",
+		"eth_getBlockByNumber.logsBloom",
+		"eth_getBlockByNumber.difficulty",
+		"eth_getBlockByNumber.gasLimit",
+		"eth_getBlockByNumber.gasUsed",
+		"eth_getBlockByNumber.timestamp",
+		"eth_getBlockByNumber.extraData",
+		"eth_getBlockByNumber.mixHash",
+		"eth_getBlockByNumber.nonce",
+		"eth_getBlockByNumber.baseFeePerGas",
+		"eth_getBlockByNumber.withdrawalsRoot",
+		"eth_getBlockByNumber.blobGasUsed",
+		"eth_getBlockByNumber.excessBlobGas",
+		"eth_getBlockByNumber.parentBeaconBlockRoot",
+		"eth_getBlockByNumber.requestsHash",
+		"eth_getBlockByNumber.size",
+		"eth_getBlockByNumber.uncles",
+		"eth_getBlockByNumber.transactions/type",
+		"eth_getBlockByNumber.transactions/chainId",
+		"eth_getBlockByNumber.transactions/nonce",
+		"eth_getBlockByNumber.transactions/gas",
+		"eth_getBlockByNumber.transactions/maxFeePerGas",
+		"eth_getBlockByNumber.transactions/maxPriorityFeePerGas",
+		"eth_getBlockByNumber.transactions/to",
+		"eth_getBlockByNumber.transactions/value",
+		"eth_getBlockByNumber.transactions/accessList",
+		"eth_getBlockByNumber.transactions/input",
+		"eth_getBlockByNumber.transactions/r",
+		"eth_getBlockByNumber.transactions/s",
+		"eth_getBlockByNumber.transactions/yParity",
+		"eth_getBlockByNumber.transactions/v",
+		"eth_getBlockByNumber.transactions/hash",
+		"eth_getBlockByNumber.transactions/blockHash",
+		"eth_getBlockByNumber.transactions/blockNumber",
+		"eth_getBlockByNumber.transactions/transactionIndex",
+		"eth_getBlockByNumber.transactions/from",
+		"eth_getBlockByNumber.transactions/gasPrice",
+		"eth_getBlockByNumber.withdrawals/index",
+		"eth_getBlockByNumber.withdrawals/validatorIndex",
+		"eth_getBlockByNumber.withdrawals/address",
+		"eth_getBlockByNumber.withdrawals/amount",
 		"eth_getBlockReceipts/type",
 		"eth_getBlockReceipts/status",
 		"eth_getBlockReceipts/cumulativeGasUsed",
@@ -1875,7 +1875,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 		id: "test",
 		storage: { upsert: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [JSON.stringify(block.eth_getBlockByHash.transactions)],
+		handler: (block) => [JSON.stringify(block.eth_getBlockByNumber.transactions)],
 	});
 
 	const response = await test_indexer(univo).request({
@@ -1896,28 +1896,28 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.transactions/type",
-		"eth_getBlockByHash.transactions/chainId",
-		"eth_getBlockByHash.transactions/nonce",
-		"eth_getBlockByHash.transactions/gas",
-		"eth_getBlockByHash.transactions/maxFeePerGas",
-		"eth_getBlockByHash.transactions/maxPriorityFeePerGas",
-		"eth_getBlockByHash.transactions/to",
-		"eth_getBlockByHash.transactions/value",
-		"eth_getBlockByHash.transactions/accessList",
-		"eth_getBlockByHash.transactions/input",
-		"eth_getBlockByHash.transactions/r",
-		"eth_getBlockByHash.transactions/s",
-		"eth_getBlockByHash.transactions/yParity",
-		"eth_getBlockByHash.transactions/v",
-		"eth_getBlockByHash.transactions/hash",
-		"eth_getBlockByHash.transactions/blockHash",
-		"eth_getBlockByHash.transactions/blockNumber",
-		"eth_getBlockByHash.transactions/transactionIndex",
-		"eth_getBlockByHash.transactions/from",
-		"eth_getBlockByHash.transactions/gasPrice",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.transactions/type",
+		"eth_getBlockByNumber.transactions/chainId",
+		"eth_getBlockByNumber.transactions/nonce",
+		"eth_getBlockByNumber.transactions/gas",
+		"eth_getBlockByNumber.transactions/maxFeePerGas",
+		"eth_getBlockByNumber.transactions/maxPriorityFeePerGas",
+		"eth_getBlockByNumber.transactions/to",
+		"eth_getBlockByNumber.transactions/value",
+		"eth_getBlockByNumber.transactions/accessList",
+		"eth_getBlockByNumber.transactions/input",
+		"eth_getBlockByNumber.transactions/r",
+		"eth_getBlockByNumber.transactions/s",
+		"eth_getBlockByNumber.transactions/yParity",
+		"eth_getBlockByNumber.transactions/v",
+		"eth_getBlockByNumber.transactions/hash",
+		"eth_getBlockByNumber.transactions/blockHash",
+		"eth_getBlockByNumber.transactions/blockNumber",
+		"eth_getBlockByNumber.transactions/transactionIndex",
+		"eth_getBlockByNumber.transactions/from",
+		"eth_getBlockByNumber.transactions/gasPrice",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1928,7 +1928,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 		id: "test",
 		storage: { upsert: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [JSON.stringify(block.eth_getBlockByHash.withdrawals)],
+		handler: (block) => [JSON.stringify(block.eth_getBlockByNumber.withdrawals)],
 	});
 
 	const response = await test_indexer(univo).request({
@@ -1949,12 +1949,12 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.withdrawals/index",
-		"eth_getBlockByHash.withdrawals/validatorIndex",
-		"eth_getBlockByHash.withdrawals/address",
-		"eth_getBlockByHash.withdrawals/amount",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.withdrawals/index",
+		"eth_getBlockByNumber.withdrawals/validatorIndex",
+		"eth_getBlockByNumber.withdrawals/address",
+		"eth_getBlockByNumber.withdrawals/amount",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -1986,7 +1986,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
+		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/type",
 		"eth_getBlockReceipts/status",
 		"eth_getBlockReceipts/cumulativeGasUsed",
@@ -2010,7 +2010,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 		"eth_getBlockReceipts/from",
 		"eth_getBlockReceipts/to",
 		"eth_getBlockReceipts/contractAddress",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -2046,7 +2046,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
+		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/logs/address",
 		"eth_getBlockReceipts/logs/topics",
 		"eth_getBlockReceipts/logs/data",
@@ -2057,7 +2057,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 		"eth_getBlockReceipts/logs/transactionIndex",
 		"eth_getBlockReceipts/logs/logIndex",
 		"eth_getBlockReceipts/logs/removed",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -2095,54 +2095,54 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId",
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.hash",
-		"eth_getBlockByHash.parentHash",
-		"eth_getBlockByHash.sha3Uncles",
-		"eth_getBlockByHash.miner",
-		"eth_getBlockByHash.stateRoot",
-		"eth_getBlockByHash.transactionsRoot",
-		"eth_getBlockByHash.receiptsRoot",
-		"eth_getBlockByHash.logsBloom",
-		"eth_getBlockByHash.difficulty",
-		"eth_getBlockByHash.gasLimit",
-		"eth_getBlockByHash.gasUsed",
-		"eth_getBlockByHash.timestamp",
-		"eth_getBlockByHash.extraData",
-		"eth_getBlockByHash.mixHash",
-		"eth_getBlockByHash.nonce",
-		"eth_getBlockByHash.baseFeePerGas",
-		"eth_getBlockByHash.withdrawalsRoot",
-		"eth_getBlockByHash.blobGasUsed",
-		"eth_getBlockByHash.excessBlobGas",
-		"eth_getBlockByHash.parentBeaconBlockRoot",
-		"eth_getBlockByHash.requestsHash",
-		"eth_getBlockByHash.size",
-		"eth_getBlockByHash.uncles",
-		"eth_getBlockByHash.transactions/type",
-		"eth_getBlockByHash.transactions/chainId",
-		"eth_getBlockByHash.transactions/nonce",
-		"eth_getBlockByHash.transactions/gas",
-		"eth_getBlockByHash.transactions/maxFeePerGas",
-		"eth_getBlockByHash.transactions/maxPriorityFeePerGas",
-		"eth_getBlockByHash.transactions/to",
-		"eth_getBlockByHash.transactions/value",
-		"eth_getBlockByHash.transactions/accessList",
-		"eth_getBlockByHash.transactions/input",
-		"eth_getBlockByHash.transactions/r",
-		"eth_getBlockByHash.transactions/s",
-		"eth_getBlockByHash.transactions/yParity",
-		"eth_getBlockByHash.transactions/v",
-		"eth_getBlockByHash.transactions/hash",
-		"eth_getBlockByHash.transactions/blockHash",
-		"eth_getBlockByHash.transactions/blockNumber",
-		"eth_getBlockByHash.transactions/transactionIndex",
-		"eth_getBlockByHash.transactions/from",
-		"eth_getBlockByHash.transactions/gasPrice",
-		"eth_getBlockByHash.withdrawals/index",
-		"eth_getBlockByHash.withdrawals/validatorIndex",
-		"eth_getBlockByHash.withdrawals/address",
-		"eth_getBlockByHash.withdrawals/amount",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
+		"eth_getBlockByNumber.sha3Uncles",
+		"eth_getBlockByNumber.miner",
+		"eth_getBlockByNumber.stateRoot",
+		"eth_getBlockByNumber.transactionsRoot",
+		"eth_getBlockByNumber.receiptsRoot",
+		"eth_getBlockByNumber.logsBloom",
+		"eth_getBlockByNumber.difficulty",
+		"eth_getBlockByNumber.gasLimit",
+		"eth_getBlockByNumber.gasUsed",
+		"eth_getBlockByNumber.timestamp",
+		"eth_getBlockByNumber.extraData",
+		"eth_getBlockByNumber.mixHash",
+		"eth_getBlockByNumber.nonce",
+		"eth_getBlockByNumber.baseFeePerGas",
+		"eth_getBlockByNumber.withdrawalsRoot",
+		"eth_getBlockByNumber.blobGasUsed",
+		"eth_getBlockByNumber.excessBlobGas",
+		"eth_getBlockByNumber.parentBeaconBlockRoot",
+		"eth_getBlockByNumber.requestsHash",
+		"eth_getBlockByNumber.size",
+		"eth_getBlockByNumber.uncles",
+		"eth_getBlockByNumber.transactions/type",
+		"eth_getBlockByNumber.transactions/chainId",
+		"eth_getBlockByNumber.transactions/nonce",
+		"eth_getBlockByNumber.transactions/gas",
+		"eth_getBlockByNumber.transactions/maxFeePerGas",
+		"eth_getBlockByNumber.transactions/maxPriorityFeePerGas",
+		"eth_getBlockByNumber.transactions/to",
+		"eth_getBlockByNumber.transactions/value",
+		"eth_getBlockByNumber.transactions/accessList",
+		"eth_getBlockByNumber.transactions/input",
+		"eth_getBlockByNumber.transactions/r",
+		"eth_getBlockByNumber.transactions/s",
+		"eth_getBlockByNumber.transactions/yParity",
+		"eth_getBlockByNumber.transactions/v",
+		"eth_getBlockByNumber.transactions/hash",
+		"eth_getBlockByNumber.transactions/blockHash",
+		"eth_getBlockByNumber.transactions/blockNumber",
+		"eth_getBlockByNumber.transactions/transactionIndex",
+		"eth_getBlockByNumber.transactions/from",
+		"eth_getBlockByNumber.transactions/gasPrice",
+		"eth_getBlockByNumber.withdrawals/index",
+		"eth_getBlockByNumber.withdrawals/validatorIndex",
+		"eth_getBlockByNumber.withdrawals/address",
+		"eth_getBlockByNumber.withdrawals/amount",
 		"eth_getBlockReceipts/type",
 		"eth_getBlockReceipts/status",
 		"eth_getBlockReceipts/cumulativeGasUsed",
@@ -2179,7 +2179,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 		storage: {
 			async upsert(batch) {
 				for (const block of batch) {
-					JSON.stringify(block.eth_getBlockByHash.transactions);
+					JSON.stringify(block.eth_getBlockByNumber.transactions);
 				}
 			},
 		},
@@ -2203,28 +2203,28 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.transactions/type",
-		"eth_getBlockByHash.transactions/chainId",
-		"eth_getBlockByHash.transactions/nonce",
-		"eth_getBlockByHash.transactions/gas",
-		"eth_getBlockByHash.transactions/maxFeePerGas",
-		"eth_getBlockByHash.transactions/maxPriorityFeePerGas",
-		"eth_getBlockByHash.transactions/to",
-		"eth_getBlockByHash.transactions/value",
-		"eth_getBlockByHash.transactions/accessList",
-		"eth_getBlockByHash.transactions/input",
-		"eth_getBlockByHash.transactions/r",
-		"eth_getBlockByHash.transactions/s",
-		"eth_getBlockByHash.transactions/yParity",
-		"eth_getBlockByHash.transactions/v",
-		"eth_getBlockByHash.transactions/hash",
-		"eth_getBlockByHash.transactions/blockHash",
-		"eth_getBlockByHash.transactions/blockNumber",
-		"eth_getBlockByHash.transactions/transactionIndex",
-		"eth_getBlockByHash.transactions/from",
-		"eth_getBlockByHash.transactions/gasPrice",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.transactions/type",
+		"eth_getBlockByNumber.transactions/chainId",
+		"eth_getBlockByNumber.transactions/nonce",
+		"eth_getBlockByNumber.transactions/gas",
+		"eth_getBlockByNumber.transactions/maxFeePerGas",
+		"eth_getBlockByNumber.transactions/maxPriorityFeePerGas",
+		"eth_getBlockByNumber.transactions/to",
+		"eth_getBlockByNumber.transactions/value",
+		"eth_getBlockByNumber.transactions/accessList",
+		"eth_getBlockByNumber.transactions/input",
+		"eth_getBlockByNumber.transactions/r",
+		"eth_getBlockByNumber.transactions/s",
+		"eth_getBlockByNumber.transactions/yParity",
+		"eth_getBlockByNumber.transactions/v",
+		"eth_getBlockByNumber.transactions/hash",
+		"eth_getBlockByNumber.transactions/blockHash",
+		"eth_getBlockByNumber.transactions/blockNumber",
+		"eth_getBlockByNumber.transactions/transactionIndex",
+		"eth_getBlockByNumber.transactions/from",
+		"eth_getBlockByNumber.transactions/gasPrice",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -2238,7 +2238,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 		storage: {
 			async upsert(batch) {
 				for (const block of batch) {
-					JSON.stringify(block.eth_getBlockByHash.withdrawals);
+					JSON.stringify(block.eth_getBlockByNumber.withdrawals);
 				}
 			},
 		},
@@ -2262,12 +2262,12 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
-		"eth_getBlockByHash.withdrawals/index",
-		"eth_getBlockByHash.withdrawals/validatorIndex",
-		"eth_getBlockByHash.withdrawals/address",
-		"eth_getBlockByHash.withdrawals/amount",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.number",
+		"eth_getBlockByNumber.withdrawals/index",
+		"eth_getBlockByNumber.withdrawals/validatorIndex",
+		"eth_getBlockByNumber.withdrawals/address",
+		"eth_getBlockByNumber.withdrawals/amount",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -2305,7 +2305,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
+		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/type",
 		"eth_getBlockReceipts/status",
 		"eth_getBlockReceipts/cumulativeGasUsed",
@@ -2329,7 +2329,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 		"eth_getBlockReceipts/from",
 		"eth_getBlockReceipts/to",
 		"eth_getBlockReceipts/contractAddress",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -2369,7 +2369,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId", //
-		"eth_getBlockByHash.number",
+		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/logs/address",
 		"eth_getBlockReceipts/logs/topics",
 		"eth_getBlockReceipts/logs/data",
@@ -2380,7 +2380,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 		"eth_getBlockReceipts/logs/transactionIndex",
 		"eth_getBlockReceipts/logs/logIndex",
 		"eth_getBlockReceipts/logs/removed",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.hash",
 	]);
 });
 
@@ -2395,7 +2395,7 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 			async upsert(batch) {
 				for (const block of batch) {
 					(block as any).anotherPropertyThatDoesntExist;
-					(block.eth_getBlockByHash as any).propertyThatIsCurrentlyUndefined;
+					(block.eth_getBlockByNumber as any).propertyThatIsCurrentlyUndefined;
 				}
 			},
 		},
@@ -2419,9 +2419,9 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 
 	expect(response.keys).toStrictEqual([
 		"eth_chainId",
-		"eth_getBlockByHash.number",
+		"eth_getBlockByNumber.number",
 		"anotherPropertyThatDoesntExist",
-		"eth_getBlockByHash.propertyThatIsCurrentlyUndefined",
-		"eth_getBlockByHash.hash",
+		"eth_getBlockByNumber.propertyThatIsCurrentlyUndefined",
+		"eth_getBlockByNumber.hash",
 	]);
 });
