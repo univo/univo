@@ -370,7 +370,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			heads.map(async (head) => {
 				const block_nullable = await getBlock(head);
 
-				// A null response is actually a common case during chain reorganisations. Because we load by block hash it
+				// A null response is actually a common case during chain reorganisations. Because we load by block number it
 				// is common the the client and server to be connected to different nodes. There is no guarantee that both
 				// those nodes see the same reorganisation so when we load the block on the server we get null. Because it's
 				// not possible for us to determine when this is the case versus the `getBlock` function just error we always
