@@ -261,27 +261,34 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		},
 	};
 
-	async function retry_getBlock(head: Head) {
+	async function retry_getBlock(head: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
 		const block = await opts.getBlock({ chain: head.chain, number: head.number });
 
 		if (block === null) {
 			throw new Error("Provided `getBlock` function returned null");
 		}
 
-		if (!utils.isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
-			throw new Error("Method `eth_getBlockByNumber` returned unexpected block hash");
-		}
+		if (typeof head.hash === "string") {
+			if (!utils.isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
+				throw new Error("Method `eth_getBlockByNumber` returned unexpected block hash");
+			}
 
-		for (const receipt of block.eth_getBlockReceipts) {
-			if (!utils.isHexEqual(head.hash, receipt.blockHash)) {
-				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
+			for (const receipt of block.eth_getBlockReceipts) {
+				if (!utils.isHexEqual(head.hash, receipt.blockHash)) {
+					throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
+				}
 			}
 		}
 
 		return block;
 	}
 
-	async function getBlock(head: Head) {
+	/**
+	 * Fetches a block using the provided `getBlock` function. Handles retries. The block hash is optional
+	 * because we sometimes want the canonical block using only the block number. If a hash is provided we
+	 * will assert that the block returned via the block number lookup is the expected block
+	 */
+	async function getBlock(head: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
 		return await utils.retry(retry_getBlock, [head], 2).catch(() => {
 			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
 			return null;
@@ -496,25 +503,19 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const public_deleteBlock: Rpc["public_deleteBlock"] = async (endpoint, block) => {
 		const decrypted = await verifyDecryptAndDecompressBlock(block);
 
-		const head = {
-			chain: decrypted.eth_chainId,
-			hash: decrypted.eth_getBlockByNumber.hash,
-			number: decrypted.eth_getBlockByNumber.number,
-		};
-
-		log.debug(`Received reorganised block ${utils.hexToNumber(head.chain)}:${utils.hexToNumber(head.number)}`);
+		log.debug(`Received reorganised block ${utils.hexToNumber(decrypted.eth_getBlockByNumber.number)}`);
 
 		// Loading blocks happens via the block number. If this block was truly reorganised and is no longer part of
 		// the canonical chain than this request should yield a block with a different block hash. This is our proof
 		// that this block is no longer included in the chain and that it's safe to delete data associated with it
 
-		const canonical = await getBlock(head);
+		const canonical = await getBlock({ chain: decrypted.eth_chainId, number: decrypted.eth_getBlockByNumber.number });
 
 		if (canonical === null) {
 			return log.debug("Attempted to delete unknown block, ignoring...");
 		}
 
-		if (utils.isHexEqual(canonical.eth_getBlockByNumber.hash, head.hash)) {
+		if (utils.isHexEqual(canonical.eth_getBlockByNumber.hash, decrypted.eth_getBlockByNumber.hash)) {
 			return log.debug("Attempted to delete canonical block, ignoring...");
 		}
 

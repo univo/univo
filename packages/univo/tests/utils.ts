@@ -59,9 +59,14 @@ export type test_Block = {
 	eth_getBlockReceipts: RpcTransactionReceipt[];
 };
 
-export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${string}` }) {
+export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
 	const cacheDir = "tests/blocks";
-	const cacheFile = join(cacheDir, `${hexToNumber(block.chain)}-${hexToNumber(block.number)}.json`);
+
+	let filename = `${hexToNumber(block.chain)}-${hexToNumber(block.number)}`;
+	if (typeof block.hash === "string") filename += `-${block.hash}`;
+	filename += ".json";
+
+	const cacheFile = join(cacheDir, filename);
 
 	// Try to read from cache first
 	try {

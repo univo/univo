@@ -49,7 +49,6 @@ test("public_writeAndReturnBlocks reports no results when provided a block that 
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 0 }],
 	});
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async () => {
 			assert.fail("There should be no results to submit");
@@ -81,7 +80,6 @@ test("public_writeAndReturnBlocks reports ok results if we return an empty handl
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async ({ request }) => {
 			const json = await request.json();
@@ -135,7 +133,6 @@ test("public_writeAndReturnBlocks reports ok results if we successfully upsert e
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async ({ request }) => {
 			const json = await request.json();
@@ -198,7 +195,6 @@ test("public_writeAndReturnBlocks reports a block_error for all events when fail
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async ({ request }) => {
 			const json: any = await request.json();
@@ -258,7 +254,6 @@ test("public_writeAndReturnBlocks reports a handler_error", async () => {
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async ({ request }) => {
 			const json = await request.json();
@@ -310,7 +305,6 @@ test("public_writeAndReturnBlocks reports any upsert errors", async () => {
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async ({ request }) => {
 			const json = await request.json();
@@ -364,7 +358,6 @@ test("public_writeAndReturnBlocks retries upsert errors", async () => {
 		},
 	});
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async () => {
 			return Response.json({ success: true, data: null });
@@ -415,7 +408,6 @@ test("public_writeAndReturnBlocks deduplicates events with the same storage adap
 		handler: (block) => [`event2-${block.eth_getBlockByNumber.hash}`],
 	});
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async () => {
 			return Response.json({ success: true, data: null });
@@ -461,7 +453,6 @@ test("public_writeAndReturnBlocks returns blocks", async () => {
 		},
 	});
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async () => {
 			return Response.json({ success: true, data: null });
@@ -504,7 +495,6 @@ test("public_writeAndReturnBlocks only returns blocks it successfully loaded", a
 		},
 	});
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async () => {
 			return Response.json({ success: true, data: null });
@@ -563,7 +553,6 @@ test("public_deleteBlock never deletes events from canonical blocks", async () =
 
 	const client = test_indexer(univo);
 
-	// Mock univo endpoint
 	server.use(
 		http.post("https://api.univo.app/v1/results", async () => {
 			return Response.json({ success: true, data: null });
@@ -600,7 +589,80 @@ test("public_deleteBlock never deletes events from canonical blocks", async () =
 });
 
 test("public_deleteBlock deletes events from reorganised blocks", async () => {
-	// Not sure how to test this reliably
+	let deleted = false;
+	let upserted = false;
+
+	const univo = indexer({
+		quiet: false,
+		signingKey: "test",
+		getBlock: async () => {
+			// The first request happens we are writing a block and we want this to be the reorganised block
+			if (upserted === false) {
+				return await test_getBlock({
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334",
+				});
+			}
+
+			// This second request happens during deletion and should return the canonical block
+			return await test_getBlock({
+				chain: "0x1",
+				number: "0x17ebb67",
+				hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
+			});
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert() {
+				upserted = true;
+			},
+			async delete() {
+				deleted = true;
+			},
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	server.use(
+		http.post("https://api.univo.app/v1/results", async () => {
+			return Response.json({ success: true, data: null });
+		}),
+	);
+
+	const response = await client.request({
+		method: "public_writeAndReturnBlocks",
+		params: [
+			"https://endpoint.com",
+			[
+				{
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334",
+				},
+			],
+		],
+	});
+
+	const block = response.blocks[0];
+
+	if (block === null || block === undefined) {
+		throw new Error("Expected block to be defined");
+	}
+
+	await client.request({
+		method: "public_deleteBlock",
+		params: ["https://endpoint.com", block],
+	});
+
+	expect(deleted).toBe(true);
+	expect(upserted).toBe(true);
 });
 
 test("private_writeEvents indexes only the events requested", async () => {
