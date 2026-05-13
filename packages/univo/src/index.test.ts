@@ -534,12 +534,12 @@ test("public_writeAndReturnBlocks only returns blocks it successfully loaded", a
 test.concurrent("public_deleteBlock rejects invalid blocks", async () => {
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
 
-	const promise = test_indexer(univo).request({
-		method: "public_deleteBlock",
-		params: ["https://endpoint.com", "this_is_an_invalid_block"],
-	});
-
-	expect(promise).toThrowError;
+	expect(async () => {
+		await test_indexer(univo).request({
+			method: "public_deleteBlock",
+			params: ["https://endpoint.com", "this_is_an_invalid_block"],
+		});
+	}).toThrowError;
 });
 
 test("public_deleteBlock never deletes events from canonical blocks", async () => {
