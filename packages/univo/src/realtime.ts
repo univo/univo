@@ -668,7 +668,7 @@ function realtime(opts: RealtimeOptions) {
 
 				const block = cache.get(reorged);
 
-				// Could be an edge where the block is undefined at chain initialisation?
+				// Could be an edge case where the block is undefined at chain initialisation?
 
 				if (block === undefined) {
 					throw new Error("Expected block to be defined");
