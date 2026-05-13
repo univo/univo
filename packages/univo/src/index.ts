@@ -522,7 +522,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Returning block data is a fundamental step in handling chain reorganisations. We can't know the exact
 		// chain until finalization, and by the time finalization occurs the initial block data used we indexed
-		// won't be available. Returning it heres allows clients to store it, and allows us to process it later
+		// won't be available. Returning it here allows clients to store it, and allows us to process it later
 		// once we are confident a block was reorganised. Compressing, encrypting, and signing the payload is
 		// what allows this server to trust the data wasn't tampered with and is exactly the initial data we used
 
