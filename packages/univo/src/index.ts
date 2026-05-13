@@ -6,7 +6,8 @@ import { catchException, createException, getException } from "./exceptions";
 // Block ------------------------------------------------------------------------------------------------------------------------------------
 // This is the minimum set of block fields univo needs to function. These are mostly required to allow to perform
 // filter matching on a given block. We need to have _some_ agreed contract to able to understand the chain,
-// the block, and log address and events.
+// the block, and log address and events. We also expect some methods so that we can verify these known methods
+// originate from the intended block hash.
 
 type Block = {
 	eth_chainId: `0x${string}`;
@@ -17,6 +18,8 @@ type Block = {
 	};
 
 	eth_getBlockReceipts: Array<{
+		blockHash: `0x${string}`;
+
 		logs: Array<{
 			address: `0x${string}`;
 			topics: `0x${string}`[];
@@ -195,8 +198,14 @@ type IndexerOptions<TBlock> = {
 	/**
 	 * This function is to load each block when indexing blocks in realtime. This ensures that all block
 	 * data processed originates from a trusted RPC source and can be safely relied on.
+	 *
+	 * Because loading block data uses the block number. It's possible that different responses are returned
+	 * during chain reorganisations.
+	 *
+	 * We verify the integrity of known RPC responses. However, for any custom methods you must manually
+	 * verify the block hash is consistent with the other known methods.
 	 */
-	getBlock: (block: { chain: `0x${string}`; hash: `0x${string}` }) => Promise<TBlock | null>;
+	getBlock: (block: { chain: `0x${string}`; number: `0x${string}` }) => Promise<TBlock | null>;
 };
 
 type Indexer<TBlock> = {
@@ -252,6 +261,33 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		},
 	};
 
+	async function retry_getBlock(head: Head) {
+		const block = await opts.getBlock({ chain: head.chain, number: head.number });
+
+		if (block === null) {
+			throw new Error("Provided `getBlock` function returned null");
+		}
+
+		if (!utils.isHexEqual(head.hash, block.eth_getBlockByHash.hash)) {
+			throw new Error("Method `eth_getBlockByHash` returned unexpected block hash");
+		}
+
+		for (const receipt of block.eth_getBlockReceipts) {
+			if (!utils.isHexEqual(head.hash, receipt.blockHash)) {
+				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
+			}
+		}
+
+		return block;
+	}
+
+	async function getBlock(head: Head) {
+		return await utils.retry(retry_getBlock, [head], 2).catch(() => {
+			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
+			return null;
+		});
+	}
+
 	async function signCompressAndEncryptBlock(block: TBlock) {
 		const json = JSON.stringify(block);
 		const compressed = await utils.compress(json);
@@ -290,11 +326,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const blocks_nullable = await Promise.all(
 			heads.map(async (head) => {
-				const block_nullable = await utils.retry(opts.getBlock, [{ chain: head.chain, hash: head.hash }], 2).catch(() => {
-					log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
-
-					return null;
-				});
+				const block_nullable = await getBlock(head);
 
 				// A null response is actually a common case during chain reorganisations. Because we load by block hash it
 				// is common the the client and server to be connected to different nodes. There is no guarantee that both
@@ -467,29 +499,23 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const head = {
 			chain: decrypted.eth_chainId,
 			hash: decrypted.eth_getBlockByHash.hash,
+			number: decrypted.eth_getBlockByHash.number,
 		};
 
-		log.debug(`Received reorganised block ${utils.hexToNumber(head.chain)}:${utils.hexToNumber(decrypted.eth_getBlockByHash.number)}`);
+		log.debug(`Received reorganised block ${utils.hexToNumber(head.chain)}:${utils.hexToNumber(head.number)}`);
 
-		// Loading blocks happens via the block hash. If this block was truly reorganised and is no longer
-		// part of the canonical chain than this request will return a null response. This is our proof that
-		// this block is no longer included in the chain and that is safe to delete data associated with the block
+		// Loading blocks happens via the block number. If this block was truly reorganised and is no longer part of
+		// the canonical chain than this request should yield a block with a different block hash. This is our proof
+		// that this block is no longer included in the chain and that it's safe to delete data associated with it
 
-		const canonical = await utils.retry(opts.getBlock, [head], 2).catch(() => {
-			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
+		const canonical = await getBlock(head);
 
-			return null;
-		});
+		if (canonical === null) {
+			return log.debug("Attempted to delete unknown block, ignoring...");
+		}
 
-		if (canonical !== null) {
-			// It is possible that this block hash actually is included in the canonical chain. It's fine for the
-			// univo client to be pretty optismitic about what blocks it believes to be re-organised. For example,
-			// if the chain is constantly switching between forks because of a execution client bug. It's okay to
-			// just send all the possible re-organised blocks. In all cases, we are saved by the fact that if the
-			// above request returns a block we will not perform any data deletions.
-			log.debug("Attempted to delete canonical block, ignoring...");
-
-			return;
+		if (utils.isHexEqual(canonical.eth_getBlockByHash.hash, head.hash)) {
+			return log.debug("Attempted to delete canonical block, ignoring...");
 		}
 
 		// We know the block is not included in the canonical chain and we know that our storage system upserted

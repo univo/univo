@@ -64,9 +64,9 @@ export type test_Block = {
 	eth_getBlockReceipts: RpcTransactionReceipt[];
 };
 
-export async function test_getBlock(block: { chain: `0x${string}`; hash: `0x${string}` }) {
+export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${string}` }) {
 	const cacheDir = ".blocks";
-	const cacheFile = join(cacheDir, `${hexToNumber(block.chain)}-${block.hash}.json`);
+	const cacheFile = join(cacheDir, `${hexToNumber(block.chain)}-${hexToNumber(block.number)}.json`);
 
 	// Try to read from cache first
 	try {
@@ -78,8 +78,8 @@ export async function test_getBlock(block: { chain: `0x${string}`; hash: `0x${st
 
 	// Fetch from network
 	const [eth_getBlockByHash, eth_getBlockReceipts] = await Promise.all([
-		retry(rpc, [{ id: 1, method: "eth_getBlockByHash", params: [block.hash, true] }], 4),
-		retry(rpc, [{ id: 2, method: "eth_getBlockReceipts", params: [block.hash] }], 4),
+		retry(rpc, [{ id: 1, method: "eth_getBlockByNumber", params: [block.number, true] }], 4),
+		retry(rpc, [{ id: 2, method: "eth_getBlockReceipts", params: [block.number] }], 4),
 	]);
 
 	if (!eth_getBlockByHash) throw new Error("eth_getBlockByHash is null");
