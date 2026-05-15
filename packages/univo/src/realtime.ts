@@ -3,7 +3,7 @@ import { WebSocket } from "partysocket";
 import type { ErrorEvent } from "partysocket/ws";
 
 import { http } from "./client";
-import { assert, createLogger, hexToNumber, mutex, raise, retry } from "./utils";
+import { assert, createLogger, hexToNumber, isHexEqual, mutex, retry } from "./utils";
 
 /**
  * Socket -----------------------------------------------------------------------------------------------------------------------------------
@@ -48,6 +48,11 @@ function createSocket(url: `wss://${string}`, opts: SocketOptions) {
  * Transport -----------------------------------------------------------------------------------------------------------------------------------
  */
 
+type TransportOptions = {
+	/** Logs are emitted based on the environment LOG_LEVEL. Set `quiet: true` to surpress all logs. */
+	quiet?: boolean;
+};
+
 type Transport = {
 	/**
 	 * Performs as JSON RPC request and returns the result
@@ -59,8 +64,12 @@ type Transport = {
 	subscribe(param: "newHeads", handler: (message: any) => void): Promise<{ unsubscribe(): Promise<void> }>;
 };
 
-function defineTransport(url: string): Transport {
-	assert(url.startsWith("wss://"), "Websocket connections must start with `wss://`");
+function defineTransport(url: string, opts: TransportOptions = {}): Transport {
+	if (!url.startsWith("wss://")) {
+		throw new Error("Websocket connections must start with `wss://`");
+	}
+
+	const logger = createLogger({ quiet: opts.quiet ?? false });
 
 	let id = 0;
 
@@ -76,7 +85,7 @@ function defineTransport(url: string): Transport {
 
 	const socket = createSocket(url as "wss://", {
 		async onError(cause) {
-			console.error(new Error("Socket error", { cause }));
+			logger.error(new Error("Socket error", { cause }));
 		},
 
 		async onOpen() {
@@ -94,7 +103,7 @@ function defineTransport(url: string): Transport {
 				// likely means the node automatically dropped our subscriptions. So we can fire-and-forget this.
 
 				request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
-					console.warn("Failed to cancel old susbcription");
+					logger.warn("Failed to cancel old susbcription");
 				});
 
 				subscriptions.delete(id);
@@ -115,7 +124,7 @@ function defineTransport(url: string): Transport {
 
 				if (subscription === undefined) {
 					return await request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {
-						console.warn("Failed to unsubscribe stale subscription");
+						logger.warn("Failed to unsubscribe stale subscription");
 					});
 				}
 
@@ -123,7 +132,7 @@ function defineTransport(url: string): Transport {
 
 				if (handlers === undefined) {
 					return await request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {
-						console.warn("Failed to unsubscribe stale subscription");
+						logger.warn("Failed to unsubscribe stale subscription");
 					});
 				}
 
@@ -131,7 +140,7 @@ function defineTransport(url: string): Transport {
 					try {
 						handler(data.params.result);
 					} catch (cause) {
-						console.error(new Error("Handler error", { cause }));
+						logger.error(new Error("Handler error", { cause }));
 					}
 				}
 
@@ -143,7 +152,7 @@ function defineTransport(url: string): Transport {
 			const handler = requests.get(data.id);
 
 			if (handler === undefined) {
-				return console.warn(`Received unknown response for request id ${data.id}...`);
+				return logger.warn(`Received unknown response for request id ${data.id}...`);
 			}
 
 			return handler(data.result);
@@ -186,14 +195,14 @@ function defineTransport(url: string): Transport {
 				const handlers = params.get(param);
 
 				if (handlers === undefined) {
-					return console.warn("Param already unsubscribed...");
+					return logger.warn("Param already unsubscribed...");
 				}
 
 				handlers.delete(handler);
 
 				if (handlers.size === 0) {
 					await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
-						console.warn("Failed to unsubscribe unused subscription");
+						logger.warn("Failed to unsubscribe unused subscription");
 					});
 				}
 			},
@@ -208,12 +217,12 @@ function defineTransport(url: string): Transport {
 				params.push(subscription.param);
 
 				request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
-					console.warn("Failed to cancel old susbcription");
+					logger.warn("Failed to cancel old susbcription");
 				});
 
 				subscriptions.delete(id);
 
-				console.warn(`Subscription ${id} failed health check, reinitialising..`);
+				logger.warn(`Subscription ${id} failed health check, reinitialising..`);
 			}
 		}
 
@@ -233,6 +242,8 @@ function defineTransport(url: string): Transport {
  * Blockchain -----------------------------------------------------------------------------------------------------------------------------------
  */
 
+const MAX_LENGTH = 1000;
+
 type Head = {
 	chain: `0x${string}`;
 	hash: `0x${string}`;
@@ -243,29 +254,37 @@ type Head = {
 type BlockchainOptions = {
 	quiet: boolean;
 	onBlockAdded(head: Head): void | Promise<void>;
-	getBlockByHash(hash: `0x${string}`): Promise<Head | null | undefined>;
+	onBlockRemoved(head: Head): void | Promise<void>;
+	getBlockByHash(hash: `0x${string}`): Promise<Head | null>;
 };
 
 type Blockchain = {
+	chain: Head[];
 	reconcile(newBlock: Head): Promise<void>;
 };
 
-// Could be globally cached per chain id
 function defineBlockchain(opts: BlockchainOptions): Blockchain {
 	const log = createLogger({ quiet: opts.quiet });
 
-	// TODO: convert to a KV api so that we can use unstorage and easily store the chain _anywhere_
-	// key would be block number, value is `Block`
 	const chain: Head[] = [];
 
 	function setHeadBlock(newBlock: Head) {
 		chain.push(newBlock);
 		opts.onBlockAdded(newBlock);
-		if (chain.length > 100) chain.shift();
+
+		if (chain.length > MAX_LENGTH) {
+			chain.shift(); // Bounds memory usage
+		}
 	}
 
 	function removeHeadBlock() {
-		chain.pop();
+		const head = chain.pop();
+
+		if (head === undefined) {
+			return;
+		}
+
+		opts.onBlockRemoved(head);
 	}
 
 	function getHeadBlock() {
@@ -325,11 +344,14 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		// A re-org has taken place AND the new block _is_ the forked block itself
 		if (chain.some((block) => block.hash === newBlock.parentHash)) {
 			// We recursively remove our head block until we reach the common ancestor between the remote and local chains
-			while (getHeadBlock().hash !== newBlock.parentHash) removeHeadBlock();
+			while (getHeadBlock().hash !== newBlock.parentHash) {
+				removeHeadBlock();
+			}
+
 			return setHeadBlock(newBlock);
 		}
 
-		// 7.
+		// 6.
 		// - We have received a block newer than our local chain and we need to catch up to remote
 		// - Chain has re-orged but the new block received _is not_ the forked block itself and is further up the forked chain.
 		// In either case the fix is the same: we traverse the remote chain backwards until we reach a common ancestor with
@@ -337,19 +359,30 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 
 		// This is our recursive base case
 		if (newBlock.parentHash === "0x0000000000000000000000000000000000000000000000000000000000000000") {
-			while (chain.length > 0) removeHeadBlock();
+			while (chain.length > 0) {
+				removeHeadBlock();
+			}
+
 			return setHeadBlock(newBlock);
 		}
 
 		// Load the parent remote block and reconcile
 		const parentBlock = await retry(opts.getBlockByHash, [newBlock.parentHash], 5);
-		if (!parentBlock) throw new Error(`Failed to fetch parent block ${hexToNumber(newBlock.number)} ${newBlock.parentHash.slice(0, 16)}`);
-		assert(parentBlock.hash === newBlock.parentHash, "Expected block hashes to match");
-		await reconcile(parentBlock);
-		return await reconcile(newBlock);
+
+		if (parentBlock === null) {
+			throw new Error(`Failed to fetch parent block ${hexToNumber(newBlock.number)} ${newBlock.parentHash.slice(0, 16)}`);
+		}
+
+		assert(isHexEqual(parentBlock.hash, newBlock.parentHash), "Expected block hashes to match");
+
+		await reconcile(parentBlock); // Reconcile up to the parent block
+		return await reconcile(newBlock); // Finally we add this block
 	}
 
+	// TODO: We should move the mutex here to much higher up in the abstraction
+
 	return {
+		chain,
 		reconcile: mutex(reconcile),
 	};
 }
@@ -358,19 +391,12 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
  * Stream -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-// We don't attempt to provide for block information. That is outside the boundary of this software.
-// If we did it brings up too many questions about what that data should be? Should it be our own custom
-// version of a block? Should it be specific raw RPC responses? If so what responses?
-// We provide only the hash because it is a canonical id for the block and is what should be used for lookup
-// Info like block numbers, parent hashes, should technically be an implementation detail of the software. As a user we should
-// have the intuition that the block stream sequentially iterates over all newly added blocks, and re-iterating
-// over any new blocks added as a result of a chain re-organisation. One of the problems especially with passing
-// a block number for lookup with eth_getBlockByNumber, is that there is a slight chance that a node could return
-// a block with that block number and a different block hash.
+const POLLING_INTERVAL_MS = 60 * 1000;
+
 type Handler = (head: Head) => Promise<void> | void;
 
 type Stream = {
-	on(event: "block", handler: Handler): { unsubscribe: () => void };
+	on(event: "block-added" | "block-removed" | "block-finalized", handler: Handler): () => void;
 };
 
 type CreateRealtimeStreamOpts = {
@@ -378,68 +404,120 @@ type CreateRealtimeStreamOpts = {
 	transport: Transport;
 };
 
-// createBlockStream? createRealtimeStream? createRealtimeClient?
-// I like realtime stream because it's clear that it's only realtime data and not historical data
-// If it was createBlockStream and it's ambiguous whether or not the stream includes blocks from genesis or not
 function createRealtimeStream(opts: CreateRealtimeStreamOpts): Stream {
 	const log = createLogger({ quiet: opts.quiet });
 
-	const handlers = new Set<Handler>();
+	const handlers = {
+		"block-added": new Set<Handler>(),
+		"block-removed": new Set<Handler>(),
+		"block-finalized": new Set<Handler>(),
+	};
 
-	function onBlockAdded(head: Head) {
-		for (const handler of handlers) {
-			try {
-				const result = handler(head);
+	function emit(tag: keyof typeof handlers) {
+		return (head: Head) => {
+			for (const handler of handlers[tag]) {
+				try {
+					const result = handler(head);
 
-				if (result instanceof Promise) {
-					result.catch(() => {
-						log.error("Failed to process handler");
-					});
-				}
-			} catch (error) {
-				if (error instanceof Error) {
-					log.error(error.message);
+					if (result instanceof Promise) {
+						result.catch(() => {
+							log.error(`Failed to process ${tag} handler`);
+						});
+					}
+				} catch (error) {
+					if (error instanceof Error) {
+						log.error(error.message);
+					}
 				}
 			}
-		}
+		};
 	}
 
-	async function createRealtimeStreamForChain(chain: `0x${string}`) {
-		async function getBlockByHash(hash: `0x${string}`) {
-			const block = await opts.transport.request({
-				method: "eth_getBlockByHash",
-				params: [hash, false],
+	// TODO
+	// Probably also add a chain-initialised event?
+	// Handle switching chains. Probably done by emitting a stream-closed event?
+	// Also need to think about if it's more appropriate to handle the chain id one layer up?
+	// Cause if the chain switches we should basically reinitialise everything?
+
+	const request = retry(opts.transport.request, [{ method: "eth_chainId", params: [] }], 5);
+
+	request
+		.then(async (chain) => {
+			async function getBlockByHash(hash: `0x${string}`) {
+				const block = await opts.transport.request({
+					method: "eth_getBlockByHash",
+					params: [hash, false], // We don't need transaction receipts
+				});
+
+				return {
+					chain,
+					hash: block.hash,
+					number: block.number,
+					parentHash: block.parentHash,
+				};
+			}
+
+			// First we create the subscription for block added/removed events
+
+			const latest = defineBlockchain({
+				getBlockByHash,
+				quiet: opts.quiet,
+				onBlockAdded: emit("block-added"),
+				onBlockRemoved: emit("block-removed"),
 			});
 
-			return { chain, number: block.number, hash: block.hash, parentHash: block.parentHash };
-		}
+			await opts.transport.subscribe("newHeads", async (head) => {
+				try {
+					await latest.reconcile({
+						chain,
+						hash: head.hash,
+						number: head.number,
+						parentHash: head.parentHash,
+					});
+				} catch {
+					log.error("Failed to reconcile latest head");
+				}
+			});
 
-		const latest = defineBlockchain({ onBlockAdded, getBlockByHash, quiet: opts.quiet });
+			// And then we create our polling implementation for determining when blocks finalize. Unfortunately,
+			// no subscription exists so that this can be pushed to us
 
-		async function onNewHead(head: Head) {
-			try {
-				await latest.reconcile(head);
-			} catch (cause) {
-				log.error("Failed to reconcile latest head");
+			const finalized = defineBlockchain({
+				getBlockByHash,
+				quiet: opts.quiet,
+				onBlockRemoved: () => {},
+				onBlockAdded: emit("block-finalized"),
+			});
+
+			async function polling() {
+				try {
+					const block = await opts.transport.request({
+						method: "eth_getBlockByNumber",
+						params: ["finalized", false], // We don't need transaction receipts
+					});
+
+					// We already have the chain state local to construct the finalized chain so all
+					// we have to do is iterate over the latest chain reconciling blocks less than
+					// the latest finalized block
+
+					for (const head of latest.chain) {
+						if (hexToNumber(head.number) <= hexToNumber(block.number)) {
+							await finalized.reconcile(head);
+						}
+					}
+				} catch {
+					log.error("Failed to reconcile finalized head");
+				}
 			}
-		}
 
-		opts.transport
-			.subscribe("newHeads", (head) => onNewHead({ chain, number: head.number, hash: head.hash, parentHash: head.parentHash }))
-			.then(() => log.debug(`Initialised subscription for chain ${hexToNumber(chain)}`))
-			.catch((cause) => raise(`Failed to initialise subscription for chain ${hexToNumber(chain)}`, { cause }));
-	}
-
-	// TODO: Handle switching chains
-
-	retry(opts.transport.request, [{ method: "eth_chainId", params: [] }], 5)
-		.then((chain) => createRealtimeStreamForChain(chain))
-		.catch(() => log.error("Failed to load current chain"));
+			setInterval(polling, POLLING_INTERVAL_MS);
+		})
+		.catch(() => log.error("Failed to initialise realtime stream. Unable to determine chain id"));
 
 	return {
-		on(_: "block", handler: Handler) {
-			handlers.add(handler);
-			return { unsubscribe: () => handlers.delete(handler) };
+		on(event: "block-added" | "block-removed" | "block-finalized", handler: Handler) {
+			handlers[event].add(handler);
+			return () => handlers[event].delete(handler);
 		},
 	};
 }
@@ -449,70 +527,209 @@ function createRealtimeStream(opts: CreateRealtimeStreamOpts): Stream {
  */
 
 type RealtimeOptions = {
-	/** Custom transport */
-	transport: Transport;
-	/** Endpoints to publish realtime blocks to */
-	endpoints: string[]; // TODO: Assert https://
 	/** Logs are emitted based on the environment LOG_LEVEL. Set `quiet: true` to surpress all logs. */
 	quiet?: boolean;
+	/** Custom transport */
+	transport: Transport;
+	/** Endpoints to publish realtime blocks to. We support multiple endpoints to make endpoint migrations easier */
+	endpoints: string[];
 };
 
-// TODO
-// Accept http() transports instead of endpoints. This would allow us to use an authenticated client.
-// If we were running realtime in a trusted server environment, we wouldn't need to re-load blocks
-//
-// This would reduce cost and improve latency. We may have to split up historical and realtime indexing methods because
-// of the current implementation of successes/errors
-//
-// It's also possible that this would happen in the same server environment in a monolithic architecture,
-// and would warrant the need for the local() transport to return
-//
-// The primary reason I don't think we should do this is I can just foresee users consuming this API incorrectly and
-// will provide a signingKey in a client environment. If the API is designed with a pit-of-success mentality, this
-// feature goes against that
-
-// TODO
-// Have multiple transports and initialise multiple streams. Assuming the in memory
-// chain is de-deplicated I feel like this would improve resiliency and help process reorgs
-
 function realtime(opts: RealtimeOptions) {
-	const defaultOptions = { quiet: false };
-	const options = Object.assign(defaultOptions, opts);
-	const log = createLogger(options);
+	const log = createLogger({ quiet: opts.quiet ?? false });
 
-	if (options.endpoints.length === 0) throw new Error("Must provide at least one url to `endpoints`");
+	if (opts.endpoints.length === 0) {
+		throw new Error("Must provide at least one url to `endpoints`");
+	}
+
+	if (opts.endpoints.some((endpoint) => !endpoint.startsWith("https://"))) {
+		log.error("All endpoints must start with https://");
+	}
+
+	if (opts.endpoints.some((endpoint) => endpoint.includes("localhost"))) {
+		log.error("Endpoints cannot be on localhost");
+	}
 
 	function createClient(endpoint: string) {
 		const client = http(endpoint);
 
 		let id = 0;
-		let pending: Head[] = [];
 
-		return {
-			async publish(head: Head) {
-				try {
-					const heads = pending.concat(head);
-
-					const response = await client.request({ jsonrpc: "2.0", id: id++, method: "public_writeBlocks", params: [endpoint, heads] });
-					if (response.error) throw new Error(response.error.message);
-
-					pending = [];
-				} catch (cause) {
-					log.warn(`Failed to publish realtime block ${head.chain}:${head.number}`);
-
-					// Push failed heads to the pending queue
-					pending.push(head);
-				}
-			},
+		const queues = {
+			pending: [] as Head[],
+			reorged: [] as Head[],
 		};
+
+		const cache = new WeakMap<Head, string | null>();
+
+		/**
+		 * Writes a head to the server. Implements a retry strategy that doesn't spam the endpoint but retrying
+		 * blocks on the same schedule of requests
+		 */
+		async function writeBlock(head: Head) {
+			try {
+				// TODO
+				// The primary improvement to this retry method is that if the queue get's too large we might DDOS
+				// the endpoint by forcing it to load too many blocks at once. Moreover, this function doesn't run
+				// under any type of mutex so if the request takes longer than when we receive the next block we
+				// will spam requests. We need a strategy for queueing requests for new heads.
+
+				const heads = queues.pending.concat(head);
+
+				const response = await client.request({
+					id: id++,
+					jsonrpc: "2.0",
+					params: [endpoint, heads],
+					method: "public_writeAndReturnBlocks",
+				});
+
+				if (response.error) {
+					throw new Error(response.error.message);
+				}
+
+				if (response.result === undefined) {
+					throw new Error("Expected response.result to be defined");
+				}
+
+				if (response.result.blocks.length !== heads.length) {
+					throw new Error("Received a different number of blocks in response");
+				}
+
+				for (let i = 0; i < heads.length; i++) {
+					const head = heads[i];
+					const block = response.result.blocks[i];
+
+					if (head === undefined) {
+						throw new Error("Expected head to be defined");
+					}
+
+					if (block === undefined) {
+						throw new Error("Expected block to be defined");
+					}
+
+					cache.set(head, block);
+				}
+
+				if (heads.length > 1) {
+					log.info(`Successfully delivered batch of ${heads.length} blocks`);
+				}
+
+				queues.pending = queues.pending.filter((head) => {
+					const wasSent = heads.some((_head) => {
+						return isHexEqual(head.chain, _head.chain) && isHexEqual(head.hash, _head.hash);
+					});
+
+					return !wasSent; // Keep only blocks that weren't sent from the pending queue
+				});
+			} catch {
+				log.warn(`Failed to insert events for block ${hexToNumber(head.chain)}:${hexToNumber(head.number)}.`);
+				queues.pending.push(head); // Push failed heads to the pending queue
+				log.info(`Pending blocks queue size at ${queues.pending.length}`);
+			}
+		}
+
+		async function queueBlock(head: Head) {
+			// It's okay to be be pretty optimistic about what blocks have been reorged. If there is a major consensus
+			// or execution client bug that creates a long fork or means we constantly switch between forks it doesn't matter.
+			// Once the chain finalizes we will eventually send all these queued blocks, if a particular block is included
+			// in the canonical chain it will just be ignored by the delete process
+
+			queues.reorged.push(head);
+		}
+
+		async function retry_deleteBlock(endpoint: string, block: string) {
+			const response = await client.request({
+				id: id++,
+				jsonrpc: "2.0",
+				params: [endpoint, block],
+				method: "public_deleteBlock",
+			});
+
+			if (response.error) {
+				throw new Error(response.error.message);
+			}
+		}
+
+		async function deleteBlock(head: Head) {
+			try {
+				const index = queues.reorged.findIndex((_head) => {
+					return isHexEqual(head.chain, _head.chain) && isHexEqual(head.number, _head.number);
+				});
+
+				const reorged = queues.reorged[index];
+
+				// Note that it doesn't matter if the chain is constantly switching between forks. The correctness check
+				// on the server ensures that deletion only ever occurs for blocks that are not part of the finalized chain
+
+				if (reorged === undefined) {
+					cache.delete(head);
+					return;
+				}
+
+				const block = cache.get(reorged);
+
+				// Could be an edge case where the block is undefined at chain initialisation?
+
+				if (block === undefined) {
+					throw new Error("Expected block to be defined");
+				}
+
+				// This indicates the server never actually loaded and processed this block. This happens because of the
+				// delay between this client receiving the block and the server attempting to load it again. If the block
+				// was reorged the server might not have been able to load and process it because the node it's connected
+				// to never saw or has already rejected the reorganised block. Because the reorganised block was deleted
+				// it means there are no events that we need to delete
+
+				if (block === null) {
+					cache.delete(head);
+					return;
+				}
+
+				// If the block was successfully returned by the server we need to delete all events created by it
+
+				await retry(retry_deleteBlock, [endpoint, block], 5);
+
+				queues.reorged = queues.reorged.filter((_head) => {
+					const isBlock = isHexEqual(head.chain, _head.chain) && isHexEqual(head.number, _head.number);
+					return !isBlock;
+				});
+
+				cache.delete(head);
+			} catch {
+				log.error(
+					`Failed to delete reorged block ${hexToNumber(head.chain)}:${hexToNumber(head.number)}.
+					This failure means that events recorded for this re-organised block have not been disposed of.`,
+				);
+			}
+		}
+
+		return { writeBlock, queueBlock, deleteBlock };
 	}
 
-	const clients = options.endpoints.map((endpoint) => createClient(endpoint));
+	const clients = opts.endpoints.map((endpoint) => createClient(endpoint));
 
-	createRealtimeStream(options).on("block", async (head) => {
-		await Promise.all(
+	const stream = createRealtimeStream({ quiet: opts.quiet ?? false, transport: opts.transport });
+
+	stream.on("block-added", async (head) => {
+		await Promise.allSettled(
 			clients.map(async (client) => {
-				await client.publish(head);
+				await client.writeBlock(head);
+			}),
+		);
+	});
+
+	stream.on("block-removed", async (head) => {
+		await Promise.allSettled(
+			clients.map(async (client) => {
+				await client.queueBlock(head);
+			}),
+		);
+	});
+
+	stream.on("block-finalized", async (head) => {
+		await Promise.allSettled(
+			clients.map(async (client) => {
+				await client.deleteBlock(head);
 			}),
 		);
 	});
@@ -522,4 +739,4 @@ function realtime(opts: RealtimeOptions) {
  * Exports -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-export { realtime, defineTransport, createRealtimeStream };
+export { realtime, defineTransport };

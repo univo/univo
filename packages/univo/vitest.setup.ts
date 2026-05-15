@@ -1,13 +1,18 @@
 import { config } from "dotenv";
-
-import { server } from "./mocks/node";
+import { setupServer } from "msw/node";
+import { http, passthrough } from "msw";
 
 // Environment variables
 
-config();
+config({ quiet: true });
 
-if (process.env.TEST_ETHEREUM_RPC_WSS === undefined) throw new Error("Set a TEST_ETHEREUM_RPC_WSS environment variable");
-if (process.env.TEST_ETHEREUM_RPC_URL === undefined) throw new Error("Set a TEST_ETHEREUM_RPC_URL environment variable");
+if (process.env.TEST_ETHEREUM_RPC_WSS === undefined) {
+	throw new Error("Set a TEST_ETHEREUM_RPC_WSS environment variable");
+}
+
+if (process.env.TEST_ETHEREUM_RPC_URL === undefined) {
+	throw new Error("Set a TEST_ETHEREUM_RPC_URL environment variable");
+}
 
 declare global {
 	namespace NodeJS {
@@ -20,6 +25,11 @@ declare global {
 
 // Mock service worker
 
-beforeAll(() => server.listen({ onUnhandledRequest: "warn" }));
+export const server = setupServer(
+	http.all("http://localhost:7483/:key", passthrough),
+	http.all(process.env.TEST_ETHEREUM_RPC_URL, passthrough),
+);
+
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());

@@ -55,13 +55,18 @@ export function test_promiseWithResolvers() {
 
 export type test_Block = {
 	eth_chainId: `0x${string}`;
-	eth_getBlockByHash: RpcBlock<"latest", true>;
+	eth_getBlockByNumber: RpcBlock<"latest", true>;
 	eth_getBlockReceipts: RpcTransactionReceipt[];
 };
 
-export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${string}`; hash: `0x${string}` }) {
-	const cacheDir = ".blocks";
-	const cacheFile = join(cacheDir, `${hexToNumber(block.chain)}-${hexToNumber(block.number)}.json`);
+export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
+	const cacheDir = "tests/blocks";
+
+	let filename = `${hexToNumber(block.chain)}-${hexToNumber(block.number)}`;
+	if (typeof block.hash === "string") filename += `-${block.hash}`;
+	filename += ".json";
+
+	const cacheFile = join(cacheDir, filename);
 
 	// Try to read from cache first
 	try {
@@ -82,7 +87,7 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${
 
 	const blockData: test_Block = {
 		eth_chainId: block.chain,
-		eth_getBlockByHash: eth_getBlockByNumber,
+		eth_getBlockByNumber,
 		eth_getBlockReceipts,
 	};
 
