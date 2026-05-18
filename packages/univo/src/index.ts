@@ -1,3 +1,5 @@
+import type { Storage } from "unstorage";
+
 import * as utils from "./utils";
 import type { Flatten } from "./utils";
 import { version } from "../package.json";
@@ -204,6 +206,18 @@ type IndexerOptions<TBlock> = {
 	 */
 	signingKey: string;
 	/**
+	 * Storage interface for durably persisting indexer metadata.
+	 *
+	 * This uses the unified key-value storage API from unstorage. Install the `unstorage` dependency
+	 * and provide the return value of your `createStorage()` call. Check out the documentation for
+	 * a full list of [supported storage drivers](https://unstorage.unjs.io/drivers).
+	 *
+	 * Functionally, storing metadata is fundamental to ensure the correct operation of your indexer. It
+	 * ensures that you indexer recovers from downtime, ensures that all blocks are processed correctly during
+	 * chain reorganisations, and records any errors when unable to upsert or delete events in realtime.
+	 */
+	metadataStorage: Storage;
+	/**
 	 * Loads raw block data in realtime from a trusted set of RPC sources.
 	 *
 	 * Note that historical backfills do not use this function to load block data.
@@ -296,6 +310,23 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		},
 	};
 
+	// Metadata storage interface. Functionally this is responsible for storing all state related to ensuring
+	// the correct processing of the indexer.
+
+	const metadata = {};
+
+	/**
+	 * Fetches a block using the provided `getBlock` function. Handles retries. The block hash is optional
+	 * because we sometimes want the canonical block using only the block number. If a hash is provided we
+	 * will assert that the block returned via the block number lookup is the expected block
+	 */
+	async function getBlock(head: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
+		return await utils.retry(retry_getBlock, [head], 2).catch(() => {
+			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
+			return null;
+		});
+	}
+
 	async function retry_getBlock(head: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
 		const block = await opts.getBlock({ chain: head.chain, number: head.number });
 
@@ -316,18 +347,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		return block;
-	}
-
-	/**
-	 * Fetches a block using the provided `getBlock` function. Handles retries. The block hash is optional
-	 * because we sometimes want the canonical block using only the block number. If a hash is provided we
-	 * will assert that the block returned via the block number lookup is the expected block
-	 */
-	async function getBlock(head: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
-		return await utils.retry(retry_getBlock, [head], 2).catch(() => {
-			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
-			return null;
-		});
 	}
 
 	async function signCompressAndEncryptBlock(block: TBlock) {
