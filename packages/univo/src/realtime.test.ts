@@ -1,5 +1,6 @@
 import { http } from "msw";
 import { test } from "vitest";
+import { createStorage } from "unstorage";
 
 import { indexer } from ".";
 import { server } from "../vitest.setup";
@@ -9,7 +10,7 @@ import { test_getBlock, test_promiseWithResolvers, test_indexer } from "../tests
 test("receives a block", async () => {
 	const { promise, resolve } = test_promiseWithResolvers();
 
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -41,7 +42,7 @@ test("receives a block", async () => {
 test("retries blocks", async () => {
 	const { promise, resolve } = test_promiseWithResolvers();
 
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	let count = 0;
 

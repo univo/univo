@@ -1,4 +1,5 @@
 import { http } from "msw";
+import { createStorage } from "unstorage";
 import { expect, test, assert } from "vitest";
 
 import { indexer } from ".";
@@ -8,7 +9,7 @@ import { hexToNumber, numberToHex } from "./utils";
 import { test_Block, test_getBlock, test_indexer } from "../tests/utils";
 
 test.concurrent("correctly infers the event type", () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	const event = univo.event({
 		id: "test",
@@ -27,7 +28,7 @@ test.concurrent("correctly infers the event type", () => {
 });
 
 test.concurrent("throws an error if an event with an invalid id is defined", () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	expect(() => {
 		univo.event({
@@ -40,7 +41,7 @@ test.concurrent("throws an error if an event with an invalid id is defined", () 
 });
 
 test("public_writeAndReturnBlocks reports no results when provided a block that matches no event filters", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -71,7 +72,7 @@ test("public_writeAndReturnBlocks reports no results when provided a block that 
 });
 
 test("public_writeAndReturnBlocks reports ok results if we return an empty handler", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -120,7 +121,7 @@ test("public_writeAndReturnBlocks reports ok results if we return an empty handl
 test("public_writeAndReturnBlocks reports ok results if we successfully upsert events", async () => {
 	const upserted: any[] = [];
 
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -176,6 +177,7 @@ test("public_writeAndReturnBlocks reports a block_error for all events when fail
 	const univo = indexer({
 		quiet: true,
 		signingKey: "test",
+		metadataStorage: createStorage(),
 		getBlock: async () => {
 			throw new Error("Failed to load block");
 		},
@@ -243,7 +245,7 @@ test("public_writeAndReturnBlocks reports a block_error for all events when fail
 });
 
 test("public_writeAndReturnBlocks reports a handler_error", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -292,7 +294,7 @@ test("public_writeAndReturnBlocks reports a handler_error", async () => {
 });
 
 test("public_writeAndReturnBlocks reports any upsert errors", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -344,7 +346,7 @@ test("public_writeAndReturnBlocks reports any upsert errors", async () => {
 
 test("public_writeAndReturnBlocks retries upsert errors", async () => {
 	let count = 0;
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -392,7 +394,7 @@ test("public_writeAndReturnBlocks deduplicates events with the same storage adap
 		},
 	};
 
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		storage,
@@ -437,7 +439,7 @@ test("public_writeAndReturnBlocks deduplicates events with the same storage adap
 });
 
 test("public_writeAndReturnBlocks returns blocks", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -479,7 +481,7 @@ test("public_writeAndReturnBlocks returns blocks", async () => {
 });
 
 test("public_writeAndReturnBlocks only returns blocks it successfully loaded", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -521,7 +523,7 @@ test("public_writeAndReturnBlocks only returns blocks it successfully loaded", a
 });
 
 test.concurrent("public_deleteBlock rejects invalid blocks", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	expect(async () => {
 		await test_indexer(univo).request({
@@ -535,7 +537,7 @@ test("public_deleteBlock never deletes events from canonical blocks", async () =
 	let deleted = false;
 	let upserted = false;
 
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -595,6 +597,7 @@ test("public_deleteBlock deletes events from reorganised blocks", async () => {
 	const univo = indexer({
 		quiet: true,
 		signingKey: "test",
+		metadataStorage: createStorage(),
 		getBlock: async () => {
 			// The first request happens we are writing a block and we want this to be the reorganised block
 			if (upserted === false) {
@@ -669,7 +672,7 @@ test("private_writeEvents indexes only the events requested", async () => {
 	const upserted: any[] = [];
 	let event2HandlerCalled = false;
 
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "event1",
@@ -720,7 +723,7 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 		},
 	};
 
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		storage,
@@ -756,7 +759,7 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 });
 
 test.concurrent("private_writeEvents records events", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -781,7 +784,7 @@ test.concurrent("private_writeEvents records events", async () => {
 });
 
 test.concurrent("private_writeEvents ignores events not explicitly requested", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -814,7 +817,7 @@ test.concurrent("private_writeEvents ignores events not explicitly requested", a
 });
 
 test.concurrent("private_writeEvents returns handler errors", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -856,7 +859,7 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 });
 
 test.concurrent("private_writeEvents returns errors thrown during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -913,7 +916,7 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 
 test.concurrent("private_writeEvents retries upsert errors", async () => {
 	let count = 0;
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -972,7 +975,7 @@ test.concurrent("private_writeEvents retries upsert errors", async () => {
 });
 
 test.concurrent("private_writeEvents only returns the handler error if both handler and upsert fail", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1030,7 +1033,7 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 });
 
 test.concurrent("private_writeEvents returns incomplete errors in handler", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1088,7 +1091,7 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 });
 
 test.concurrent("private_writeEvents returns swallowed incomplete errors in handler", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1152,7 +1155,7 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 });
 
 test.concurrent("private_writeEvents returns incomplete errors in upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1214,7 +1217,7 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 });
 
 test.concurrent("private_writeEvents returns swallowed incomplete errors in upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1279,7 +1282,7 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 });
 
 test.concurrent("private_writeEvents doesn't return an error when accessing a provided null property", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1319,7 +1322,7 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 });
 
 test.concurrent("private_writeEvents never upserts if handler returns empty event list", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1353,7 +1356,7 @@ test("private_writeEventsAndGetKeys indexes only the events requested", async ()
 	const upserted: any[] = [];
 	let event2HandlerCalled = false;
 
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "event1",
@@ -1399,7 +1402,7 @@ test("private_writeEventsAndGetKeys indexes only the events requested", async ()
 });
 
 test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns empty event list", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1432,7 +1435,7 @@ test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns 
 });
 
 test.concurrent("private_writeEventsAndGetKeys records minimum keys from matching filters", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1467,7 +1470,7 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 });
 
 test.concurrent("private_writeEventsAndGetKeys records block keys during handler", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1503,7 +1506,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 });
 
 test.concurrent("private_writeEventsAndGetKeys records transaction keys during handler", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1543,7 +1546,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 });
 
 test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during handler", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1583,7 +1586,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 });
 
 test.concurrent("private_writeEventsAndGetKeys records receipt keys during handler", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1623,7 +1626,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 });
 
 test.concurrent("private_writeEventsAndGetKeys records log keys during handler", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1665,7 +1668,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 });
 
 test.concurrent("private_writeEventsAndGetKeys records block keys during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1706,7 +1709,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 });
 
 test.concurrent("private_writeEventsAndGetKeys records transaction keys during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1750,7 +1753,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 });
 
 test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1794,7 +1797,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 });
 
 test.concurrent("private_writeEventsAndGetKeys records receipt keys during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1838,7 +1841,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 });
 
 test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1884,7 +1887,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full block when using JSON.stringify", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -1993,7 +1996,7 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full transactions when using JSON.stringify", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -2051,7 +2054,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full withdrawals when using JSON.stringify", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -2090,7 +2093,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full receipts when using JSON.stringify", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -2150,7 +2153,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full receipt logs when using JSON.stringify", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -2199,7 +2202,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -2314,7 +2317,7 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full transactions during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -2378,7 +2381,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full withdrawals during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -2423,7 +2426,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full receipts during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -2489,7 +2492,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full receipt logs during upsert", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -2542,7 +2545,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 });
 
 test.concurrent("private_writeEventsAndGetKeys returns accessed properties that are undefined", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
