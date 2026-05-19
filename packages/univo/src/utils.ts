@@ -81,6 +81,8 @@ export type Prettify<T> = unknown & {
 	[K in keyof T]: T[K];
 };
 
+// TODO: Remove these utils
+
 export async function getSignature(opts: { body: string | ArrayBuffer; key: string }) {
 	const keyData = encoder.encode(opts.key);
 	const key = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);

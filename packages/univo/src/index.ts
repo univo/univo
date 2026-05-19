@@ -419,7 +419,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// We accept an array so we can perform group commit on fast chains, i.e. the client buffers new blocks received
 	// via subscription while a request to the server is in-flight
 
-	const public_writeBlocks = async (heads: Head[]) => {
+	const public_writeLatestHeads = async (heads: Head[]) => {
 		if (heads.length === 0) {
 			return;
 		}
@@ -447,13 +447,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// If successful we can delete any errors associated with this block
 	};
 
-	const public_deleteBlock = async (head: Head) => {
+	const public_deleteReorganisedHeads = async (heads: Head[]) => {
 		// Peforms a deletion of those events.
+		// We ignore filters in case filters have changed.
 		// If it fails it tries to record an error and throws.
 		// If successful it deletes any reorg errors
 	};
 
-	const public_deleteBlocks = async (heads: Head[]) => {
+	async function deleteReorganisedBlocks(blocks: ProcessedBlock[]) {
+		//
+	}
+
+	const public_writeFinalizedHeads = async (heads: Head[]) => {
 		if (heads.length === 0) {
 			return;
 		}
@@ -553,7 +558,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// If no block was processed we manually process it
 
 		if (processed.length === 0) {
-			return await public_writeBlocks([canonical]);
+			return await public_writeLatestHeads([canonical]);
 		}
 
 		// This means we processed at least one block. Functionally, correct processing of the canonical block
@@ -563,30 +568,21 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return !utils.isHexEqual(canonical.hash, block.data.eth_getBlockByNumber.hash);
 		});
 
-		await Promise.all(
-			reorganised.map(async (block) => {
-				await public_deleteBlock({
-					chain: block.data.eth_chainId,
-					hash: block.data.eth_getBlockByNumber.hash,
-					number: block.data.eth_getBlockByNumber.number,
-					parentHash: block.data.eth_getBlockByNumber.parentHash,
-				});
-			}),
-		);
+		await deleteReorganisedBlocks(reorganised);
 
 		const block = processed.find((block) => {
 			return utils.isHexEqual(canonical.hash, block.data.eth_getBlockByNumber.hash);
 		});
 
 		if (block === undefined) {
-			return await public_writeBlocks([canonical]);
+			return await public_writeLatestHeads([canonical]);
 		}
 
 		// If the canonical block was never committed we cannot be confident that the canonical
 		// events were correctly upserted into storage
 
 		if (block.status === "staged") {
-			return await public_writeBlocks([canonical]);
+			return await public_writeLatestHeads([canonical]);
 		}
 
 		// Assuming the canonical block was committed we have to ensure it has a greater timestamp
@@ -594,7 +590,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		for (const reorg of reorganised) {
 			if (reorg.created_at >= block.created_at) {
-				return await public_writeBlocks([canonical]);
+				return await public_writeLatestHeads([canonical]);
 			}
 		}
 
