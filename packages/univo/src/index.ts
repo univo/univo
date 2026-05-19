@@ -329,7 +329,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			async get() {
 				//
 			},
-			async upsert() {
+			async upsert(results: Result[]) {
 				//
 			},
 		},
@@ -556,26 +556,16 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return await public_writeBlocks([canonical]);
 		}
 
-		// Correct processing means the canonical block was processed last and any reorganisaed blocks
-		// have their events successfully discarded.
+		// This means we processed at least one block. Functionally, correct processing of the canonical block
+		// means it was processed last and any reorganised blocks have their events successfully discarded.
+
+		const reorganised = processed.filter((block) => {
+			return !utils.isHexEqual(canonical.hash, block.data.eth_getBlockByNumber.hash);
+		});
 
 		await Promise.all(
-			processed.map(async (block) => {
-				if (utils.isHexEqual(canonical.hash, block.data.eth_getBlockByNumber.hash)) {
-					// The canonical block must be both committed and have a greater timestamp than all other
-					// processed blocks (staged and comitted). In all other cases the canonical block must be
-					// processed again
-
-					if (block.status === "staged") {
-						return await public_writeBlocks([canonical]);
-					}
-
-					return;
-				}
-
-				// Otherwise we have a reorganised block that successfully delete all events for
-
-				return await public_deleteBlock({
+			reorganised.map(async (block) => {
+				await public_deleteBlock({
 					chain: block.data.eth_chainId,
 					hash: block.data.eth_getBlockByNumber.hash,
 					number: block.data.eth_getBlockByNumber.number,
@@ -583,6 +573,34 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				});
 			}),
 		);
+
+		const block = processed.find((block) => {
+			return utils.isHexEqual(canonical.hash, block.data.eth_getBlockByNumber.hash);
+		});
+
+		if (block === undefined) {
+			return await public_writeBlocks([canonical]);
+		}
+
+		// If the canonical block was never committed we cannot be confident that the canonical
+		// events were correctly upserted into storage
+
+		if (block.status === "staged") {
+			return await public_writeBlocks([canonical]);
+		}
+
+		// Assuming the canonical block was committed we have to ensure it has a greater timestamp
+		// than all other processed blocks. This holds true for both staged and commited blocks.
+
+		for (const reorg of reorganised) {
+			if (reorg.created_at >= block.created_at) {
+				return await public_writeBlocks([canonical]);
+			}
+		}
+
+		// Otherwise the block was processed correctly and we can return without doing any work
+
+		return;
 	}
 
 	const public_writeAndReturnBlocks: Rpc["public_writeAndReturnBlocks"] = async (endpoint, heads) => {
