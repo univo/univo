@@ -273,6 +273,7 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		opts.onBlockAdded(newBlock);
 
 		if (chain.length > MAX_LENGTH) {
+			// TODO: Removing blocks should be exposed to the consumer
 			chain.shift(); // Bounds memory usage
 		}
 	}

@@ -175,6 +175,7 @@ type Head = {
 	hash: `0x${string}`;
 	chain: `0x${string}`;
 	number: `0x${string}`;
+	parentHash: `0x${string}`;
 };
 
 type Metadata = {
@@ -237,6 +238,8 @@ type IndexerOptions<TBlock> = {
 	 * verify the block hash is consistent with the other known methods.
 	 */
 	getBlock: (block: { chain: `0x${string}`; number: `0x${string}` }) => Promise<TBlock | null>;
+
+	// TODO Verify that in places we provide a number it accepts a block tag
 };
 
 type Indexer<TBlock> = {
@@ -313,7 +316,41 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// Metadata storage interface. Functionally this is responsible for storing all state related to ensuring
 	// the correct processing of the indexer.
 
-	const metadata = {};
+	const metadata = {
+		results: {
+			async get() {
+				//
+			},
+			async upsert() {
+				//
+			},
+		},
+		blocks: {
+			async list(head: { chain: `0x${string}` }) {
+				const keys = await opts.metadataStorage.keys(`blocks/v1/${head.chain}`);
+				const results = await opts.metadataStorage.getItems<TBlock>(keys);
+				return results.map((result) => result.value);
+			},
+			async get(head: { chain: `0x${string}`; number: `0x${string}` }) {
+				const keys = await opts.metadataStorage.keys(`block/v1/${head.chain}/${head.number}`);
+				const results = await opts.metadataStorage.getItems<TBlock>(keys);
+				return results.map((result) => result.value);
+			},
+			upsert: {
+				async stage(head: Head, block: TBlock) {
+					//
+				},
+				async commit(head: Head, block: TBlock) {
+					//
+				},
+			},
+			delete: {
+				async finalized(head: Head) {
+					//
+				},
+			},
+		},
+	};
 
 	/**
 	 * Fetches a block using the provided `getBlock` function. Handles retries. The block hash is optional
@@ -378,6 +415,190 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error(InvalidBlockError);
 		}
 	}
+
+	const public_retryBlock = async (head: Head) => {
+		//
+	};
+
+	// TODO: getBlock should receive the block tag instead of the number. This allows us to create a finalized handler
+	// that uses exactly once processing with the metadata storage layer
+
+	// We accept an array so we can perform group commit on fast chains, i.e. the client buffers new blocks received
+	// via subscription while a request to the server is in-flight
+
+	const public_writeBlocks = async (heads: Head[]) => {
+		// TODO: assert that all blocks are from the same chain
+		//
+		// We only stop processing the tip if the metadata layer goes down, if the event storage layer goes down we will just
+		// record errors for the specific storages that failed
+		//
+		// Naively and quickly processes the tip of the chain. Correctness is enforced in the subsequent handler when the chain finalizes
+		// Successfully processing the tip means that we either successfuly process the block, or durably record any errors
+		// Probably requires two hits to our metadata to stage and process changes
+	};
+
+	// We accept an array because many chains finalizes blocks in batches. This allows us to coalesce a single call for
+	// latest finalized block tag. Essentially it should pass all blocks up to the block tag, we can verify the block hash
+	// of the finalized block is equivalent to verify the entire chain is legitimate
+
+	// THINKING
+	// What if we don't need to store errors if we simply never remove the finalized block. There difference is that errors
+	// are indirectly recorded by the existence of a finalised block. We will never stop processing at the tip. Each event
+	// could specify if it should be handled at finalization?
+
+	// Clients should immediately start sending the tip, but they should load the first unfinalized from
+	// block from storage to initialise their finalized chain.
+
+	async function verifyBlockProcessedCorrectly(canonical: Head, processed: TBlock[]) {
+		// There are several cases that determine if a block was processed correctly
+
+		// The simplest case is that no blocks were processed at all. In that case we simply manually
+		// process the block here
+
+		if (processed.length === 0) {
+			await public_writeBlocks([canonical]);
+			// Delete block
+			return;
+		}
+
+		// To get here assumes we processed at least one block
+
+		await Promise.all(
+			processed.map(async (block) => {
+				// TODO
+				// Need to think about if the upsert and delete functions operate on the same set of events,
+				// i.e. there is no delete function provided. In that case do we have to delete? Is it possible
+				// to delete canonical events
+
+				const chain = utils.isHexEqual(canonical.chain, block.eth_chainId);
+				const number = utils.isHexEqual(canonical.number, block.eth_getBlockByNumber.number);
+
+				// The simplest case is that we processed the canonical block
+
+				if (chain && number) {
+					// To assert that it was succesfully processed we have to ensure the block was committed to
+					// storage and not just staged. If it was just staged we must re process the block again.
+
+					const staged = true;
+
+					if (staged) {
+						await public_writeBlocks([canonical]);
+						// Delete block
+						return;
+					}
+
+					return; // Delete the block
+				}
+
+				// Otherwise we have processed a reorganised block. This means we must perform a deletion of
+				// those events or record an error if it fails or throw if that doesn't work
+			}),
+		);
+	}
+
+	const public_deleteBlocks = async (heads: Head[]) => {
+		// Verify that all heads received are from the same chain
+
+		let chain = undefined;
+
+		for (const head of heads) {
+			if (chain === undefined) {
+				chain = head.chain;
+			}
+
+			if (!utils.isHexEqual(chain, head.chain)) {
+				throw new Error("All heads received should originate from the same chain");
+			}
+		}
+
+		// We load the finalized block from the chain and the first unfinalized block from storage. To verify that
+		// we have received the correct finalized chain we walk backwards from the finalized block and verify the
+		// chains integrity all the way to the first unfinalized block.
+
+		// So clients must send all [unfinalized, finalized] heads (inclusive). For this to work we need only one
+		// honest client to send the full valid chain which is a reasonable assumption. Heads are pretty small and
+		// with compression it's safe to say we can send 10s of thousands of heads. This means we can easily repair
+		// from months of downtime
+
+		// In general this function doesn't need to be fast. Clients always send the tip, so if we ever recover from
+		// downtime we will start processing new blocks immediately. As these are sucessfuly processed it doesn't
+		// increase the amount of blocks that this function needs to validate for correctness, it actually has no
+		// impact. So that means when we play "catch-up" it's over a finite set of blocks so there are no speed issues.
+
+		const [pending, finalized] = await Promise.all([
+			metadata.blocks.list({ chain: "0x1" }),
+			getBlock({ chain: "0x1", number: "finalized" }),
+		]);
+
+		// If we are yet to process this chain then we have no canonical chain to verify and process and can return
+
+		if (pending.length === 0) {
+			return;
+		}
+
+		// TODO: Filter out heads larger than the finalized head
+
+		// TODO: Verifying the canonical chain backwards
+
+		// After verifying the canonical finalized chain, we essentially have to determine the difference between the
+		// remote and what we've processed locally.
+
+		for (const canonical of heads) {
+			// Our goal here is determine if this block number was processed correctly.
+
+			let processed = undefined;
+
+			// An optimisation is that we will have already loaded the first few blocks when loading the first unfinalized
+			// block. This is because our storage layer has no concept of pagination. So we look for blocks in that
+			// response before attempting to load them again from storage
+
+			processed = pending.filter((block) => {
+				const chain = utils.isHexEqual(canonical.chain, block.eth_chainId);
+				const number = utils.isHexEqual(canonical.number, block.eth_getBlockByNumber.number);
+				return chain && number;
+			});
+
+			// If we have run out of the initially loaded pending blocks we resort to loading by the head specifically
+
+			if (processed.length === 0) {
+				processed = await metadata.blocks.get({ chain: canonical.chain, number: canonical.number });
+			}
+
+			await verifyBlockProcessedCorrectly(canonical, processed);
+		}
+
+		// This function can be slower because it trails, processing the tip needs to be fast
+		//
+		// We only create the chain on finalization. We are at the mercy of clients for correctly processing the tip, but
+		// the finalized chain is something we validate correctly. In our metadata layer it's very easy to load the first
+		// block
+		//
+		// The chain in storage represents the unfinalized chain, there is an invariant that all blocks less than the first
+		// block in storage have been processed successfully.
+		//
+		// Essentially we need a `defineBlockchain` on the server where the initial block is the first unfinalized block,
+		// and then we append the head received. The chain repairs itself server side by either loading blocks from storage
+		// or from the chain
+		//
+		// Essentially the chain in storage represents the unfinalized chain, any blocks less then that can be considered
+		// successfully processed in the sense we either processed all events, or we failure to process some events but
+		// errors were successfully recorded.
+		//
+		// If a block is received that is assumed to be finalized we can ignore it unless we have any errors associated
+		// with that block, then essentially we are retrying it and recovering the error
+		//
+		// If no block exists in storage we simply accept the first block delivered as the start of our unfinalized chain
+		//
+		// Essentially every time we process the next block in the chain we must record all events by upserting valid
+		// blocks and deleting reorganised blocks, or in the case that event fails to index must record an error before
+		// processing the next block.
+		//
+		// We have an invariant that the first block retrieved from storage is finalized. We know a block is finalized
+		// if it less than the first block recorded in the metadata. Anyone blocks less than those remaining in storage
+		// can be considering successfully processed in the sense that they either processed successfully or an error
+		// was durably recorded for them. If they were processed successfully this old blocks can be ignored, if an error
+		// exists we are basically retrying it
+	};
 
 	const public_writeAndReturnBlocks: Rpc["public_writeAndReturnBlocks"] = async (endpoint, heads) => {
 		log.debug(`Received ${heads.length} heads...`);
