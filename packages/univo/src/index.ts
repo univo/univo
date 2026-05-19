@@ -17,6 +17,7 @@ type Block = {
 	eth_getBlockByNumber: {
 		hash: `0x${string}`;
 		number: `0x${string}`;
+		parentHash: `0x${string}`;
 	};
 
 	eth_getBlockReceipts: Array<{
@@ -318,9 +319,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// the correct processing of the indexer.
 
 	type ProcessedBlock = {
+		status: "staged" | "committed";
 		data: TBlock;
 		created_at: number;
-		status: "staged" | "committed";
 	};
 
 	const metadata = {
@@ -446,6 +447,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// If successful we can delete any errors associated with this block
 	};
 
+	const public_deleteBlock = async (head: Head) => {
+		// Peforms a deletion of those events.
+		// If it fails it tries to record an error and throws.
+		// If successful it deletes any reorg errors
+	};
+
 	const public_deleteBlocks = async (heads: Head[]) => {
 		if (heads.length === 0) {
 			return;
@@ -529,6 +536,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	async function verifyBlockProcessedCorrectly(canonical: Head, processed: ProcessedBlock[]) {
+		// Verify that all blocks received are from the same block number
+
 		let number = undefined;
 
 		for (const block of processed) {
@@ -547,37 +556,33 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return await public_writeBlocks([canonical]);
 		}
 
-		// We sort the processed blocks by timestamp so that the latest committed is first. We create a new
-		// array to prevent the in-place sorting from modifying the original array. Functionally we need to
-		// verify the the successes for the canonical block have a timestamp greater than the successes for
-		// the reorganised block
+		// Correct processing means the canonical block was processed last and any reorganisaed blocks
+		// have their events successfully discarded.
 
-		const sorted = [...processed].sort((a, b) => b.created_at - a.created_at);
+		await Promise.all(
+			processed.map(async (block) => {
+				if (utils.isHexEqual(canonical.hash, block.data.eth_getBlockByNumber.hash)) {
+					// The canonical block must be both committed and have a greater timestamp than all other
+					// processed blocks (staged and comitted). In all other cases the canonical block must be
+					// processed again
 
-		const latest = sorted[0] || utils.raise("Expected non-empty sorted blocks array");
+					if (block.status === "staged") {
+						return await public_writeBlocks([canonical]);
+					}
 
-		if (utils.isHexEqual(canonical.hash, block.data.eth_getBlockByNumber.hash)) {
-			// To assert that it was succesfully processed we have to ensure the block was committed to
-			// storage and not just staged. If it was just staged we must re process the block again.
+					return;
+				}
 
-			if (block.status === "staged") {
-				// TODO: If this fails we must record an error or throw
-				return await public_writeBlocks([canonical]);
-			}
+				// Otherwise we have a reorganised block that successfully delete all events for
 
-			if (block.status === "committed") {
-				return; // In this case we correctly processed the canonical block
-			}
-
-			throw new Error("Unknown block metadata status");
-		}
-
-		// Otherwise we have processed a reorganised block. This means we must perform a deletion of
-		// those events and throw. Because we need the block data to process chain reorganisations
-		// we must throw to mark processing this block as failed. We should record an error an error
-		// though so users can action. Correctness must stall if reorged events fail to delete
-
-		// After a successful deletion we are safe to delete any reorganisations errors with this block
+				return await public_deleteBlock({
+					chain: block.data.eth_chainId,
+					hash: block.data.eth_getBlockByNumber.hash,
+					number: block.data.eth_getBlockByNumber.number,
+					parentHash: block.data.eth_getBlockByNumber.parentHash,
+				});
+			}),
+		);
 	}
 
 	const public_writeAndReturnBlocks: Rpc["public_writeAndReturnBlocks"] = async (endpoint, heads) => {
