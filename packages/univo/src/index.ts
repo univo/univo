@@ -486,24 +486,51 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// with compression it's safe to say we can send 10s of thousands of heads. This means we can easily repair
 		// from months of downtime
 
-		const [pending, finalized] = await Promise.all([
+		const [pending_blocks, finalized_block] = await Promise.all([
 			metadata.blocks.list({ chain: "0x1" }),
 			getBlock({ chain: "0x1", number: "finalized" }),
 		]);
 
+		const [pending_block] = pending_blocks;
+
 		// If we are yet to process this chain then we have no canonical chain to verify and process and can return
 
-		if (pending.length === 0) {
+		if (pending_block === undefined) {
 			return;
 		}
 
-		// TODO: Filter out heads larger than the finalized head
+		if (finalized_block === null) {
+			log.error("Failed to load finalized block from the provided `getBlock` function");
+			throw new Error("Failed to load finalized block from the provided `getBlock` function");
+		}
 
-		// if (filtered.length === 0) {
-		// 	return;
-		// }
+		// We want to retain only the heads less than finalized block.
 
-		// TODO: Verifying the canonical chain backwards
+		const finalized_heads = heads.filter((head) => {
+			return utils.hexToNumber(head.number) < utils.hexToNumber(finalized_block.eth_getBlockByNumber.number);
+		});
+
+		let parentHash = finalized_block.eth_getBlockByNumber.parentHash;
+
+		for (let i = finalized_heads.length - 1; i >= 0; i--) {
+			const head = finalized_heads[i];
+
+			if (head === undefined) {
+				throw new Error("Expected head to be defined");
+			}
+
+			if (!utils.isHexEqual(parentHash, head.hash)) {
+				throw new Error("Received invalid chain");
+			}
+
+			parentHash = head.parentHash;
+		}
+
+		// Assert that we followed the chain all the way to the first pending block
+
+		if (!utils.isHexEqual(parentHash, pending_block.data.eth_getBlockByNumber.hash)) {
+			throw new Error("Received incomplete chain");
+		}
 
 		// After verifying the canonical finalized chain, we essentially have to determine the difference between the
 		// remote and what we've processed locally. In general this function doesn't need to be fast. Clients always
@@ -513,30 +540,30 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// blocks so there are no speed issues. This means simply iterating one by one and processing correctly is a
 		// fine strategy
 
-		for (const canonical of heads) {
+		for (const head of finalized_heads) {
 			// Our goal here is determine if this block number was processed correctly.
 
-			let processed = undefined;
+			let processed_blocks = undefined;
 
 			// An optimisation is that we will have already loaded the first few blocks when loading the first unfinalized
 			// block. This is because our storage layer has no concept of pagination. So we look for blocks in that
 			// response before attempting to load them again from storage
 
-			processed = pending.filter((block) => {
-				return utils.isHexEqual(canonical.number, block.data.eth_getBlockByNumber.number);
+			processed_blocks = pending_blocks.filter((block) => {
+				return utils.isHexEqual(head.number, block.data.eth_getBlockByNumber.number);
 			});
 
 			// If we have run out of the initially loaded pending blocks we resort to loading by the head specifically
 
-			if (processed.length === 0) {
-				processed = await metadata.blocks.get({ chain: canonical.chain, number: canonical.number });
+			if (processed_blocks.length === 0) {
+				processed_blocks = await metadata.blocks.get({ chain: head.chain, number: head.number });
 			}
 
-			await verifyBlockProcessedCorrectly(canonical, processed);
+			await verifyBlockProcessedCorrectly(head, processed_blocks);
 
 			// Once this canonical block is successfully processed all stored blocks can be safely discarded
 
-			await metadata.blocks.delete(processed);
+			await metadata.blocks.delete(processed_blocks);
 		}
 	};
 
