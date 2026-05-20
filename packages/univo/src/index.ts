@@ -704,7 +704,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		if (block === null) {
-			throw new Error("Failed to write finalized head");
+			throw new Error("Received non-canonical head from malicious client");
 		}
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
