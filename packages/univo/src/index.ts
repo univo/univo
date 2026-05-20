@@ -251,6 +251,12 @@ type Indexer<TBlock> = {
 
 type Rpc = {
 	/**
+	 * Accepts a chain identifier
+	 * @returns The next unfinalized block in the chain
+	 */
+	public_getUnfinalizedHeight(chain: `0x${string}`): Promise<number>;
+
+	/**
 	 * Accepts a reorganised block and deletes all related events from storage
 	 */
 	public_deleteReorganisedHead(head: Head): Promise<void>;
@@ -367,6 +373,22 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		return block;
 	}
+
+	const public_getUnfinalizedHeight = async (chain: `0x${string}`) => {
+		const [stored_block] = await metadata.blocks.get({ chain });
+
+		if (stored_block === undefined) {
+			const latest_block = await getBlock({ chain, number: "latest" });
+
+			if (latest_block === null) {
+				throw new Error("Failed to determine unfinalized height");
+			}
+
+			return hexToNumber(latest_block.eth_getBlockByNumber.number);
+		}
+
+		return hexToNumber(stored_block.eth_getBlockByNumber.number);
+	};
 
 	const public_writeLatestHeads = async (heads: Head[]) => {
 		// Verify that all heads received are from the same chain
@@ -1108,6 +1130,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const rpc: Rpc = {
 		public_writeLatestHeads,
 		public_writeFinalizedHeads,
+		public_getUnfinalizedHeight,
 		public_deleteReorganisedHead,
 
 		private_getEvents,
