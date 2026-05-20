@@ -59,7 +59,7 @@ export type test_Block = {
 	eth_getBlockReceipts: RpcTransactionReceipt[];
 };
 
-export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
+export async function test_getBlock(block: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
 	const cacheDir = "tests/blocks";
 
 	let filename = `${hexToNumber(block.chain)}-${hexToNumber(block.number)}`;
