@@ -4,8 +4,8 @@ import { promises as fs } from "node:fs";
 import { serve as start } from "@hono/node-server";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
-import { http } from "../src/client";
 import type { Indexer } from "../src";
+import { http } from "../src/transport";
 import { hexToNumber, iife, raise, retry } from "../src/utils";
 
 export const test_indexer = iife(() => {

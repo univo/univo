@@ -6,7 +6,7 @@ import { config } from "dotenv";
 import { WebSocket } from "partysocket";
 import { defineCommand, runMain } from "citty";
 
-import { http } from "./client";
+import { http } from "./transport";
 import { createLogger } from "./utils.js";
 import { name, version } from "../package.json";
 
