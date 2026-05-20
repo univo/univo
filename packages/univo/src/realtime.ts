@@ -3,7 +3,7 @@ import { WebSocket } from "partysocket";
 import type { ErrorEvent } from "partysocket/ws";
 
 import { http } from "./client";
-import { assert, createLogger, hexToNumber, isHexEqual, mutex, retry } from "./utils";
+import { assert, createLogger, hexToNumber, iife, isHexEqual, mutex, retry } from "./utils";
 
 /**
  * Socket -----------------------------------------------------------------------------------------------------------------------------------
@@ -253,8 +253,8 @@ type Head = {
 
 type BlockchainOptions = {
 	quiet: boolean;
-	onBlockAdded(head: Head): void | Promise<void>;
-	onBlockRemoved(head: Head): void | Promise<void>;
+	onBlockAdded?: (head: Head) => Promise<void> | void;
+	onBlockReorganised?: (head: Head) => Promise<void> | void;
 	getBlockByHash(hash: `0x${string}`): Promise<Head | null>;
 };
 
@@ -270,7 +270,10 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 
 	function setHeadBlock(newBlock: Head) {
 		chain.push(newBlock);
-		opts.onBlockAdded(newBlock);
+
+		if (opts.onBlockAdded) {
+			opts.onBlockAdded(newBlock);
+		}
 
 		if (chain.length > MAX_LENGTH) {
 			// TODO: Removing blocks should be exposed to the consumer
@@ -285,7 +288,9 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 			return;
 		}
 
-		opts.onBlockRemoved(head);
+		if (opts.onBlockReorganised) {
+			opts.onBlockReorganised(head);
+		}
 	}
 
 	function getHeadBlock() {
@@ -389,350 +394,154 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 }
 
 /**
- * Stream -----------------------------------------------------------------------------------------------------------------------------------
- */
-
-const POLLING_INTERVAL_MS = 60 * 1000;
-
-type Handler = (head: Head) => Promise<void> | void;
-
-type Stream = {
-	on(event: "block-added" | "block-removed" | "block-finalized", handler: Handler): () => void;
-};
-
-type CreateRealtimeStreamOpts = {
-	quiet: boolean;
-	transport: Transport;
-};
-
-function createRealtimeStream(opts: CreateRealtimeStreamOpts): Stream {
-	const log = createLogger({ quiet: opts.quiet });
-
-	const handlers = {
-		"block-added": new Set<Handler>(),
-		"block-removed": new Set<Handler>(),
-		"block-finalized": new Set<Handler>(),
-	};
-
-	function emit(tag: keyof typeof handlers) {
-		return (head: Head) => {
-			for (const handler of handlers[tag]) {
-				try {
-					const result = handler(head);
-
-					if (result instanceof Promise) {
-						result.catch(() => {
-							log.error(`Failed to process ${tag} handler`);
-						});
-					}
-				} catch (error) {
-					if (error instanceof Error) {
-						log.error(error.message);
-					}
-				}
-			}
-		};
-	}
-
-	// TODO
-	// Probably also add a chain-initialised event?
-	// Handle switching chains. Probably done by emitting a stream-closed event?
-	// Also need to think about if it's more appropriate to handle the chain id one layer up?
-	// Cause if the chain switches we should basically reinitialise everything?
-
-	const request = retry(opts.transport.request, [{ method: "eth_chainId", params: [] }], 5);
-
-	request
-		.then(async (chain) => {
-			async function getBlockByHash(hash: `0x${string}`) {
-				const block = await opts.transport.request({
-					method: "eth_getBlockByHash",
-					params: [hash, false], // We don't need transaction receipts
-				});
-
-				return {
-					chain,
-					hash: block.hash,
-					number: block.number,
-					parentHash: block.parentHash,
-				};
-			}
-
-			// First we create the subscription for block added/removed events
-
-			const latest = defineBlockchain({
-				getBlockByHash,
-				quiet: opts.quiet,
-				onBlockAdded: emit("block-added"),
-				onBlockRemoved: emit("block-removed"),
-			});
-
-			await opts.transport.subscribe("newHeads", async (head) => {
-				try {
-					await latest.reconcile({
-						chain,
-						hash: head.hash,
-						number: head.number,
-						parentHash: head.parentHash,
-					});
-				} catch {
-					log.error("Failed to reconcile latest head");
-				}
-			});
-
-			// And then we create our polling implementation for determining when blocks finalize. Unfortunately,
-			// no subscription exists so that this can be pushed to us
-
-			const finalized = defineBlockchain({
-				getBlockByHash,
-				quiet: opts.quiet,
-				onBlockRemoved: () => {},
-				onBlockAdded: emit("block-finalized"),
-			});
-
-			async function polling() {
-				try {
-					const block = await opts.transport.request({
-						method: "eth_getBlockByNumber",
-						params: ["finalized", false], // We don't need transaction receipts
-					});
-
-					// We already have the chain state local to construct the finalized chain so all
-					// we have to do is iterate over the latest chain reconciling blocks less than
-					// the latest finalized block
-
-					for (const head of latest.chain) {
-						if (hexToNumber(head.number) <= hexToNumber(block.number)) {
-							await finalized.reconcile(head);
-						}
-					}
-				} catch {
-					log.error("Failed to reconcile finalized head");
-				}
-			}
-
-			setInterval(polling, POLLING_INTERVAL_MS);
-		})
-		.catch(() => log.error("Failed to initialise realtime stream. Unable to determine chain id"));
-
-	return {
-		on(event: "block-added" | "block-removed" | "block-finalized", handler: Handler) {
-			handlers[event].add(handler);
-			return () => handlers[event].delete(handler);
-		},
-	};
-}
-
-/**
  * Realtime -----------------------------------------------------------------------------------------------------------------------------------
  */
+
+const POLLING_INTERVAL_MS = 12 * 1000;
 
 type RealtimeOptions = {
 	/** Logs are emitted based on the environment LOG_LEVEL. Set `quiet: true` to surpress all logs. */
 	quiet?: boolean;
+	/** Endpoint to publish realtime blocks to */
+	endpoint: string;
 	/** Custom transport */
 	transport: Transport;
-	/** Endpoints to publish realtime blocks to. We support multiple endpoints to make endpoint migrations easier */
-	endpoints: string[];
 };
 
 function realtime(opts: RealtimeOptions) {
+	const client = http(opts.endpoint);
 	const log = createLogger({ quiet: opts.quiet ?? false });
 
-	if (opts.endpoints.length === 0) {
-		throw new Error("Must provide at least one url to `endpoints`");
-	}
-
-	if (opts.endpoints.some((endpoint) => !endpoint.startsWith("https://"))) {
-		log.error("All endpoints must start with https://");
-	}
-
-	if (opts.endpoints.some((endpoint) => endpoint.includes("localhost"))) {
-		log.error("Endpoints cannot be on localhost");
-	}
-
-	function createClient(endpoint: string) {
-		const client = http(endpoint);
-
+	const promise = iife(async () => {
 		let id = 0;
+		let pending: Head[] = [];
 
-		const queues = {
-			pending: [] as Head[],
-			reorged: [] as Head[],
-		};
+		const [chain, latestBlock] = await Promise.all([
+			retry(opts.transport.request, [{ method: "eth_chainId", params: [] }], 2),
+			retry(opts.transport.request, [{ method: "eth_getBlockByNumber", params: ["latest", false] }], 2),
+		]);
 
-		const cache = new WeakMap<Head, string | null>();
-
-		/**
-		 * Writes a head to the server. Implements a retry strategy that doesn't spam the endpoint but retrying
-		 * blocks on the same schedule of requests
-		 */
-		async function writeBlock(head: Head) {
-			try {
-				// TODO
-				// The primary improvement to this retry method is that if the queue get's too large we might DDOS
-				// the endpoint by forcing it to load too many blocks at once. Moreover, this function doesn't run
-				// under any type of mutex so if the request takes longer than when we receive the next block we
-				// will spam requests. We need a strategy for queueing requests for new heads.
-
-				const heads = queues.pending.concat(head);
-
-				const response = await client.request({
-					id: id++,
-					jsonrpc: "2.0",
-					params: [endpoint, heads],
-					method: "public_writeAndReturnBlocks",
-				});
-
-				if (response.error) {
-					throw new Error(response.error.message);
-				}
-
-				if (response.result === undefined) {
-					throw new Error("Expected response.result to be defined");
-				}
-
-				if (response.result.blocks.length !== heads.length) {
-					throw new Error("Received a different number of blocks in response");
-				}
-
-				for (let i = 0; i < heads.length; i++) {
-					const head = heads[i];
-					const block = response.result.blocks[i];
-
-					if (head === undefined) {
-						throw new Error("Expected head to be defined");
-					}
-
-					if (block === undefined) {
-						throw new Error("Expected block to be defined");
-					}
-
-					cache.set(head, block);
-				}
-
-				if (heads.length > 1) {
-					log.info(`Successfully delivered batch of ${heads.length} blocks`);
-				}
-
-				queues.pending = queues.pending.filter((head) => {
-					const wasSent = heads.some((_head) => {
-						return isHexEqual(head.chain, _head.chain) && isHexEqual(head.hash, _head.hash);
-					});
-
-					return !wasSent; // Keep only blocks that weren't sent from the pending queue
-				});
-			} catch {
-				log.warn(`Failed to insert events for block ${hexToNumber(head.chain)}:${hexToNumber(head.number)}.`);
-				queues.pending.push(head); // Push failed heads to the pending queue
-				log.info(`Pending blocks queue size at ${queues.pending.length}`);
-			}
-		}
-
-		async function queueBlock(head: Head) {
-			// It's okay to be be pretty optimistic about what blocks have been reorged. If there is a major consensus
-			// or execution client bug that creates a long fork or means we constantly switch between forks it doesn't matter.
-			// Once the chain finalizes we will eventually send all these queued blocks, if a particular block is included
-			// in the canonical chain it will just be ignored by the delete process
-
-			queues.reorged.push(head);
-		}
-
-		async function retry_deleteBlock(endpoint: string, block: string) {
-			const response = await client.request({
-				id: id++,
-				jsonrpc: "2.0",
-				params: [endpoint, block],
-				method: "public_deleteBlock",
+		async function getBlockByHash(hash: `0x${string}`) {
+			const block = await opts.transport.request({
+				method: "eth_getBlockByHash",
+				params: [hash, false], // We don't need transaction receipts
 			});
 
-			if (response.error) {
-				throw new Error(response.error.message);
-			}
+			return {
+				chain,
+				hash: block.hash,
+				number: block.number,
+				parentHash: block.parentHash,
+			};
 		}
 
-		async function deleteBlock(head: Head) {
+		const latest = defineBlockchain({
+			getBlockByHash,
+			quiet: opts.quiet ?? false,
+			onBlockAdded: async (head) => {
+				try {
+					// TODO
+					// The primary improvement to this retry method is that if the queue gets too large we might DDOS
+					// the endpoint by forcing it to load too many blocks at once. Moreover, this function doesn't run
+					// under any type of mutex so if the request takes longer than when we receive the next block we
+					// will spam requests. We need a strategy for queueing requests for new heads.
+
+					const heads = pending.concat(head);
+
+					const response = await client.request({
+						id: id++,
+						jsonrpc: "2.0",
+						params: [heads],
+						method: "public_writeUnfinalizedHeads",
+					});
+
+					if (response.error) {
+						throw new Error(response.error.message);
+					}
+
+					pending = pending.filter((head) => {
+						return !heads.some((_head) => {
+							return isHexEqual(head.chain, _head.chain) && isHexEqual(head.hash, _head.hash);
+						});
+					});
+				} catch {
+					log.warn("Failed to write heads");
+
+					pending.push(head);
+				}
+			},
+			onBlockReorganised: async (head) => {
+				try {
+					const response = await client.request({
+						id: id++,
+						jsonrpc: "2.0",
+						params: [head],
+						method: "public_deleteReorganisedHead",
+					});
+
+					if (response.error) {
+						throw new Error(response.error.message);
+					}
+				} catch {
+					log.warn("Failed to write reorganised head");
+				}
+			},
+		});
+
+		// TODO
+		// This starts from the indexer state. As the chain finalizes we iterate over all the unfinalized
+		// blocks less than or equal to the finalized chain and deliver them to the finalized endpoint.
+		// If successful we can drop all blocks sent from the unfinalized chain
+
+		const unfinalized = defineBlockchain({
+			getBlockByHash,
+			quiet: opts.quiet ?? false,
+		});
+
+		const finalized = defineBlockchain({
+			getBlockByHash,
+			quiet: opts.quiet ?? false,
+		});
+
+		await opts.transport.subscribe("newHeads", async (head) => {
 			try {
-				const index = queues.reorged.findIndex((_head) => {
-					return isHexEqual(head.chain, _head.chain) && isHexEqual(head.number, _head.number);
+				await latest.reconcile({
+					chain,
+					hash: head.hash,
+					number: head.number,
+					parentHash: head.parentHash,
 				});
-
-				const reorged = queues.reorged[index];
-
-				// Note that it doesn't matter if the chain is constantly switching between forks. The correctness check
-				// on the server ensures that deletion only ever occurs for blocks that are not part of the finalized chain
-
-				if (reorged === undefined) {
-					cache.delete(head);
-					return;
-				}
-
-				const block = cache.get(reorged);
-
-				// Could be an edge case where the block is undefined at chain initialisation?
-
-				if (block === undefined) {
-					throw new Error("Expected block to be defined");
-				}
-
-				// This indicates the server never actually loaded and processed this block. This happens because of the
-				// delay between this client receiving the block and the server attempting to load it again. If the block
-				// was reorged the server might not have been able to load and process it because the node it's connected
-				// to never saw or has already rejected the reorganised block. Because the reorganised block was deleted
-				// it means there are no events that we need to delete
-
-				if (block === null) {
-					cache.delete(head);
-					return;
-				}
-
-				// If the block was successfully returned by the server we need to delete all events created by it
-
-				await retry(retry_deleteBlock, [endpoint, block], 5);
-
-				queues.reorged = queues.reorged.filter((_head) => {
-					const isBlock = isHexEqual(head.chain, _head.chain) && isHexEqual(head.number, _head.number);
-					return !isBlock;
-				});
-
-				cache.delete(head);
 			} catch {
-				log.error(
-					`Failed to delete reorged block ${hexToNumber(head.chain)}:${hexToNumber(head.number)}.
-					This failure means that events recorded for this re-organised block have not been disposed of.`,
-				);
+				log.error("Failed to reconcile latest head");
+			}
+		});
+
+		async function polling() {
+			try {
+				const block = await opts.transport.request({
+					method: "eth_getBlockByNumber",
+					params: ["finalized", false], // We don't need transaction receipts
+				});
+
+				// We already have the chain state local to construct the finalized chain so all
+				// we have to do is iterate over the latest chain reconciling blocks less than
+				// the latest finalized block
+
+				for (const head of latest.chain) {
+					if (hexToNumber(head.number) <= hexToNumber(block.number)) {
+						await finalized.reconcile(head);
+					}
+				}
+			} catch {
+				log.error("Failed to reconcile finalized head");
 			}
 		}
 
-		return { writeBlock, queueBlock, deleteBlock };
-	}
-
-	const clients = opts.endpoints.map((endpoint) => createClient(endpoint));
-
-	const stream = createRealtimeStream({ quiet: opts.quiet ?? false, transport: opts.transport });
-
-	stream.on("block-added", async (head) => {
-		await Promise.allSettled(
-			clients.map(async (client) => {
-				await client.writeBlock(head);
-			}),
-		);
+		setInterval(polling, POLLING_INTERVAL_MS);
 	});
 
-	stream.on("block-removed", async (head) => {
-		await Promise.allSettled(
-			clients.map(async (client) => {
-				await client.queueBlock(head);
-			}),
-		);
-	});
-
-	stream.on("block-finalized", async (head) => {
-		await Promise.allSettled(
-			clients.map(async (client) => {
-				await client.deleteBlock(head);
-			}),
-		);
+	promise.catch(() => {
+		log.error(`Failed to initialise realtime client for endpoint ${opts.endpoint}`);
 	});
 }
 
