@@ -314,14 +314,24 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			},
 		},
 		blocks: {
-			async list(head: { chain: `0x${string}` }) {
-				const keys = await opts.metadataStorage.getKeys(`blocks/v1/${head.chain}`);
+			async get(head: { chain: `0x${string}`; number?: `0x${string}`; hash?: `0x${string}` }) {
+				let prefix = `block/v1/${head.chain}`;
+
+				if (typeof head.number === "string") {
+					prefix += `/${head.number}`;
+				}
+
+				if (typeof head.hash === "string") {
+					if (head.number === undefined) {
+						throw new Error("Requested block by hash without specifying a block number");
+					}
+
+					prefix += `/${head.hash}`;
+				}
+
+				const keys = await opts.metadataStorage.getKeys(prefix);
 				const results = await opts.metadataStorage.getItems<ProcessedBlock>(keys);
-				return results.map((result) => result.value);
-			},
-			async get(head: { chain: `0x${string}`; number: `0x${string}` }) {
-				const keys = await opts.metadataStorage.getKeys(`block/v1/${head.chain}/${head.number}`);
-				const results = await opts.metadataStorage.getItems<ProcessedBlock>(keys);
+
 				return results.map((result) => result.value);
 			},
 			async upsert(blocks: ProcessedBlock[]) {
@@ -533,22 +543,135 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			log.debug(`Wrote ${heads.length} heads in ${Date.now() - events_start}ms`);
 		}
 
-		// Record all errors. Haven't decided if we should clear errors here? We have no CAS semantics in the KV store
+		// TODO: Do we even need to commit the block here?
+
+		// Record all errors.
+
+		// TODO
+		// Haven't decided if we should clear errors here? We have no CAS semantics in the KV store
 		// so I feel like clearing could be a disaster with subtle concurrency issues
 
 		await metadata.results.upsert(Object.values(errors_map));
 	};
 
-	const public_deleteReorganisedHeads = async (heads: Head[]) => {
-		// Peforms a deletion of those events.
-		// We ignore filters in case filters have changed.
-		// If it fails it tries to record an error and throws.
-		// If successful it deletes any reorg errors
+	// Effectively this function is only used for retries. It should probably be named to align with that.
+	// It should be single block and should determine if it's a delete error versus an upsert error
+	// Clients could invoke this function as soon as they detect a reorganisation
+
+	const public_retryHead = async (head: Head) => {
+		// Loading blocks happens via the block number. If this block was truly reorganised and is no longer part of
+		// the canonical chain than this request should yield a block with a different block hash. This is our proof
+		// that this block is no longer included in the chain and that it's safe to delete data associated with it
+
+		const [canonical_block, stored_results, stored_block] = await Promise.all([
+			getBlock({ chain: head.chain, number: head.number }),
+			metadata.results.get(),
+			metadata.blocks.get({ chain: head.chain, number: head.number, hash: head.hash }),
+		]);
+
+		if (canonical_block === null) {
+			log.debug("Attempted to retry unknown block");
+			throw new Error("Attempted to retry unknown block");
+		}
+
+		if (isHexEqual(head.hash, canonical_block.eth_getBlockByNumber.hash)) {
+			// If the block is canonical than
+		}
+
+		if (block === undefined) {
+			log.debug("Reorganised block already processed, ignoring...");
+			return null;
+		}
+
+		// We know the block is not included in the canonical chain and we know that our storage system upserted
+		// events with this block data. We use the block data to generate the same set of events that we upserted
+		// and provide them to each events delete function
+
+		await deleteReorganisedBlocks([block]);
 	};
 
 	async function deleteReorganisedBlocks(blocks: ProcessedBlock[]) {
-		//
+		log.debug(`Deleting ${blocks.length} reorganised block(s)`);
+
+		// We intentionally ignore filters and basically perform an optimistic delete on events that might
+		// have never been upserted. I make this choice because there is a time delay between upsert and delete,
+		// it's possible for a new deployment to update the filters in this gap that would prevent the delete
+		// from removing the upserted events if the filters were changed in just the right way
+
+		const results_map: Record<string, Result> = {};
+
+		const promises = all_events.map(async (event) => {
+			try {
+				if (event.storage.delete === undefined) {
+					return;
+				}
+
+				if (!event.filters.some((filter) => matchFilter(decrypted, filter))) {
+					return;
+				}
+
+				const events = event.handler(decrypted);
+
+				if (events.length === 0) {
+					return;
+				}
+
+				await retry(event.storage.delete, [events], 2);
+			} catch (error) {
+				if (error instanceof Error) {
+					log.error(error.message);
+				}
+
+				const event_id = event.id;
+				const chain = decrypted.eth_chainId;
+				const block_hash = decrypted.eth_getBlockByNumber.hash;
+				const block_number = decrypted.eth_getBlockByNumber.number;
+
+				results_map[chain + block_number + block_hash + event_id] ??= {
+					status: "delete_error",
+					chain,
+					event_id,
+					block_hash,
+					block_number,
+					created_at: Date.now(),
+				};
+			}
+		});
+
+		await Promise.all(promises);
+
+		// We optimistically send delete results for all events where an error wasn't already recorded.
+		// This is overkill for correctness in the sense we don't need to do this for events that don't
+		// expose a delete interface, or events where the block doesn't match one of the provided filters.
+		// However it makes it much simpler to detect errors, i.e. failing to delete events created from a
+		// reorganised block, simply from the absence of a successful delete result for a each event
+
+		for (const event of all_events) {
+			const event_id = event.id;
+			const chain = decrypted.eth_chainId;
+			const block_hash = decrypted.eth_getBlockByNumber.hash;
+			const block_number = decrypted.eth_getBlockByNumber.number;
+
+			results_map[chain + block_number + block_hash + event_id] ??= {
+				status: "delete",
+				chain,
+				event_id,
+				block_hash,
+				block_number,
+				created_at: Date.now(),
+			};
+		}
+
+		const results_array = Object.values(results_map);
+
+		await retry(results.submit, [endpoint, results_array], 2).catch(() => {
+			log.error("Failed to submit delete results");
+		});
 	}
+
+	// I think this function should be standalone and not use any of the other helper methods.
+	// It performs some pretty fundamental checks at the start that provide invariants that could
+	// be lost elsewhere
 
 	const public_writeFinalizedHeads = async (heads: Head[]) => {
 		if (heads.length === 0) {
@@ -579,7 +702,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// from months of downtime
 
 		const [pending_blocks, finalized_block] = await Promise.all([
-			metadata.blocks.list({ chain: "0x1" }),
+			metadata.blocks.get({ chain: "0x1" }),
 			getBlock({ chain: "0x1", number: "finalized" }),
 		]);
 
@@ -717,100 +840,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		return;
 	}
-
-	const public_deleteBlock: Rpc["public_deleteBlock"] = async (endpoint, block) => {
-		const decrypted = await verifyDecryptAndDecompressBlock(block);
-
-		log.debug(`Received reorganised block ${hexToNumber(decrypted.eth_getBlockByNumber.number)}`);
-
-		// Loading blocks happens via the block number. If this block was truly reorganised and is no longer part of
-		// the canonical chain than this request should yield a block with a different block hash. This is our proof
-		// that this block is no longer included in the chain and that it's safe to delete data associated with it
-
-		const canonical = await getBlock({ chain: decrypted.eth_chainId, number: decrypted.eth_getBlockByNumber.number });
-
-		if (canonical === null) {
-			return log.debug("Attempted to delete unknown block, ignoring...");
-		}
-
-		if (isHexEqual(canonical.eth_getBlockByNumber.hash, decrypted.eth_getBlockByNumber.hash)) {
-			return log.debug("Attempted to delete canonical block, ignoring...");
-		}
-
-		// We know the block is not included in the canonical chain and we know that our storage system upserted
-		// events with this block data. We use the block data to generate the same set of events that we upserted
-		// and provide them to each events delete function
-
-		const results_map: Record<string, Result> = {};
-
-		const promises = all_events.map(async (event) => {
-			try {
-				if (event.storage.delete === undefined) {
-					return;
-				}
-
-				if (!event.filters.some((filter) => matchFilter(decrypted, filter))) {
-					return;
-				}
-
-				const events = event.handler(decrypted);
-
-				if (events.length === 0) {
-					return;
-				}
-
-				await retry(event.storage.delete, [events], 2);
-			} catch (error) {
-				if (error instanceof Error) {
-					log.error(error.message);
-				}
-
-				const event_id = event.id;
-				const chain = decrypted.eth_chainId;
-				const block_hash = decrypted.eth_getBlockByNumber.hash;
-				const block_number = decrypted.eth_getBlockByNumber.number;
-
-				results_map[chain + block_number + block_hash + event_id] ??= {
-					status: "delete_error",
-					chain,
-					event_id,
-					block_hash,
-					block_number,
-					created_at: Date.now(),
-				};
-			}
-		});
-
-		await Promise.all(promises);
-
-		// We optimistically send delete results for all events where an error wasn't already recorded.
-		// This is overkill for correctness in the sense we don't need to do this for events that don't
-		// expose a delete interface, or events where the block doesn't match one of the provided filters.
-		// However it makes it much simpler to detect errors, i.e. failing to delete events created from a
-		// reorganised block, simply from the absence of a successful delete result for a each event
-
-		for (const event of all_events) {
-			const event_id = event.id;
-			const chain = decrypted.eth_chainId;
-			const block_hash = decrypted.eth_getBlockByNumber.hash;
-			const block_number = decrypted.eth_getBlockByNumber.number;
-
-			results_map[chain + block_number + block_hash + event_id] ??= {
-				status: "delete",
-				chain,
-				event_id,
-				block_hash,
-				block_number,
-				created_at: Date.now(),
-			};
-		}
-
-		const results_array = Object.values(results_map);
-
-		await retry(results.submit, [endpoint, results_array], 2).catch(() => {
-			log.error("Failed to submit delete results");
-		});
-	};
 
 	const private_getMetadata: Rpc["private_getMetadata"] = async () => {
 		return {
