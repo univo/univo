@@ -415,20 +415,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const blocks_nullable = await Promise.all(
 			heads.map(async (head) => {
-				const block_nullable = await getBlock({ chain, number: head.number, hash: head.hash });
-
-				// A null response is actually a common case during chain reorganisations. Because we load by block number it
-				// is common for the client and server to be connected to different nodes. There is no guarantee that both
-				// those nodes see the same reorganisation so when we load the block on the server we get null. We basically
-				// just skip processing this block in realtime
-
-				if (block_nullable === null) {
-					return null;
-				}
-
-				return block_nullable;
+				return await getBlock({ chain, number: head.number, hash: head.hash });
 			}),
 		);
+
+		// A null response is actually a common case during chain reorganisations. Because we load by block number it
+		// is common for the client and server to be connected to different nodes. There is no guarantee that both
+		// those nodes see the same reorganisation so when we load the block on the server we get null
 
 		const blocks = blocks_nullable.filter(nonNullable);
 
@@ -592,16 +585,16 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// with compression it's safe to say we can send 10s of thousands of heads. This means we can easily repair
 		// from months of downtime
 
-		const [pending_blocks, finalized_block] = await Promise.all([
+		const [unfinalized_blocks, finalized_block] = await Promise.all([
 			metadata.blocks.get({ chain: "0x1" }),
 			getBlock({ chain: "0x1", number: "finalized" }),
 		]);
 
-		const [pending_block] = pending_blocks;
+		const [unfinalized_block] = unfinalized_blocks;
 
 		// If we are yet to process this chain then we have no canonical chain to verify and process and can return
 
-		if (pending_block === undefined) {
+		if (unfinalized_block === undefined) {
 			return;
 		}
 
@@ -610,10 +603,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error("Failed to load finalized block from the provided `getBlock` function");
 		}
 
-		// We want to retain only the heads less than finalized block.
+		// We want to retain only the heads greater than the first unfinalized block and less than the finalized head
+
+		const finalized_head_number = hexToNumber(finalized_block.eth_getBlockByNumber.number);
+		const unfinalized_head_number = hexToNumber(unfinalized_block.eth_getBlockByNumber.number);
 
 		const finalized_heads = heads.filter((head) => {
-			return hexToNumber(head.number) < hexToNumber(finalized_block.eth_getBlockByNumber.number);
+			return hexToNumber(head.number) > unfinalized_head_number && hexToNumber(head.number) < finalized_head_number;
 		});
 
 		let parentHash = finalized_block.eth_getBlockByNumber.parentHash;
@@ -634,7 +630,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Assert that we followed the chain all the way to the first pending block
 
-		if (!isHexEqual(parentHash, pending_block.eth_getBlockByNumber.hash)) {
+		if (!isHexEqual(parentHash, unfinalized_block.eth_getBlockByNumber.hash)) {
 			throw new Error("Received incomplete chain");
 		}
 
@@ -653,7 +649,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// block. This is because our storage layer has no concept of pagination. So we look for blocks in that
 			// response before attempting to load them again from storage
 
-			processed_blocks = pending_blocks.filter((block) => {
+			processed_blocks = unfinalized_blocks.filter((block) => {
 				return isHexEqual(finalized_head.number, block.eth_getBlockByNumber.number);
 			});
 
