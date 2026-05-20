@@ -458,9 +458,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					} catch (error) {
 						log.error(`Failed to run your 'handler' for event ${event.id}`);
 
-						if (error instanceof Error) {
-							log.error(error.message);
-						}
+						throw error;
 					}
 				}
 			}
@@ -679,7 +677,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return !isHexEqual(canonical.hash, block.eth_getBlockByNumber.hash);
 		});
 
-		await deleteReorganisedBlocks(reorganised);
+		if (reorganised.length > 0) {
+			await deleteReorganisedBlocks(reorganised);
+		}
 
 		const block = processed.find((block) => {
 			return isHexEqual(canonical.hash, block.eth_getBlockByNumber.hash);
@@ -721,9 +721,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				} catch (error) {
 					log.error(`Failed to run your 'handler' for event ${event.id}`);
 
-					if (error instanceof Error) {
-						log.error(error.message);
-					}
+					throw error;
 				}
 			}
 
@@ -748,6 +746,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	async function deleteReorganisedBlocks(blocks: TBlock[]) {
+		if (blocks.length === 0) {
+			return;
+		}
+
 		// We know the block is not included in the canonical chain and we know that our storage system upserted
 		// events with this block data. We use the block data to generate the same set of events that we upserted
 		// and provide them to each events delete function
