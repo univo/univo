@@ -364,9 +364,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return block;
 	}
 
-	// We accept an array so we can perform group commit on fast chains, i.e. the client buffers new blocks received
-	// via subscription while a request to the server is in-flight
-
 	// Naively and quickly processes the tip of the chain. Correctness is enforced in the subsequent handler when the chain finalizes
 
 	const public_writeLatestHeads = async (heads: Head[]) => {
@@ -473,6 +470,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		log.debug(`Wrote ${heads.length} heads in ${Date.now() - events_start}ms`);
 	};
 
+	// Naively processes reorganised blocks
+
 	const public_deleteReorganisedHead = async (head: Head) => {
 		// Loading blocks happens via the block number. If this block was truly reorganised and is no longer part of
 		// the canonical chain than this request should yield a block with a different block hash. This is our proof
@@ -544,10 +543,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// be lost elsewhere
 
 	const public_writeFinalizedHeads = async (heads: Head[]) => {
-		if (heads.length === 0) {
-			return;
-		}
-
 		// Verify that all heads received are from the same chain
 
 		let chain = undefined;
@@ -560,6 +555,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			if (!isHexEqual(chain, head.chain)) {
 				throw new Error("All heads received should originate from the same chain");
 			}
+		}
+
+		if (chain === undefined) {
+			throw new Error("Received invalid chain");
 		}
 
 		// We load the finalized block from the chain and the first unfinalized block from storage. To verify that
@@ -675,15 +674,104 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return await writeFinalizedHead(canonical, block);
 	}
 
-	async function writeFinalizedHead(head: Head, block: TBlock | null) {
-		const block_nullable = block;
+	async function writeFinalizedHead(head: Head, block_nullable: TBlock | null) {
+		let block = block_nullable;
 
-		if (block_nullable === null) {
+		if (block === null) {
+			block = await getBlock({ chain: head.chain, number: head.number, hash: head.hash });
 		}
+
+		if (block === null) {
+			throw new Error("Failed to write finalized head");
+		}
+
+		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
+			const batch = [];
+
+			for (const event of grouped_events) {
+				try {
+					if (!event.filters.some((filter) => matchFilter(block, filter))) {
+						log.debug(`Block matches no filters for event ${event.id}`);
+						continue;
+					}
+
+					const events = event.handler(block);
+
+					for (const event of events) {
+						batch.push(event);
+					}
+				} catch (error) {
+					log.error(`Failed to run your 'handler' for event ${event.id}`);
+
+					if (error instanceof Error) {
+						log.error(error.message);
+					}
+				}
+			}
+
+			if (batch.length > 0) {
+				const start = Date.now();
+
+				await retry(storage.upsert, [batch], 2).catch((error) => {
+					for (const event of grouped_events) {
+						log.error(`Failed to run your 'upsert' handler for event ${event.id}`);
+					}
+
+					throw error;
+				});
+
+				for (const event of grouped_events) {
+					log.debug(`Recorded ${batch.length} ${event.id} in ${Date.now() - start}ms`);
+				}
+			}
+		});
+
+		await Promise.all(promises);
 	}
 
 	async function deleteReorganisedBlocks(blocks: TBlock[]) {
-		//
+		// We know the block is not included in the canonical chain and we know that our storage system upserted
+		// events with this block data. We use the block data to generate the same set of events that we upserted
+		// and provide them to each events delete function
+
+		const promises = all_events.map(async (event) => {
+			// If they update the indexer to remove the delete method it's possible that reorged events remain in storage
+
+			if (event.storage.delete === undefined) {
+				return;
+			}
+
+			// We intentionally ignore filters and basically perform an optimistic delete on events that might
+			// have never been upserted. I make this choice because there is a time delay between upsert and delete,
+			// it's possible for a new deployment to update the filters in this gap that would prevent the delete
+			// from removing the upserted events if the filters were changed in just the right way
+
+			const batch = [];
+
+			try {
+				const events = event.handler(blocks);
+
+				for (const event of events) {
+					batch.push(event);
+				}
+			} catch (error) {
+				log.error(`Failed to run your 'handler' for event ${event.id}`);
+
+				throw error;
+			}
+
+			if (batch.length === 0) {
+				return;
+			}
+
+			await retry(event.storage.delete, [batch], 2).catch((error) => {
+				log.error(`Failed to run your 'delete' handler for event ${event.id}`);
+
+				throw error;
+			});
+		});
+
+		await Promise.all(promises);
 	}
 
 	const private_getMetadata: Rpc["private_getMetadata"] = async () => {
