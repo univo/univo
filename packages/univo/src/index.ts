@@ -264,7 +264,7 @@ type Rpc = {
 	/**
 	 * Accepts a list of the latest block heads and writes all events to storage
 	 */
-	public_writeLatestHeads(heads: Head[]): Promise<void>;
+	public_writeUnfinalizedHeads(heads: Head[]): Promise<void>;
 
 	/**
 	 * Accepts a chain of finalized heads and upserts canonical events and deletes reorganised events
@@ -390,7 +390,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return hexToNumber(stored_block.eth_getBlockByNumber.number);
 	};
 
-	const public_writeLatestHeads = async (heads: Head[]) => {
+	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
 		// Verify that all heads received are from the same chain
 
 		let chain = undefined;
@@ -660,7 +660,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// When a block finalizes we fully re process it. This means that we delete any reorganised blocks and we
 			// upsert the final canonical block again. In general this is pretty slow and expensive. In practice this is
 			// okay because this function doesn't need to be fast, and the goal of the system is that we use the two methods
-			// in public_writeLatestHeads and public_deleteReorganisedHead to ensure that the latest chain matches exactly
+			// in public_writeUnfinalizedHeads and public_deleteReorganisedHead to ensure that the latest chain matches exactly
 			// what the finalized chain processes. So it's likely that this correctness function has no material impact on
 			// the data stored and is just verifies correctness when the chain finalizes
 
@@ -1130,7 +1130,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	const rpc: Rpc = {
-		public_writeLatestHeads,
+		public_writeUnfinalizedHeads,
 		public_writeFinalizedHeads,
 		public_getUnfinalizedHeight,
 		public_deleteReorganisedHead,
