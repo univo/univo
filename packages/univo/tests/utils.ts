@@ -5,7 +5,7 @@ import { serve as start } from "@hono/node-server";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
 import { http } from "../src/client";
-import type { Indexer, Rpc } from "../src";
+import type { Indexer } from "../src";
 import { hexToNumber, iife, raise, retry } from "../src/utils";
 
 export const test_indexer = iife(() => {
@@ -23,20 +23,13 @@ export const test_indexer = iife(() => {
 
 	return <TBlock>(indexer: Indexer<TBlock>) => {
 		const id = crypto.randomUUID();
-		const url = `http://localhost:7483/${id}`;
+		const endpoint = `http://localhost:7483/${id}`;
 		cache.set(id, indexer);
 
 		// Signing key should be "test" for all test indexers
-		const client = http(url, { signingKey: "test" });
+		const { request } = http(endpoint, { signingKey: "test" });
 
-		const request = async <M extends keyof Rpc>(args: { method: M; params: Parameters<Rpc[M]> }) => {
-			const full_args = { id: 0, jsonrpc: "2.0", method: args.method, params: args.params } as const;
-			const response = await client.request(full_args);
-			if (response.error) throw new Error(response.error.message);
-			return response.result as ReturnType<Rpc[M]>;
-		};
-
-		return { url, request };
+		return { endpoint, request };
 	};
 });
 

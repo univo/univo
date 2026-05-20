@@ -38,12 +38,9 @@ const dev = defineCommand({
 
 			// Validate client exists
 			const [events, metadata] = await Promise.all([
-				client.request({ jsonrpc: "2.0", id: 0, method: "private_getEvents", params: [] }),
-				client.request({ jsonrpc: "2.0", id: 0, method: "private_getMetadata", params: [] }),
+				client.request({ method: "private_getEvents", params: [] }),
+				client.request({ method: "private_getMetadata", params: [] }),
 			]);
-
-			if (events.error) throw new Error(`Failed to connect to ${ctx.args.url}. Check that your server is running on the correct port.`);
-			if (metadata.error) throw new Error(`Failed to connect to ${ctx.args.url}. Check that your server is running on the correct port.`);
 
 			// Generate a random tunnel id
 			const remoteSigningKey = crypto.randomUUID();
@@ -51,8 +48,8 @@ const dev = defineCommand({
 
 			const endpoint = {
 				url,
-				events: events.result,
-				metadata: metadata.result,
+				events,
+				metadata,
 				signing_key: remoteSigningKey,
 			};
 
@@ -79,7 +76,10 @@ const dev = defineCommand({
 				}
 			};
 		} catch (error) {
-			if (error instanceof Error) return log.error(error.message);
+			if (error instanceof Error) {
+				return log.error(error.message);
+			}
+
 			throw error;
 		}
 	},
