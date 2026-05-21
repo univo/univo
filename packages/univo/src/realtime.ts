@@ -178,12 +178,12 @@ function realtime(opts: RealtimeOptions) {
 	const promise = iife(async () => {
 		let pending: Head[] = [];
 
-		const [chain, latestBlock] = await Promise.all([
-			retry(opts.node.request, [{ method: "eth_chainId", params: [] }], 2),
-			retry(opts.node.request, [{ method: "eth_getBlockByNumber", params: ["latest", false] }], 2),
-		]);
+		const chain = await opts.node.request({ method: "eth_chainId", params: [] });
 
-		const finalizedStartBlock = await opts.indexer.request({ method: "public_getUnfinalizedHeight", params: [chain] });
+		const [latestBlock, finalizedStartBlock] = await Promise.all([
+			opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }),
+			opts.indexer.request({ method: "public_getUnfinalizedHeight", params: [chain] }),
+		]);
 
 		async function getBlockByHash(hash: `0x${string}`) {
 			const block = await opts.node.request({
