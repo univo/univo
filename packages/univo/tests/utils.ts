@@ -72,8 +72,8 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 
 	// Fetch from network
 	const [eth_getBlockByNumber, eth_getBlockReceipts] = await Promise.all([
-		retry(rpc, [{ id: 1, method: "eth_getBlockByNumber", params: [block.number, true] }], 4),
-		retry(rpc, [{ id: 2, method: "eth_getBlockReceipts", params: [block.number] }], 4),
+		retry(() => rpc({ id: 1, method: "eth_getBlockByNumber", params: [block.number, true] }), 4),
+		retry(() => rpc({ id: 2, method: "eth_getBlockReceipts", params: [block.number] }), 4),
 	]);
 
 	if (!eth_getBlockByNumber) throw new Error("eth_getBlockByNumber is null");

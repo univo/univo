@@ -310,7 +310,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// will assert that the block returned via the block number lookup is the expected block
 
 	async function getBlock(head: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
-		return await retry(retry_getBlock, [head], 2).catch(() => {
+		return await retry(() => retry_getBlock(head), 2).catch(() => {
 			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
 			return null;
 		});
@@ -430,7 +430,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			if (batch.length > 0) {
 				const start = Date.now();
 
-				await retry(storage.upsert, [batch], 2).catch((error) => {
+				await retry(() => storage.upsert(batch), 2).catch((error) => {
 					for (const event of grouped_events) {
 						log.error(`Failed to run your 'upsert' handler for event ${event.id}`);
 					}
@@ -505,7 +505,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				return;
 			}
 
-			await retry(event.storage.delete, [batch], 2).catch((error) => {
+			await retry(() => event.storage.delete(batch), 2).catch((error) => {
 				log.error(`Failed to run your 'delete' handler for event ${event.id}`);
 
 				throw error;
@@ -693,7 +693,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			if (batch.length > 0) {
 				const start = Date.now();
 
-				await retry(storage.upsert, [batch], 2).catch((error) => {
+				await retry(() => storage.upsert(batch), 2).catch((error) => {
 					for (const event of grouped_events) {
 						log.error(`Failed to run your 'upsert' handler for event ${event.id}`);
 					}
@@ -749,7 +749,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				return;
 			}
 
-			await retry(event.storage.delete, [batch], 2).catch((error) => {
+			await retry(() => event.storage.delete(batch), 2).catch((error) => {
 				log.error(`Failed to run your 'delete' handler for event ${event.id}`);
 
 				throw error;
@@ -906,7 +906,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const start = Date.now();
 
 			try {
-				await retry(storage.upsert, [batch], 2);
+				await retry(() => storage.upsert(batch), 2);
 				if (accessed_undefined_key) throw new Error(IncompleteBlockError);
 			} catch (error) {
 				const status = catchException(error, IncompleteBlockError) ? "incomplete_error" : "upsert_error";

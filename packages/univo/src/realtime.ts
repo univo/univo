@@ -137,7 +137,7 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		}
 
 		// Load the parent remote block and reconcile
-		const parentBlock = await retry(opts.getBlockByHash, [newBlock.parentHash], 5);
+		const parentBlock = await retry(() => opts.getBlockByHash(newBlock.parentHash), 5);
 
 		if (parentBlock === null) {
 			throw new Error(`Failed to fetch parent block ${hexToNumber(newBlock.number)} ${newBlock.parentHash.slice(0, 16)}`);
@@ -228,7 +228,7 @@ function realtime(opts: RealtimeOptions) {
 			},
 			onBlockReorganised: async (head) => {
 				try {
-					await retry(opts.indexer.request, [{ method: "public_deleteReorganisedHead", params: [head] }], 2);
+					await retry(() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [head] }), 2);
 				} catch {
 					log.warn("Failed to write reorganised head");
 				}
