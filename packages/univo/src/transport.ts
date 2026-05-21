@@ -12,7 +12,8 @@ type Transport<R extends Rpc> = {
 	 */
 	request: <M extends keyof R["request"]>(opts: { method: M; params: Parameters<R["request"][M]> }) => Promise<Awaited<ReturnType<R["request"][M]>>>;
 	/**
-	 * Subscribes to specific event types to receive a stream of values and returns a function to unsubscribe.
+	 * Subscribes to specific event types to receive a stream of values
+	 * @returns A async function to unsubscribe from the stream
 	 */
 	subscribe: <M extends keyof R["subscribe"]>(param: M, handler: (message: R["subscribe"][M]) => void) => Promise<() => Promise<void>>;
 };
