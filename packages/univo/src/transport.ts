@@ -276,7 +276,7 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 	};
 
 	const subscribe: Transport<Rpc>["subscribe"] = async () => {
-		//
+		throw new Error("Unable to `subscribe` on `http` transport");
 	};
 
 	return { request, subscribe };
