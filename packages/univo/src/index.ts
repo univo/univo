@@ -1,6 +1,6 @@
 import type { Storage } from "unstorage";
 
-import type { Flatten } from "./utils";
+import { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
 import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, retry } from "./utils";
@@ -247,51 +247,6 @@ type IndexerOptions<TBlock> = {
 type Indexer<TBlock> = {
 	fetch: (req: Request) => Promise<Response>;
 	event: <TEvent>(event: Event<TBlock, TEvent>) => Event<TBlock, TEvent>;
-};
-
-type Rpc = {
-	/**
-	 * Accepts a chain identifier
-	 * @returns The next unfinalized block in the chain
-	 */
-	public_getUnfinalizedHeight(chain: `0x${string}`): Promise<number>;
-
-	/**
-	 * Accepts a reorganised block and deletes all related events from storage
-	 */
-	public_deleteReorganisedHead(head: Head): Promise<void>;
-
-	/**
-	 * Accepts a list of the latest block heads and writes all events to storage
-	 */
-	public_writeUnfinalizedHeads(heads: Head[]): Promise<void>;
-
-	/**
-	 * Accepts a chain of finalized heads and upserts canonical events and deletes reorganised events
-	 */
-	public_writeFinalizedHeads(heads: Head[]): Promise<void>;
-
-	/**
-	 * @returns Specified metadata about the indexer
-	 */
-	private_getMetadata(): Promise<Metadata>;
-
-	/**
-	 * @returns All events defined on this indexer
-	 */
-	private_getEvents(): Promise<{ id: string; filters: Flatten<Filter>[] }[]>;
-
-	/**
-	 * Accepts a list of events and a batch of minified block data and writes to storage
-	 * @returns A list of failures that occured for each event and block pair
-	 */
-	private_writeEvents(params: { events: string[]; blocks: Block[] }): Promise<{ failures: Result[] }>;
-
-	/**
-	 * Accepts a raw block directly from the chain and writes events to storage
-	 * @returns A list of the block keys that were accessed as events are written to storage
-	 */
-	private_writeEventsAndGetKeys(params: { events: string[]; block: Block }): Promise<{ results: Result[]; keys: string[] }>;
 };
 
 function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
@@ -798,14 +753,14 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await Promise.all(promises);
 	}
 
-	const private_getMetadata: Rpc["private_getMetadata"] = async () => {
+	const private_getMetadata: IndexerRpc["private_getMetadata"] = async () => {
 		return {
 			version,
 			language: "javascript",
 		};
 	};
 
-	const private_getEvents: Rpc["private_getEvents"] = async () => {
+	const private_getEvents: IndexerRpc["private_getEvents"] = async () => {
 		return all_events.map((event) => {
 			const filters = event.filters.map((filter) => {
 				return {
@@ -877,7 +832,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return new Proxy(value, createProxyHandler("")) as T;
 	};
 
-	const private_writeEvents: Rpc["private_writeEvents"] = async (params) => {
+	const private_writeEvents: IndexerRpc["private_writeEvents"] = async (params) => {
 		// TODO: Return an error
 		if (all_events.length === 0) return { failures: [] };
 
@@ -988,7 +943,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { failures: failures_array };
 	};
 
-	const private_writeEventsAndGetKeys: Rpc["private_writeEventsAndGetKeys"] = async (params) => {
+	const private_writeEventsAndGetKeys: IndexerRpc["private_writeEventsAndGetKeys"] = async (params) => {
 		if (all_events.length === 0) return { results: [], keys: [] };
 		if (params.events.length === 0) return { results: [], keys: [] };
 
@@ -1129,7 +1084,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { results: results_array, keys: filtered_keys };
 	};
 
-	const rpc: Rpc = {
+	const rpc: IndexerRpc = {
 		public_writeUnfinalizedHeads,
 		public_writeFinalizedHeads,
 		public_getUnfinalizedHeight,
@@ -1231,7 +1186,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Perform RPC
 		try {
-			if (rpc[json.method as keyof Rpc] === undefined) throw new Error(UnknownMethodError);
+			if (rpc[json.method as keyof IndexerRpc] === undefined) throw new Error(UnknownMethodError);
 
 			// @ts-expect-error types too complicated
 			const result = await rpc[json.method](...json.params);
@@ -1268,4 +1223,4 @@ const IncompleteBlockError = createException("Received block with missing requir
 // Exports ------------------------------------------------------------------------------------------------------------------------------------
 
 export { indexer, matchFilter };
-export type { Rpc, Indexer, Event };
+export type { Indexer, Event, Filter, Block, Head, Metadata, Result };
