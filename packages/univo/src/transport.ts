@@ -10,9 +10,7 @@ type Transport<R extends Rpc> = {
 	/**
 	 * Performs a JSON RPC request and returns the result
 	 */
-	request: <M extends keyof R["request"]>(opts: { method: M; params: Parameters<R["request"][M]> }) => Promise<
-		Awaited<ReturnType<R["request"][M]>>
-	>;
+	request: <M extends keyof R["request"]>(opts: { method: M; params: Parameters<R["request"][M]> }) => Promise<Awaited<ReturnType<R["request"][M]>>>;
 	/**
 	 * Subscribes to specific event types to receive a stream of values and returns a function to unsubscribe.
 	 */
