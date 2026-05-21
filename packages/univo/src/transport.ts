@@ -287,5 +287,9 @@ const ClientConnectionError = createException("An errored occurred when connecti
 const ClientResponseError = createException("An error occurred when reading the servers response");
 const ClientUnauthorizedError = createException("Attempted to execute a private method without providing a request signing key");
 
+/**
+ * Exports -----------------------------------------------------------------------------------------------------------------------------------
+ */
+
 export { http, wss };
 export type { Transport };

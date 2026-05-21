@@ -5,7 +5,10 @@ import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
 import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, retry } from "./utils";
 
-// Block ------------------------------------------------------------------------------------------------------------------------------------
+/**
+ * Block -----------------------------------------------------------------------------------------------------------------------------------
+ */
+
 // This is the minimum set of block fields univo needs to function. These are mostly required to allow to perform
 // filter matching on a given block. We need to have _some_ agreed contract to able to understand the chain,
 // the block, and log address and events. We also expect some methods so that we can verify these known methods
@@ -30,7 +33,9 @@ type Block = {
 	}>;
 };
 
-// Filters ------------------------------------------------------------------------------------------------------------------------------------
+/**
+ * Filters -----------------------------------------------------------------------------------------------------------------------------------
+ */
 
 type Filter = {
 	/** Index blocks with this chain id */
@@ -96,7 +101,9 @@ const includesLogEvent: MatchFilter = (block, filter) => {
 	return false;
 };
 
-// Events --------------------------------------------------------------------------------------------------------------------------------------
+/**
+ * Events -----------------------------------------------------------------------------------------------------------------------------------
+ */
 
 type Event<TBlock, TEvent> = {
 	/**
@@ -170,7 +177,9 @@ type Event<TBlock, TEvent> = {
 	};
 };
 
-// Indexer ------------------------------------------------------------------------------------------------------------------------------------
+/**
+ * Indexer -----------------------------------------------------------------------------------------------------------------------------------
+ */
 
 type Head = {
 	hash: `0x${string}`;
@@ -538,10 +547,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// with compression it's safe to say we can send 10s of thousands of heads. This means we can easily repair
 		// from months of downtime
 
-		const [unfinalized_blocks, finalized_block] = await Promise.all([
-			metadata.blocks.get({ chain: "0x1" }),
-			getBlock({ chain: "0x1", number: "finalized" }),
-		]);
+		const [unfinalized_blocks, finalized_block] = await Promise.all([metadata.blocks.get({ chain: "0x1" }), getBlock({ chain: "0x1", number: "finalized" })]);
 
 		const [unfinalized_block] = unfinalized_blocks;
 
@@ -1220,7 +1226,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 const UnknownMethodError = createException("The requested method does not exist");
 const IncompleteBlockError = createException("Received block with missing required property");
 
-// Exports ------------------------------------------------------------------------------------------------------------------------------------
+/**
+ * Exports -----------------------------------------------------------------------------------------------------------------------------------
+ */
 
 export { indexer, matchFilter };
 export type { Indexer, Event, Filter, Block, Head, Metadata, Result };

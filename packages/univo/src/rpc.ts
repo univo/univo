@@ -95,4 +95,8 @@ type IndexerRpc = {
 	subscribe: Record<string, never>;
 };
 
+/**
+ * Exports -----------------------------------------------------------------------------------------------------------------------------------
+ */
+
 export type { Rpc, NodeRpc, IndexerRpc };
