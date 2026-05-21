@@ -8,12 +8,13 @@ import { compress, createLogger, raise } from "./utils";
 
 type Transport<R extends Rpc> = {
 	/**
-	 * Performs a JSON RPC request and returns the result
+	 * Performs a JSON RPC request
+	 * @returns The RPC response
 	 */
 	request: <M extends keyof R["request"]>(opts: { method: M; params: Parameters<R["request"][M]> }) => Promise<Awaited<ReturnType<R["request"][M]>>>;
 	/**
-	 * Subscribes to specific event types to receive a stream of values
-	 * @returns A async function to unsubscribe from the stream
+	 * Subscribes to specific event to receive and invoke a callback for a stream of values
+	 * @returns An async function to unsubscribe from the stream
 	 */
 	subscribe: <M extends keyof R["subscribe"]>(param: M, handler: (message: R["subscribe"][M]) => void) => Promise<() => Promise<void>>;
 };
