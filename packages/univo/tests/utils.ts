@@ -23,13 +23,13 @@ export const test_indexer = iife(() => {
 
 	return <TBlock>(indexer: Indexer<TBlock>) => {
 		const id = crypto.randomUUID();
-		const endpoint = `http://localhost:7483/${id}`;
+		const url = `http://localhost:7483/${id}`;
 		cache.set(id, indexer);
 
 		// Signing key should be "test" for all test indexers
-		const { request } = http(endpoint, { signingKey: "test" });
+		const { request } = http(url, { signingKey: "test" });
 
-		return { endpoint, request };
+		return { url, request };
 	};
 });
 
