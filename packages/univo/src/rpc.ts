@@ -50,9 +50,9 @@ type IndexerRpc = {
 	request: {
 		/**
 		 * Accepts a chain identifier
-		 * @returns The next unfinalized block in the chain
+		 * @returns The next unfinalized head in the chain
 		 */
-		public_getUnfinalizedHeight: (chain: `0x${string}`) => Promise<number>;
+		public_getUnfinalizedHead: (chain: `0x${string}`) => Promise<Head>;
 
 		/**
 		 * Accepts a reorganised block and deletes all related events from storage

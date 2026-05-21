@@ -338,7 +338,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return block;
 	}
 
-	const public_getUnfinalizedHeight = async (chain: `0x${string}`) => {
+	const public_getUnfinalizedHead = async (chain: `0x${string}`) => {
 		const [stored_block] = await metadata.blocks.get({ chain });
 
 		if (stored_block === undefined) {
@@ -348,10 +348,20 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				throw new Error("Failed to determine unfinalized height");
 			}
 
-			return hexToNumber(latest_block.eth_getBlockByNumber.number);
+			return {
+				chain,
+				hash: latest_block.eth_getBlockByNumber.hash,
+				number: latest_block.eth_getBlockByNumber.number,
+				parentHash: latest_block.eth_getBlockByNumber.parentHash,
+			};
 		}
 
-		return hexToNumber(stored_block.eth_getBlockByNumber.number);
+		return {
+			chain,
+			hash: stored_block.eth_getBlockByNumber.hash,
+			number: stored_block.eth_getBlockByNumber.number,
+			parentHash: stored_block.eth_getBlockByNumber.parentHash,
+		};
 	};
 
 	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
@@ -1091,9 +1101,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	const rpc: IndexerRpc["request"] = {
-		public_writeUnfinalizedHeads,
+		public_getUnfinalizedHead,
 		public_writeFinalizedHeads,
-		public_getUnfinalizedHeight,
+		public_writeUnfinalizedHeads,
 		public_deleteReorganisedHead,
 
 		private_getEvents,
