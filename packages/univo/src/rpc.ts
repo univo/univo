@@ -3,33 +3,50 @@ import { Block, Filter, Head, Metadata, Result } from ".";
 
 type Rpc = {
 	/**
-	 * All available methods to subscripe to an event type and receive a stream of values
-	 */
-	subscribe: Record<string, any>;
-
-	/**
-	 * All available methods of the inteface that can be requested
+	 * All available methods that can be requested
 	 */
 	request: Record<string, any>;
+
+	/**
+	 * All available event types to subscribe to a stream of values
+	 */
+	subscribe: Record<string, any>;
 };
 
 /**
  * Node -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-interface NodeRpc extends Rpc {
-	subscribe: Record<string, any>;
+type NodeRpc = {
+	request: {
+		/**
+		 * @returns The chain identifier of the node
+		 */
+		eth_chainId: () => Promise<`0x${string}`>;
 
-	request: Record<string, any>;
-}
+		/**
+		 * Accepts a block tag and boolean for including receipts
+		 * @returns A block with optional receipts
+		 */
+		eth_getBlockByNumber: (number: string, receipts: boolean) => Promise<Head>;
+
+		/**
+		 * Accepts a block hash and boolean for including receipts
+		 * @returns A block with optional receipts
+		 */
+		eth_getBlockByHash: (hash: `0x${string}`, receipts: boolean) => Promise<Head>;
+	};
+
+	subscribe: {
+		newHeads: Head;
+	};
+};
 
 /**
  * Indexer -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-interface IndexerRpc extends Rpc {
-	subscribe: Record<string, never>;
-
+type IndexerRpc = {
 	request: {
 		/**
 		 * Accepts a chain identifier
@@ -74,6 +91,8 @@ interface IndexerRpc extends Rpc {
 		 */
 		private_writeEventsAndGetKeys: (params: { events: string[]; block: Block }) => Promise<{ results: Result[]; keys: string[] }>;
 	};
-}
+
+	subscribe: Record<string, never>;
+};
 
 export type { Rpc, NodeRpc, IndexerRpc };
