@@ -404,7 +404,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const events_start = Date.now();
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
-			const batch = [];
+			const batch: any[] = [];
 
 			for (const block of blocks) {
 				for (const event of grouped_events) {
@@ -487,7 +487,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// it's possible for a new deployment to update the filters in this gap that would prevent the delete
 			// from removing the upserted events if the filters were changed in just the right way
 
-			const batch = [];
+			const batch: any[] = [];
 
 			try {
 				const events = event.handler(stored_block);
@@ -505,7 +505,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				return;
 			}
 
-			await retry(() => event.storage.delete(batch), 2).catch((error) => {
+			await retry(() => event.storage.delete!(batch), 2).catch((error) => {
 				log.error(`Failed to run your 'delete' handler for event ${event.id}`);
 
 				throw error;
@@ -669,7 +669,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
-			const batch = [];
+			const batch: any[] = [];
 
 			for (const event of grouped_events) {
 				try {
@@ -731,7 +731,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// it's possible for a new deployment to update the filters in this gap that would prevent the delete
 			// from removing the upserted events if the filters were changed in just the right way
 
-			const batch = [];
+			const batch: any[] = [];
 
 			try {
 				const events = event.handler(blocks);
@@ -749,7 +749,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				return;
 			}
 
-			await retry(() => event.storage.delete(batch), 2).catch((error) => {
+			await retry(() => event.storage.delete!(batch), 2).catch((error) => {
 				log.error(`Failed to run your 'delete' handler for event ${event.id}`);
 
 				throw error;
@@ -866,7 +866,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
 			// For all events that share the same storage adapter we push to the batch
-			const batch = [];
+			const batch: any[] = [];
 
 			for (const event of grouped_events) {
 				// Ensure event is requested for write
