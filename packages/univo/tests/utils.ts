@@ -6,6 +6,7 @@ import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
 import type { Indexer } from "../src";
 import { http } from "../src/transport";
+import { IndexerRpc } from "../src/rpc";
 import { hexToNumber, iife, raise, retry } from "../src/utils";
 
 export const test_indexer = iife(() => {
@@ -27,7 +28,7 @@ export const test_indexer = iife(() => {
 		cache.set(id, indexer);
 
 		// Signing key should be "test" for all test indexers
-		const { request } = http(url, { signingKey: "test" });
+		const { request } = http<IndexerRpc>(url, { signingKey: "test" });
 
 		return { url, request };
 	};

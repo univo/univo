@@ -1,10 +1,11 @@
-import { http } from "msw";
 import { test } from "vitest";
+import { http as mock_http } from "msw";
 import { createStorage } from "unstorage";
 
 import { indexer } from ".";
+import { realtime } from "./realtime";
+import { wss, http } from "./transport";
 import { server } from "../vitest.setup";
-import { defineTransport, realtime } from "./realtime";
 import { test_getBlock, test_promiseWithResolvers, test_indexer } from "../tests/utils";
 
 test("receives a block", async () => {
@@ -25,16 +26,17 @@ test("receives a block", async () => {
 
 	const { url } = test_indexer(univo);
 
-	// Mock results endpoint
 	server.use(
-		http.post("https://api.univo.app/v1/results", () => {
+		mock_http.post("https://api.univo.app/v1/results", () => {
 			return Response.json({ success: true, data: null });
 		}),
 	);
 
-	// Initialise a realtime client
-	const transport = defineTransport(process.env.TEST_ETHEREUM_RPC_WSS);
-	realtime({ quiet: true, transport, endpoints: [url] });
+	realtime({
+		quiet: true,
+		indexer: http(url),
+		node: wss(process.env.TEST_ETHEREUM_RPC_WSS),
+	});
 
 	await promise;
 });
@@ -62,19 +64,19 @@ test("retries blocks", async () => {
 		},
 	});
 
-	// Create endpoint
 	const { url } = test_indexer(univo);
 
-	// Mock results endpoint
 	server.use(
-		http.post("https://api.univo.app/v1/results", () => {
+		mock_http.post("https://api.univo.app/v1/results", () => {
 			return Response.json({ success: true, data: null });
 		}),
 	);
 
-	// Initialise a realtime client
-	const transport = defineTransport(process.env.TEST_ETHEREUM_RPC_WSS);
-	realtime({ quiet: true, transport, endpoints: [url] });
+	realtime({
+		quiet: true,
+		indexer: http(url),
+		node: wss(process.env.TEST_ETHEREUM_RPC_WSS),
+	});
 
 	await promise;
 });

@@ -1,6 +1,6 @@
 import type { Storage } from "unstorage";
 
-import { IndexerRpc } from "./rpc";
+import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
 import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, retry } from "./utils";
@@ -753,14 +753,14 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await Promise.all(promises);
 	}
 
-	const private_getMetadata: IndexerRpc["private_getMetadata"] = async () => {
+	const private_getMetadata: IndexerRpc["request"]["private_getMetadata"] = async () => {
 		return {
 			version,
 			language: "javascript",
 		};
 	};
 
-	const private_getEvents: IndexerRpc["private_getEvents"] = async () => {
+	const private_getEvents: IndexerRpc["request"]["private_getEvents"] = async () => {
 		return all_events.map((event) => {
 			const filters = event.filters.map((filter) => {
 				return {
@@ -832,7 +832,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return new Proxy(value, createProxyHandler("")) as T;
 	};
 
-	const private_writeEvents: IndexerRpc["private_writeEvents"] = async (params) => {
+	const private_writeEvents: IndexerRpc["request"]["private_writeEvents"] = async (params) => {
 		// TODO: Return an error
 		if (all_events.length === 0) return { failures: [] };
 
@@ -943,7 +943,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { failures: failures_array };
 	};
 
-	const private_writeEventsAndGetKeys: IndexerRpc["private_writeEventsAndGetKeys"] = async (params) => {
+	const private_writeEventsAndGetKeys: IndexerRpc["request"]["private_writeEventsAndGetKeys"] = async (params) => {
 		if (all_events.length === 0) return { results: [], keys: [] };
 		if (params.events.length === 0) return { results: [], keys: [] };
 
@@ -1084,7 +1084,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { results: results_array, keys: filtered_keys };
 	};
 
-	const rpc: IndexerRpc = {
+	const rpc: IndexerRpc["request"] = {
 		public_writeUnfinalizedHeads,
 		public_writeFinalizedHeads,
 		public_getUnfinalizedHeight,
@@ -1186,7 +1186,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Perform RPC
 		try {
-			if (rpc[json.method as keyof IndexerRpc] === undefined) throw new Error(UnknownMethodError);
+			if (rpc[json.method as keyof IndexerRpc["request"]] === undefined) throw new Error(UnknownMethodError);
 
 			// @ts-expect-error types too complicated
 			const result = await rpc[json.method](...json.params);
