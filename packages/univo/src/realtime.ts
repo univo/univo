@@ -9,7 +9,6 @@ import { assert, createLogger, hexToNumber, iife, isHexEqual, mutex, retry } fro
 const MAX_LENGTH = 1000;
 
 type Head = {
-	chain: `0x${string}`;
 	hash: `0x${string}`;
 	number: `0x${string}`;
 	parentHash: `0x${string}`;
@@ -175,29 +174,25 @@ type RealtimeOptions = {
 function realtime(opts: RealtimeOptions) {
 	const log = createLogger({ quiet: opts.quiet ?? false });
 
+	const getBlockByHash = async (hash: `0x${string}`) => {
+		return await opts.node.request({
+			method: "eth_getBlockByHash",
+			params: [hash, false], // We don't need transaction receipts
+		});
+	};
+
 	const promise = iife(async () => {
-		let pending: Head[] = [];
+		const chain = await retry(() => opts.node.request({ method: "eth_chainId", params: [] }), 2);
 
-		const chain = await opts.node.request({ method: "eth_chainId", params: [] });
-
-		const [latestBlock, finalizedStartBlock] = await Promise.all([
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }),
-			opts.indexer.request({ method: "public_getUnfinalizedHeight", params: [chain] }),
+		const [latestBlock, unfinalizedHead] = await Promise.all([
+			retry(() => opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }), 2), //
+			retry(() => opts.indexer.request({ method: "public_getUnfinalizedHead", params: [chain] }), 2),
 		]);
 
-		async function getBlockByHash(hash: `0x${string}`) {
-			const block = await opts.node.request({
-				method: "eth_getBlockByHash",
-				params: [hash, false], // We don't need transaction receipts
-			});
+		let pending: Head[] = [];
 
-			return {
-				chain,
-				hash: block.hash,
-				number: block.number,
-				parentHash: block.parentHash,
-			};
-		}
+		// biome-ignore lint/style/useConst: <explanation>
+		let unfinalizedHeight = hexToNumber(unfinalizedHead.number);
 
 		const latest = defineBlockchain({
 			getBlockByHash,
@@ -209,15 +204,15 @@ function realtime(opts: RealtimeOptions) {
 					// the endpoint by forcing it to load too many blocks at once. Moreover, this function doesn't run
 					// under any type of mutex so if the request takes longer than when we receive the next block we
 					// will spam requests. We need a strategy for queueing requests for new heads. It's okay to drop
-					// unfinalised heads if the queue gets too big
+					// unfinalised heads if the queue gets too big. They will be retried on finalization
 
-					const heads = pending.concat(head);
+					const heads = pending.concat(head).map((head) => ({ chain, ...head }));
 
 					await opts.indexer.request({ method: "public_writeUnfinalizedHeads", params: [heads] });
 
 					pending = pending.filter((head) => {
 						return !heads.some((_head) => {
-							return isHexEqual(head.chain, _head.chain) && isHexEqual(head.hash, _head.hash);
+							return isHexEqual(head.hash, _head.hash);
 						});
 					});
 				} catch {
@@ -228,62 +223,55 @@ function realtime(opts: RealtimeOptions) {
 			},
 			onBlockReorganised: async (head) => {
 				try {
-					await retry(() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [head] }), 2);
+					// We use a simple retry here because reorganised blocks aren't common so this isn't likely to cause
+					// some type of thundering herd on the indexer server.
+
+					await retry(() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), 2);
 				} catch {
 					log.warn("Failed to write reorganised head");
 				}
 			},
 		});
 
-		// TODO
-		// This starts from the indexer state. As the chain finalizes we iterate over all the finalized
-		// blocks less than or equal to the finalized chain and deliver them to the finalized endpoint.
-		// If successful we can drop all blocks sent from the unfinalized chain
-
 		const indexer = defineBlockchain({
 			getBlockByHash,
 			quiet: opts.quiet ?? false,
 		});
 
-		await opts.node.subscribe("newHeads", async (head) => {
+		const poll = async () => {
 			try {
-				await latest.reconcile({
-					chain,
-					hash: head.hash,
-					number: head.number,
-					parentHash: head.parentHash,
+				const finalized_block = await opts.node.request({
+					method: "eth_getBlockByNumber",
+					params: ["finalized", false], // We don't need transaction receipts
 				});
+
+				// If the finalized height changes we already have all of the blocks stored
+				// in the latest chain
+			} catch {
+				log.error("Failed to reconcile finalized head");
+			}
+		};
+
+		// Get the starting blocks for each chain
+
+		await Promise.all([latest.reconcile(latestBlock), indexer.reconcile(unfinalizedHead)]);
+
+		// Subscribe to receiving new blocks for each chain
+
+		await opts.node.subscribe("newHeads", async (head: Head) => {
+			try {
+				await latest.reconcile(head);
+				await indexer.reconcile(head);
 			} catch {
 				log.error("Failed to reconcile latest head");
 			}
 		});
 
-		async function polling() {
-			try {
-				const block = await opts.node.request({
-					method: "eth_getBlockByNumber",
-					params: ["finalized", false], // We don't need transaction receipts
-				});
-
-				// We already have the chain state local to construct the finalized chain so all
-				// we have to do is iterate over the latest chain reconciling blocks less than
-				// the latest finalized block
-
-				for (const head of latest.chain) {
-					if (hexToNumber(head.number) <= hexToNumber(block.number)) {
-						await indexer.reconcile(head);
-					}
-				}
-			} catch {
-				log.error("Failed to reconcile finalized head");
-			}
-		}
-
-		setInterval(polling, POLLING_INTERVAL_MS);
+		setInterval(poll, POLLING_INTERVAL_MS);
 	});
 
 	promise.catch(() => {
-		log.error(`Failed to initialise realtime client for indexer ${opts.indexer}`);
+		log.error("Failed to initialise realtime client");
 	});
 }
 

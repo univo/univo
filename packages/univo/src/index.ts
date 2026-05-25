@@ -112,7 +112,7 @@ type Event<TBlock, TEvent> = {
 	id: string;
 
 	/**
-	 * Filters let you define what the specific blocks you want this event to index.
+	 * Filters let you define what specific blocks you want this event to index.
 	 *
 	 * Blockchains are massive datasets and most of the time we are only ever interested in small portions of it.
 	 * Sometimes that can be specific events like ERC20 transfers and other times it could be all events emitted
@@ -296,11 +296,30 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				if (blocks.length === 0) {
 					return;
 				}
+
+				await opts.metadataStorage.setItems(
+					blocks.map((block) => {
+						const chain = block.eth_chainId.toLowerCase();
+						const hash = block.eth_getBlockByNumber.hash.toLowerCase();
+						const number = block.eth_getBlockByNumber.number.toLowerCase();
+						const key = `blocks/v1/${chain}/${number}/${hash}`;
+						return { key, value: block };
+					}),
+				);
 			},
 			async delete(blocks: TBlock[]) {
 				if (blocks.length === 0) {
 					return;
 				}
+
+				await Promise.all(
+					blocks.map(async (block) => {
+						const chain = block.eth_chainId.toLowerCase();
+						const hash = block.eth_getBlockByNumber.hash.toLowerCase();
+						const number = block.eth_getBlockByNumber.number.toLowerCase();
+						await opts.metadataStorage.del(`blocks/v1/${chain}/${number}/${hash}`);
+					}),
+				);
 			},
 		},
 	};
@@ -338,30 +357,20 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return block;
 	}
 
-	const public_getUnfinalizedHead = async (chain: `0x${string}`) => {
-		const [stored_block] = await metadata.blocks.get({ chain });
+	const public_getFinalizedHeight = async (chain: `0x${string}`) => {
+		const [stored] = await metadata.blocks.get({ chain });
 
-		if (stored_block === undefined) {
-			const latest_block = await getBlock({ chain, number: "latest" });
-
-			if (latest_block === null) {
-				throw new Error("Failed to determine unfinalized height");
-			}
-
-			return {
-				chain,
-				hash: latest_block.eth_getBlockByNumber.hash,
-				number: latest_block.eth_getBlockByNumber.number,
-				parentHash: latest_block.eth_getBlockByNumber.parentHash,
-			};
+		if (stored !== undefined) {
+			return hexToNumber(stored.eth_getBlockByNumber.number) - 1;
 		}
 
-		return {
-			chain,
-			hash: stored_block.eth_getBlockByNumber.hash,
-			number: stored_block.eth_getBlockByNumber.number,
-			parentHash: stored_block.eth_getBlockByNumber.parentHash,
-		};
+		const finalized = await getBlock({ chain, number: "finalized" });
+
+		if (finalized === null) {
+			throw new Error("Failed to determine unfinalized height");
+		}
+
+		return hexToNumber(finalized.eth_getBlockByNumber.number);
 	};
 
 	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
@@ -481,17 +490,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error("Attempted to delete canonical block");
 		}
 
-		// We know the block is not included in the canonical chain and we know that our storage system upserted
-		// events with this block data. We use the block data to generate the same set of events that we upserted
-		// and provide them to each events delete function
+		// We know the block is not included in the canonical chain and we know that our storage system may have upserted
+		// events with this block data. We use the block data to generate the same set of events that could have been
+		// upserted and provide them to each events delete function
 
 		const promises = all_events.map(async (event) => {
-			// If they update the indexer to remove the delete method it's possible that reorged events remain in storage
+			// TODO: If they update the indexer to remove the delete method it's possible that reorged events remain in storage
 
 			if (event.storage.delete === undefined) {
 				return;
 			}
 
+			// TODO
 			// We intentionally ignore filters and basically perform an optimistic delete on events that might
 			// have never been upserted. I make this choice because there is a time delay between upsert and delete,
 			// it's possible for a new deployment to update the filters in this gap that would prevent the delete
@@ -525,10 +535,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await Promise.all(promises);
 	};
 
-	// I think this function should be standalone and not use any of the other helper methods.
-	// It performs some pretty fundamental checks at the start that provide invariants that could
-	// be lost elsewhere
-
 	const public_writeFinalizedHeads = async (heads: Head[]) => {
 		// Verify that all heads received are from the same chain
 
@@ -548,50 +554,60 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error("Received invalid chain");
 		}
 
-		// We load the finalized block from the chain and the first unfinalized block from storage. To verify that
-		// we have received the correct finalized chain we walk backwards from the finalized block and verify the
-		// chains integrity all the way to the first unfinalized block.
+		// We load the finalized block from the chain and the first unfinalized block from storage.
 
-		// So clients must send all [unfinalized, finalized] heads (inclusive). For this to work we need only one
-		// honest client to send the full valid chain which is a reasonable assumption. Heads are pretty small and
-		// with compression it's safe to say we can send 10s of thousands of heads. This means we can easily repair
-		// from months of downtime
+		// Clients can send as many heads as they want. This finalization design is really optimized for a single
+		// writer. Multiple clients would contend on finalizing the next block the chain.
 
-		const [unfinalized_blocks, finalized_block] = await Promise.all([metadata.blocks.get({ chain: "0x1" }), getBlock({ chain: "0x1", number: "finalized" })]);
+		const [unfinalizedBlocks, finalizedBlock] = await Promise.all([
+			metadata.blocks.get({ chain: "0x1" }), //
+			getBlock({ chain: "0x1", number: "finalized" }),
+		]);
 
-		const [unfinalized_block] = unfinalized_blocks;
+		const [nextUnfinalizedBlock] = unfinalizedBlocks;
 
 		// If we are yet to process this chain then we have no canonical chain to verify and process and can return
 
-		if (unfinalized_block === undefined) {
+		if (nextUnfinalizedBlock === undefined) {
 			return;
 		}
 
-		if (finalized_block === null) {
+		if (finalizedBlock === null) {
 			log.error("Failed to load finalized block from the provided `getBlock` function");
 			throw new Error("Failed to load finalized block from the provided `getBlock` function");
 		}
 
-		// We want to retain only the heads greater than the first unfinalized block and less than the finalized head
+		// We want to retain only the heads greater than or equal to the first unfinalized head and less than
+		// or equal to the finalized head. We can safely process these blocks.
 
-		const finalized_head_number = hexToNumber(finalized_block.eth_getBlockByNumber.number);
-		const unfinalized_head_number = hexToNumber(unfinalized_block.eth_getBlockByNumber.number);
+		const nextUnfinalizedHeight = hexToNumber(nextUnfinalizedBlock.eth_getBlockByNumber.number);
+		const canonicalFinalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
-		const finalized_heads = heads.filter((head) => {
-			return hexToNumber(head.number) > unfinalized_head_number && hexToNumber(head.number) < finalized_head_number;
+		assert(canonicalFinalizedHeight >= nextUnfinalizedHeight, "We should always trail the canonical chain");
+
+		const finalizedHeads = heads.filter((head) => {
+			return hexToNumber(head.number) >= nextUnfinalizedHeight && hexToNumber(head.number) <= canonicalFinalizedHeight;
 		});
 
-		let parentHash = finalized_block.eth_getBlockByNumber.parentHash;
+		// Our correctness check means enforcing that we received at least the first unfinalized block and that all
+		// heads processed are less than or equal to the latest finalized block. It is also important to verify that
+		// the heads are sequential because we never want to skip a block number
 
-		for (let i = finalized_heads.length - 1; i >= 0; i--) {
-			const head = finalized_heads[i];
+		if (finalizedHeads.length === 0) {
+			throw new Error("Received invalid finalized heads");
+		}
+
+		let parentHash = finalizedBlock.eth_getBlockByNumber.parentHash;
+
+		for (let i = finalizedHeads.length - 1; i >= 0; i--) {
+			const head = finalizedHeads[i];
 
 			if (head === undefined) {
 				throw new Error("Expected head to be defined");
 			}
 
 			if (!isHexEqual(parentHash, head.hash)) {
-				throw new Error("Received invalid chain");
+				throw new Error("Received invalid finalized head");
 			}
 
 			parentHash = head.parentHash;
@@ -599,7 +615,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Assert that we followed the chain all the way to the first pending block
 
-		if (!isHexEqual(parentHash, unfinalized_block.eth_getBlockByNumber.hash)) {
+		if (!isHexEqual(parentHash, nextUnfinalizedBlock.eth_getBlockByNumber.hash)) {
 			throw new Error("Received incomplete chain");
 		}
 
@@ -611,21 +627,21 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// blocks so there are no speed issues. This means simply iterating one by one and processing correctly is a
 		// fine strategy
 
-		for (const finalized_head of finalized_heads) {
-			let processed_blocks = undefined;
+		for (const finalizedHead of finalizedHeads) {
+			let processedBlocks = undefined;
 
 			// An optimisation is that we will have already loaded the first few blocks when loading the first unfinalized
 			// block. This is because our storage layer has no concept of pagination. So we look for blocks in that
 			// response before attempting to load them again from storage
 
-			processed_blocks = unfinalized_blocks.filter((block) => {
-				return isHexEqual(finalized_head.number, block.eth_getBlockByNumber.number);
+			processedBlocks = unfinalizedBlocks.filter((block) => {
+				return isHexEqual(finalizedHead.number, block.eth_getBlockByNumber.number);
 			});
 
 			// If we have run out of the initially loaded pending blocks we resort to loading by the head specifically
 
-			if (processed_blocks.length === 0) {
-				processed_blocks = await metadata.blocks.get({ chain: finalized_head.chain, number: finalized_head.number });
+			if (processedBlocks.length === 0) {
+				processedBlocks = await metadata.blocks.get({ chain: finalizedHead.chain, number: finalizedHead.number });
 			}
 
 			// When a block finalizes we fully re process it. This means that we delete any reorganised blocks and we
@@ -635,11 +651,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// what the finalized chain processes. So it's likely that this correctness function has no material impact on
 			// the data stored and is just verifies correctness when the chain finalizes
 
-			await reprocessFinalizedHead(finalized_head, processed_blocks);
+			await reprocessFinalizedHead(finalizedHead, processedBlocks);
 
 			// Once this canonical block is successfully processed all stored blocks can be safely discarded
 
-			await metadata.blocks.delete(processed_blocks);
+			await metadata.blocks.delete(processedBlocks);
 		}
 	};
 
@@ -1101,7 +1117,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	const rpc: IndexerRpc["request"] = {
-		public_getUnfinalizedHead,
+		public_getFinalizedHeight,
 		public_writeFinalizedHeads,
 		public_writeUnfinalizedHeads,
 		public_deleteReorganisedHead,
