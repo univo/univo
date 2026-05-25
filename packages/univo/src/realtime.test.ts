@@ -7,9 +7,9 @@ import { wss, http } from "./transport";
 import { test_getBlock, test_promiseWithResolvers, test_indexer } from "../tests/utils";
 
 test.concurrent("receives a block", async () => {
-	const { promise, resolve } = test_promiseWithResolvers();
-
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
+	const { promise, resolve } = test_promiseWithResolvers();
 
 	univo.event({
 		id: "test",
@@ -34,9 +34,9 @@ test.concurrent("receives a block", async () => {
 });
 
 test.concurrent("retries blocks", async () => {
-	const { promise, resolve } = test_promiseWithResolvers();
-
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
+	const { promise, resolve } = test_promiseWithResolvers();
 
 	let count = 0;
 
