@@ -226,8 +226,8 @@ type IndexerOptions<TBlock> = {
 	 * a full list of [supported storage drivers](https://unstorage.unjs.io/drivers).
 	 *
 	 * Functionally, storing metadata is fundamental to ensure the correct operation of your indexer. It
-	 * ensures that you indexer recovers from downtime, ensures that all blocks are processed correctly during
-	 * chain reorganisations, and records any errors when unable to upsert or delete events in realtime.
+	 * ensures that you indexer recovers from downtime and ensures that all blocks are processed correctly during
+	 * chain reorganisations.
 	 */
 	metadataStorage: Storage;
 
