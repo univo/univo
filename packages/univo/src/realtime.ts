@@ -166,12 +166,27 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 const POLLING_INTERVAL_MS = 12 * 1000;
 
 type RealtimeOptions = {
-	/** Logs are emitted based on the environment LOG_LEVEL. Set `quiet: true` to surpress all logs. */
+	/**
+	 * Silences all logs including errors.
+	 *
+	 * Logs are emitted based on the environment LOG_LEVEL. Set `quiet: true` to surpress all logs.
+	 * Available log options are `DEBUG`, `INFO`, `WARN`, and `ERROR`.
+	 */
 	quiet?: boolean;
-	/** Connection to a blockchain node */
-	node: Transport<NodeRpc>;
-	/** Connection to a univo indexer */
-	indexer: Transport<IndexerRpc>;
+
+	/**
+	 * Connection to a blockchain node.
+	 *
+	 * Must use the `wss` transport protocol from `univo/transport`.
+	 */
+	node: Transport<NodeRpc, "wss">;
+
+	/**
+	 * Connection to a univo indexer.
+	 *
+	 * Must use the `http` transport protocol from `univo/transport`
+	 */
+	indexer: Transport<IndexerRpc, "http">;
 };
 
 function realtime(opts: RealtimeOptions) {

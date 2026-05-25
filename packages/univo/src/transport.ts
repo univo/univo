@@ -6,12 +6,20 @@ import type { Rpc } from "./rpc";
 import { createException } from "./exceptions";
 import { compress, createLogger, raise } from "./utils";
 
-type Transport<R extends Rpc> = {
+type Protcol = "http" | "wss";
+
+type Transport<R extends Rpc, P extends Protcol = Protcol> = {
+	/**
+	 * The underlying transport protocol.
+	 */
+	protocol: P;
+
 	/**
 	 * Performs a JSON RPC request
 	 * @returns The RPC response
 	 */
 	request: <M extends keyof R["request"]>(opts: { method: M; params: Parameters<R["request"][M]> }) => Promise<Awaited<ReturnType<R["request"][M]>>>;
+
 	/**
 	 * Subscribes to specific event to receive and invoke a callback for a stream of values
 	 * @returns An async function to unsubscribe from the stream
@@ -30,14 +38,17 @@ type SocketOptions = {
 	 * can be called multiple times over the lifetime of a socket as dropped connections are initialised
 	 */
 	onOpen?: () => Promise<void> | void;
+
 	/**
 	 * An event listener to be called when the WebSocket connection's readyState changes to CLOSED.
 	 */
 	onClose?: () => Promise<void> | void;
+
 	/**
 	 * An event listener to be called when an error occurs
 	 */
 	onError?: (event: ErrorEvent) => Promise<void> | void;
+
 	/**
 	 * An event listener to be called when a message is received from the server
 	 */
@@ -58,7 +69,7 @@ function createSocket(url: `wss://${string}`, opts: SocketOptions) {
 	return socket;
 }
 
-function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transport<R> {
+function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transport<R, "wss"> {
 	if (!url.startsWith("wss://")) {
 		throw new Error("Websocket connections must start with `wss://`");
 	}
@@ -227,14 +238,14 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 
 	setInterval(healthcheck, 60 * 1000);
 
-	return { request, subscribe };
+	return { protocol: "wss", request, subscribe };
 }
 
 /**
  * HTTP -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): Transport<R> {
+function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): Transport<R, "http"> {
 	let id = 0;
 
 	const request: Transport<Rpc>["request"] = async (options) => {
@@ -281,7 +292,7 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 		throw new Error("Unable to `subscribe` on `http` transport");
 	};
 
-	return { request, subscribe };
+	return { protocol: "http", request, subscribe };
 }
 
 const ClientCompressionError = createException("An error occurred when compressing the request");
