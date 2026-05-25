@@ -591,32 +591,34 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Our correctness check means enforcing that we received at least the first unfinalized block and that all
 		// heads processed are less than or equal to the latest finalized block. It is also important to verify that
-		// the heads are sequential because we never want to skip a block number
+		// the heads themselves form a contiguous chain because we never want to skip a block number.
 
 		if (finalizedHeads.length === 0) {
 			throw new Error("Received invalid finalized heads");
 		}
 
-		let parentHash = finalizedBlock.eth_getBlockByNumber.parentHash;
+		const [firstFinalizedHead] = finalizedHeads;
 
-		for (let i = finalizedHeads.length - 1; i >= 0; i--) {
-			const head = finalizedHeads[i];
+		if (firstFinalizedHead === undefined) {
+			throw new Error("Expected head to be defined");
+		}
 
-			if (head === undefined) {
-				throw new Error("Expected head to be defined");
+		if (hexToNumber(firstFinalizedHead.number) !== nextUnfinalizedHeight) {
+			throw new Error("Received incomplete chain");
+		}
+
+		let previousHead = firstFinalizedHead;
+
+		for (const head of finalizedHeads) {
+			if (hexToNumber(head.number) !== hexToNumber(previousHead.number) + 1) {
+				throw new Error("Received incomplete chain");
 			}
 
-			if (!isHexEqual(parentHash, head.hash)) {
+			if (!isHexEqual(head.parentHash, previousHead.hash)) {
 				throw new Error("Received invalid finalized head");
 			}
 
-			parentHash = head.parentHash;
-		}
-
-		// Assert that we followed the chain all the way to the first pending block
-
-		if (!isHexEqual(parentHash, nextUnfinalizedBlock.eth_getBlockByNumber.hash)) {
-			throw new Error("Received incomplete chain");
+			previousHead = head;
 		}
 
 		// After verifying the canonical finalized chain, we essentially have to determine the difference between the
