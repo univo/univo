@@ -151,7 +151,7 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		return await reconcile(newBlock); // Finally we add this block
 	}
 
-	// TODO: We should move the mutex here to much higher up in the abstraction
+	// TODO: Convert the mutex to use a queue
 
 	return {
 		chain,
@@ -210,7 +210,11 @@ function realtime(opts: RealtimeOptions) {
 	};
 
 	const promise = iife(async () => {
+		log.debug("Initialising realtime client for indexer");
+
 		const chain = await opts.node.request({ method: "eth_chainId", params: [] });
+
+		log.debug(`Determined chain identifier for connected node: ${hexToNumber(chain)}`);
 
 		const [latestBlock, chainFinalizedBlock, indexerFinalizedBlock] = await Promise.all([
 			getLatestBlock(),
@@ -238,6 +242,8 @@ function realtime(opts: RealtimeOptions) {
 
 					await opts.indexer.request({ method: "public_writeUnfinalizedHeads", params: [heads] });
 
+					log.debug(`Delivered ${heads.length} unfinalized heads`);
+
 					pending = pending.filter((head) => {
 						return !heads.some((_head) => {
 							return isHexEqual(head.hash, _head.hash);
@@ -261,6 +267,8 @@ function realtime(opts: RealtimeOptions) {
 
 		await latest.reconcile(latestBlock);
 
+		log.debug("Reconciled latest block...");
+
 		// Now that are chains are ready for processing we attach the subscribers for new blocks. As soon as the client
 		// initialises we want the indexer to start receiving the tip of the chain.
 
@@ -272,9 +280,15 @@ function realtime(opts: RealtimeOptions) {
 			}
 		});
 
+		log.debug("Subscribed to latest blocks");
+
 		// For correctness, we must also then send all finalised blocks from the last known finalised block from the indexer.
 		// First we attach the indexer finalized block and then we attach the latest canonical finalized block. This will
 		// reconstruct the entire canonical finalized chain locally
+
+		let lastFinalizedHeight = hexToNumber(indexerFinalizedBlock.number);
+
+		log.debug(`Indexer last finalized at ${lastFinalizedHeight}, chain at ${hexToNumber(chainFinalizedBlock.number)}`);
 
 		const finalized = defineBlockchain({
 			getBlockByHash,
@@ -284,11 +298,11 @@ function realtime(opts: RealtimeOptions) {
 		await finalized.reconcile(indexerFinalizedBlock);
 		await finalized.reconcile(chainFinalizedBlock);
 
+		log.debug("Reconciled finalized chain...");
+
 		// After we have fully constructed the finalized chain we set up a handler to process when new blocks finalize. Right
 		// now there exists no subscription for this so we have to poll. When new blocks finalize we send as many heads as
 		// possible connecting the latest finalized block indexed versus new blocks finalized on chain
-
-		let lastFinalizedHeight = hexToNumber(indexerFinalizedBlock.number);
 
 		const poll = async () => {
 			try {
@@ -303,8 +317,10 @@ function realtime(opts: RealtimeOptions) {
 				const finalizedHeight = hexToNumber(finalizedBlock.number);
 
 				if (finalizedHeight === lastFinalizedHeight) {
-					return;
+					return log.debug("Chain finalized height equal to indexer finalised height, ignoring...");
 				}
+
+				log.debug(`Received new chain height ${finalizedHeight} with last indexer height ${lastFinalizedHeight}`);
 
 				const heads = finalized.chain
 					.filter((head) => {
@@ -317,10 +333,12 @@ function realtime(opts: RealtimeOptions) {
 					});
 
 				if (heads.length === 0) {
-					return;
+					return log.debug("No new finalized heads to deliver, ignoring...");
 				}
 
 				await opts.indexer.request({ method: "public_writeFinalizedHeads", params: [heads] });
+
+				log.debug(`Delivered ${heads.length} finalized head(s)`);
 
 				lastFinalizedHeight = hexToNumber(finalizedBlock.number);
 			} catch {
@@ -333,6 +351,8 @@ function realtime(opts: RealtimeOptions) {
 		await poll();
 
 		setInterval(poll, POLLING_INTERVAL_MS);
+
+		log.debug("Start polling finalized height");
 	});
 
 	promise.catch(() => {
