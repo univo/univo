@@ -273,7 +273,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const metadata = {
 		blocks: {
 			async get(head: { chain: `0x${string}`; number?: `0x${string}`; hash?: `0x${string}` }) {
-				let prefix = `block/v1/${head.chain.toLowerCase()}`;
+				let prefix = `/blocks/v1/${head.chain.toLowerCase()}`;
 
 				if (typeof head.number === "string") {
 					prefix += `/${head.number.toLowerCase()}`;
@@ -285,8 +285,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					}
 
 					prefix += `/${head.hash.toLowerCase()}`;
+
+					// When we have the full key we don't perform a prefix search and instead load the key directly
+					const block = await opts.metadataStorage.getItem<TBlock>(prefix);
+
+					if (block === null) {
+						return [];
+					}
+
+					return [block];
 				}
 
+				// Otherwise we perform a prefixed search for the values
 				const keys = await opts.metadataStorage.getKeys(prefix);
 				const results = await opts.metadataStorage.getItems<TBlock>(keys);
 
@@ -302,7 +312,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						const chain = block.eth_chainId.toLowerCase();
 						const hash = block.eth_getBlockByNumber.hash.toLowerCase();
 						const number = block.eth_getBlockByNumber.number.toLowerCase();
-						const key = `blocks/v1/${chain}/${number}/${hash}`;
+						const key = `/blocks/v1/${chain}/${number}/${hash}`;
 						return { key, value: block };
 					}),
 				);
@@ -317,7 +327,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						const chain = block.eth_chainId.toLowerCase();
 						const hash = block.eth_getBlockByNumber.hash.toLowerCase();
 						const number = block.eth_getBlockByNumber.number.toLowerCase();
-						await opts.metadataStorage.del(`blocks/v1/${chain}/${number}/${hash}`);
+						await opts.metadataStorage.del(`/blocks/v1/${chain}/${number}/${hash}`);
 					}),
 				);
 			},
@@ -420,6 +430,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		await metadata.blocks.upsert(blocks);
 
+		log.debug(`Recorded ${blocks.length} block(s) to metadata storage`);
+
 		const events_start = Date.now();
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
@@ -469,6 +481,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	const public_deleteReorganisedHead = async (head: Head) => {
+		log.debug(`Received reorganised head ${hexToNumber(head.number)}`);
+
 		// Loading blocks happens via the block number. If this block was truly reorganised and is no longer part of
 		// the canonical chain than this request should yield a block with a different block hash. This is our proof
 		// that this block is no longer included in the chain and that it's safe to delete data associated with it
@@ -479,7 +493,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		]);
 
 		if (stored_block === undefined) {
-			return log.debug("Reorganised block already processed");
+			return log.debug("Reorganised block never/already processed");
 		}
 
 		if (canonical_block === null) {
