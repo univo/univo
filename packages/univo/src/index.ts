@@ -273,10 +273,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const metadata = {
 		blocks: {
 			async get(head: { chain: `0x${string}`; number?: `0x${string}`; hash?: `0x${string}` }) {
-				let prefix = `block/v1/${head.chain}`;
+				let prefix = `block/v1/${head.chain.toLowerCase()}`;
 
 				if (typeof head.number === "string") {
-					prefix += `/${head.number}`;
+					prefix += `/${head.number.toLowerCase()}`;
 				}
 
 				if (typeof head.hash === "string") {
@@ -284,7 +284,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						throw new Error("Requested block by hash without specifying a block number");
 					}
 
-					prefix += `/${head.hash}`;
+					prefix += `/${head.hash.toLowerCase()}`;
 				}
 
 				const keys = await opts.metadataStorage.getKeys(prefix);
