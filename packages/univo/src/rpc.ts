@@ -50,7 +50,7 @@ type IndexerRpc = {
 	request: {
 		/**
 		 * Accepts a chain identifier
-		 * @returns The last finalized block indexed
+		 * @returns Height of the last finalized block indexed
 		 */
 		public_getFinalizedHeight: (chain: `0x${string}`) => Promise<number>;
 
