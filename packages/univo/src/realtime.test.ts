@@ -25,7 +25,7 @@ test.concurrent("receives a block", async () => {
 	const { url } = test_indexer(univo);
 
 	realtime({
-		quiet: false,
+		quiet: true,
 		indexer: http(url),
 		node: wss(process.env.TEST_ETHEREUM_RPC_WSS),
 	});

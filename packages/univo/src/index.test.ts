@@ -72,7 +72,7 @@ test.concurrent("public_writeUnfinalizedHeads upserts events", async () => {
 });
 
 test.concurrent("public_writeUnfinalizedHeads retries upsert errors", async () => {
-	const univo = indexer({ quiet: false, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	let count = 0;
 
