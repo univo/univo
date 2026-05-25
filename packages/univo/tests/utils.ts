@@ -54,6 +54,8 @@ export type test_Block = {
 };
 
 export async function test_getBlock(block: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
+	// TODO: Don't cache blocks when the number is a tag like `latest` or `finalized`
+
 	const cacheDir = "tests/blocks";
 
 	let filename = `${hexToNumber(block.chain)}-${hexToNumber(block.number)}`;
