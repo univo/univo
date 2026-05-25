@@ -1,12 +1,12 @@
 import { IndexerRpc, NodeRpc } from "./rpc";
 import type { Transport } from "./transport";
-import { assert, createLogger, hexToNumber, iife, isHexEqual, mutex, retry } from "./utils";
+import { assert, createLogger, hexToNumber, iife, isHexEqual, mutex, numberToHex, retry } from "./utils";
 
 /**
  * Blockchain -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-const MAX_LENGTH = 1000;
+const MAX_LENGTH = 10_000;
 
 type Head = {
 	hash: `0x${string}`;
@@ -39,8 +39,11 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		}
 
 		if (chain.length > MAX_LENGTH) {
-			// TODO: Removing blocks should be exposed to the consumer
-			chain.shift(); // Bounds memory usage
+			// TODO
+			// Remove blocks should be exposed to the consumer. If we have to recover from downtime that is larger than the maximum
+			// length allowed we will be unable to recover.
+
+			chain.shift();
 		}
 	}
 
@@ -175,24 +178,32 @@ function realtime(opts: RealtimeOptions) {
 	const log = createLogger({ quiet: opts.quiet ?? false });
 
 	const getBlockByHash = async (hash: `0x${string}`) => {
-		return await opts.node.request({
-			method: "eth_getBlockByHash",
-			params: [hash, false], // We don't need transaction receipts
-		});
+		return await opts.node.request({ method: "eth_getBlockByHash", params: [hash, false] });
+	};
+
+	const getLatestBlock = async () => {
+		return await opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] });
+	};
+
+	const getChainFinalizedBlock = async () => {
+		return await opts.node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] });
+	};
+
+	const getIndexerFinalizedBlock = async (chain: `0x${string}`) => {
+		const height = await opts.indexer.request({ method: "public_getFinalizedHeight", params: [chain] });
+		return await opts.node.request({ method: "eth_getBlockByNumber", params: [numberToHex(height), false] });
 	};
 
 	const promise = iife(async () => {
-		const chain = await retry(() => opts.node.request({ method: "eth_chainId", params: [] }), 2);
+		const chain = await opts.node.request({ method: "eth_chainId", params: [] });
 
-		const [latestBlock, unfinalizedHead] = await Promise.all([
-			retry(() => opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }), 2), //
-			retry(() => opts.indexer.request({ method: "public_getUnfinalizedHead", params: [chain] }), 2),
+		const [latestBlock, chainFinalizedBlock, indexerFinalizedBlock] = await Promise.all([
+			getLatestBlock(),
+			getChainFinalizedBlock(), //
+			getIndexerFinalizedBlock(chain),
 		]);
 
 		let pending: Head[] = [];
-
-		// biome-ignore lint/style/useConst: <explanation>
-		let unfinalizedHeight = hexToNumber(unfinalizedHead.number);
 
 		const latest = defineBlockchain({
 			getBlockByHash,
@@ -206,7 +217,9 @@ function realtime(opts: RealtimeOptions) {
 					// will spam requests. We need a strategy for queueing requests for new heads. It's okay to drop
 					// unfinalised heads if the queue gets too big. They will be retried on finalization
 
-					const heads = pending.concat(head).map((head) => ({ chain, ...head }));
+					pending.push(head);
+
+					const heads = pending.map((head) => ({ chain, ...head }));
 
 					await opts.indexer.request({ method: "public_writeUnfinalizedHeads", params: [heads] });
 
@@ -217,8 +230,6 @@ function realtime(opts: RealtimeOptions) {
 					});
 				} catch {
 					log.warn("Failed to write heads");
-
-					pending.push(head);
 				}
 			},
 			onBlockReorganised: async (head) => {
@@ -233,39 +244,78 @@ function realtime(opts: RealtimeOptions) {
 			},
 		});
 
-		const indexer = defineBlockchain({
+		await latest.reconcile(latestBlock);
+
+		// Now that are chains are ready for processing we attach the subscribers for new blocks. As soon as the client
+		// initialises we want the indexer to start receiving the tip of the chain.
+
+		await opts.node.subscribe("newHeads", async (head: Head) => {
+			try {
+				await latest.reconcile(head);
+			} catch {
+				log.error("Failed to reconcile latest head");
+			}
+		});
+
+		// For correctness, we must also then send all finalised blocks from the last known finalised block from the indexer.
+		// First we attach the indexer finalized block and then we attach the latest canonical finalized block. This will
+		// reconstruct the entire canonical finalized chain locally
+
+		const finalized = defineBlockchain({
 			getBlockByHash,
 			quiet: opts.quiet ?? false,
 		});
 
+		await finalized.reconcile(indexerFinalizedBlock);
+		await finalized.reconcile(chainFinalizedBlock);
+
+		// After we have fully constructed the finalized chain we set up a handler to process when new blocks finalize. Right
+		// now there exists no subscription for this so we have to poll. When new blocks finalize we send as many heads as
+		// possible connecting the latest finalized block indexed versus new blocks finalized on chain
+
+		let lastFinalizedHeight = hexToNumber(indexerFinalizedBlock.number);
+
 		const poll = async () => {
 			try {
-				const finalized_block = await opts.node.request({
+				// This uses a natural retry method. If the request fails we never update the finalized height. If successful
+				// we will update it and safely remove all finalized blocks processed from the next request
+
+				const finalizedBlock = await opts.node.request({
 					method: "eth_getBlockByNumber",
-					params: ["finalized", false], // We don't need transaction receipts
+					params: ["finalized", false], //
 				});
 
-				// If the finalized height changes we already have all of the blocks stored
-				// in the latest chain
+				const finalizedHeight = hexToNumber(finalizedBlock.number);
+
+				if (finalizedHeight === lastFinalizedHeight) {
+					return;
+				}
+
+				const heads = finalized.chain
+					.filter((head) => {
+						if (hexToNumber(head.number) > finalizedHeight) return false;
+						if (hexToNumber(head.number) < lastFinalizedHeight) return false;
+						return true;
+					})
+					.map((head) => {
+						return { chain, ...head };
+					});
+
+				if (heads.length === 0) {
+					return;
+				}
+
+				await opts.indexer.request({ method: "public_writeFinalizedHeads", params: [heads] });
+
+				lastFinalizedHeight = hexToNumber(finalizedBlock.number);
 			} catch {
 				log.error("Failed to reconcile finalized head");
 			}
 		};
 
-		// Get the starting blocks for each chain
+		// Execute once and then run on an interval
 
-		await Promise.all([latest.reconcile(latestBlock), indexer.reconcile(unfinalizedHead)]);
-
-		// Subscribe to receiving new blocks for each chain
-
-		await opts.node.subscribe("newHeads", async (head: Head) => {
-			try {
-				await latest.reconcile(head);
-				await indexer.reconcile(head);
-			} catch {
-				log.error("Failed to reconcile latest head");
-			}
-		});
+		await poll();
 
 		setInterval(poll, POLLING_INTERVAL_MS);
 	});
