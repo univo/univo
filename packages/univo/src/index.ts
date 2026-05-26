@@ -3,7 +3,7 @@ import type { Storage } from "unstorage";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
-import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, retry } from "./utils";
+import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, retry, assert } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
