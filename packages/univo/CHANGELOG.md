@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.0
+
+[compare changes](https://github.com/univo/univo/compare/v0.1.19...v0.2.0)
+
+### 🚀 Enhancements
+
+- **deletions:** Improve support for handling chain reorganisations ([#8](https://github.com/univo/univo/pull/8))
+- **metadata:** Add KV metadata storage ([#9](https://github.com/univo/univo/pull/9))
+- **correctness:** Move correctness inside metadata storage ([#10](https://github.com/univo/univo/pull/10))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.1.19
 
 [compare changes](https://github.com/univo/univo/compare/v0.1.18...v0.1.19)
