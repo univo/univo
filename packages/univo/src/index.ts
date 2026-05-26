@@ -402,7 +402,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return; // No heads were received
 		}
 
-		log.debug(`Received ${heads.length} latest heads...`);
+		log.debug(`Received ${heads.length} unfinalized heads...`);
 
 		const blocks_start = Date.now();
 
@@ -568,6 +568,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error("Received invalid chain");
 		}
 
+		log.debug(`Received ${heads.length} finalized heads...`);
+
 		// We load the finalized block from the chain and the first unfinalized block from storage.
 
 		// Clients can send as many heads as they want. This finalization design is really optimized for a single
@@ -583,7 +585,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// If we are yet to process this chain then we have no canonical chain to verify and process and can return
 
 		if (nextUnfinalizedBlock === undefined) {
-			return;
+			return log.debug(`No unfinalised blocks processed for chain ${hexToNumber(chain)}, ignoring...`);
 		}
 
 		if (finalizedBlock === null) {
@@ -772,10 +774,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const batch: any[] = [];
 
 			try {
-				const events = event.handler(blocks);
+				for (const block of blocks) {
+					const events = event.handler(block);
 
-				for (const event of events) {
-					batch.push(event);
+					for (const event of events) {
+						batch.push(event);
+					}
 				}
 			} catch (error) {
 				log.error(`Failed to run your 'handler' for event ${event.id}`);

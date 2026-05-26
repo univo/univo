@@ -160,12 +160,10 @@ test.concurrent("public_deleteReorganisedHead deletes events from reorganised bl
 	let deleted = false;
 	let upserted = false;
 
-	const metadataStorage = createStorage();
-
 	const univo = indexer({
 		quiet: true,
 		signingKey: "test",
-		metadataStorage,
+		metadataStorage: createStorage(),
 		getBlock: async () => {
 			if (upserted === false) {
 				return await test_getBlock({
@@ -315,7 +313,90 @@ test.concurrent("public_writeFinalizedHeads writes finalized heads", async () =>
 });
 
 test.concurrent("public_writeFinalizedHeads removes reorganised events", async () => {
-	//
+	let upserted = false;
+	let deleted = false;
+	let unfinalizedWritten = false;
+
+	const univo = indexer({
+		quiet: false,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ number }) => {
+			if (number === "finalized") {
+				return await test_getBlock({
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358", // Canonical
+				});
+			}
+
+			if (unfinalizedWritten === false) {
+				return await test_getBlock({
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334", // Reorged
+				});
+			}
+
+			return await test_getBlock({
+				chain: "0x1",
+				number: "0x17ebb67",
+				hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358", // Canonical
+			});
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				if (events.includes("0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334")) {
+					upserted = true;
+					unfinalizedWritten = true;
+				}
+			},
+			async delete(events) {
+				if (events.includes("0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334")) {
+					deleted = true;
+				}
+			},
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334", // Reorged
+					parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+				},
+			],
+		],
+	});
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358", // Canonical
+					parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+				},
+			],
+		],
+	});
+
+	expect(upserted).toBe(true);
+	expect(deleted).toBe(true);
 });
 
 test.concurrent("public_writeFinalizedHeads throws when receiving heads from different chains", async () => {
