@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.3
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.1...release/0.2.3)
+
+### 🩹 Fixes
+
+- **assert:** Remove assert utility ([#17](https://github.com/univo/univo/pull/17))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.2
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.1...release/0.2.2)
