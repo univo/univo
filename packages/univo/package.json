@@ -14,6 +14,10 @@
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.mjs"
 		},
+		"./rpc": {
+			"types": "./dist/rpc.d.ts",
+			"import": "./dist/rpc.mjs"
+		},
 		"./transport": {
 			"types": "./dist/transport.d.ts",
 			"import": "./dist/transport.mjs"
