@@ -524,6 +524,308 @@ test.concurrent("public_writeFinalizedHeads throws if it doesn't receive the nex
 	).rejects.toThrowError("Received invalid finalized heads");
 });
 
+test.concurrent("public_writeFinalizedHeads deletes finalized metadata blocks after successful processing", async () => {
+	const metadataStorage = createStorage();
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage,
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block10;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: { upsert: async () => {} },
+	});
+
+	const head = {
+		chain: block10.eth_chainId,
+		number: block10.eth_getBlockByNumber.number,
+		hash: block10.eth_getBlockByNumber.hash,
+		parentHash: block10.eth_getBlockByNumber.parentHash,
+	};
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [[head]],
+	});
+
+	expect(await metadataStorage.getKeys("/blocks/v1/0x1")).not.toStrictEqual([]);
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [[head]],
+	});
+
+	expect(await metadataStorage.getKeys("/blocks/v1/0x1")).toStrictEqual([]);
+});
+
+test.concurrent("public_writeFinalizedHeads rejects wrong parent linkage between adjacent finalized heads", async () => {
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+	const block11 = await test_getBlock({ chain: "0x1", number: "0xb" });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block11;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: block10.eth_chainId,
+					number: block10.eth_getBlockByNumber.number,
+					hash: block10.eth_getBlockByNumber.hash,
+					parentHash: block10.eth_getBlockByNumber.parentHash,
+				},
+				{
+					chain: block11.eth_chainId,
+					number: block11.eth_getBlockByNumber.number,
+					hash: block11.eth_getBlockByNumber.hash,
+					parentHash: block11.eth_getBlockByNumber.parentHash,
+				},
+			],
+		],
+	});
+
+	await expect(
+		client.request({
+			method: "public_writeFinalizedHeads",
+			params: [
+				[
+					{
+						chain: block10.eth_chainId,
+						number: block10.eth_getBlockByNumber.number,
+						hash: block10.eth_getBlockByNumber.hash,
+						parentHash: block10.eth_getBlockByNumber.parentHash,
+					},
+					{
+						chain: block11.eth_chainId,
+						number: block11.eth_getBlockByNumber.number,
+						hash: block11.eth_getBlockByNumber.hash,
+						parentHash: block10.eth_getBlockByNumber.parentHash,
+					},
+				],
+			],
+		}),
+	).rejects.toThrowError("Received invalid finalized heads");
+});
+
+test.concurrent("public_writeFinalizedHeads retries delete errors for reorganised events", async () => {
+	let deleteCount = 0;
+	let unfinalizedWritten = false;
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ number }) => {
+			if (number === "finalized") {
+				return await test_getBlock({
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
+				});
+			}
+
+			if (unfinalizedWritten === false) {
+				return await test_getBlock({
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334",
+				});
+			}
+
+			return await test_getBlock({
+				chain: "0x1",
+				number: "0x17ebb67",
+				hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
+			});
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				if (events.includes("0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334")) {
+					unfinalizedWritten = true;
+				}
+			},
+			async delete() {
+				if (deleteCount < 2) {
+					deleteCount++;
+					throw new Error("Test error message");
+				}
+			},
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334",
+					parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+				},
+			],
+		],
+	});
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
+					parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+				},
+			],
+		],
+	});
+
+	expect(deleteCount).toBe(2);
+});
+
+test.concurrent("public_writeUnfinalizedHeads tolerates partial block-load failure", async () => {
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+	const upserted: string[] = [];
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "0xb") {
+				return null;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				upserted.push(...events);
+			},
+		},
+	});
+
+	await test_indexer(univo).request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0xa",
+					hash: block10.eth_getBlockByNumber.hash,
+					parentHash: block10.eth_getBlockByNumber.parentHash,
+				},
+				{
+					chain: "0x1",
+					number: "0xb",
+					hash: "0x1111111111111111111111111111111111111111111111111111111111111111",
+					parentHash: block10.eth_getBlockByNumber.hash,
+				},
+			],
+		],
+	});
+
+	expect(upserted).toStrictEqual([block10.eth_getBlockByNumber.hash]);
+});
+
+test.concurrent("public_writeFinalizedHeads is idempotent when called twice with the same finalized window", async () => {
+	const metadataStorage = createStorage();
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+	const upserted: string[] = [];
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage,
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block10;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				upserted.push(...events);
+			},
+		},
+	});
+
+	const head = {
+		chain: block10.eth_chainId,
+		number: block10.eth_getBlockByNumber.number,
+		hash: block10.eth_getBlockByNumber.hash,
+		parentHash: block10.eth_getBlockByNumber.parentHash,
+	};
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [[head]],
+	});
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [[head]],
+	});
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [[head]],
+	});
+
+	expect(upserted).toStrictEqual([block10.eth_getBlockByNumber.hash, block10.eth_getBlockByNumber.hash]);
+});
+
 test.concurrent("private_writeEvents indexes only the events requested", async () => {
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
