@@ -1,8 +1,20 @@
 # Changelog
 
+## v0.2.4
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.3...v0.2.4)
+
+### 🩹 Fixes
+
+- **finalized-height:** Ensure public_getFinalizedHeight never returns unfinalized height ([#19](https://github.com/univo/univo/pull/19))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.3
 
-[compare changes](https://github.com/univo/univo/compare/v0.2.1...release/0.2.3)
+[compare changes](https://github.com/univo/univo/compare/v0.2.1...v0.2.3)
 
 ### 🩹 Fixes
 
@@ -14,7 +26,7 @@
 
 ## v0.2.2
 
-[compare changes](https://github.com/univo/univo/compare/v0.2.1...release/0.2.2)
+[compare changes](https://github.com/univo/univo/compare/v0.2.1...v0.2.2)
 
 ### 🚀 Enhancements
 
@@ -26,7 +38,7 @@
 
 ## v0.2.1
 
-[compare changes](https://github.com/univo/univo/compare/v0.2.0...release/0.2.1)
+[compare changes](https://github.com/univo/univo/compare/v0.2.0...v0.2.1)
 
 ### 🩹 Fixes
 
