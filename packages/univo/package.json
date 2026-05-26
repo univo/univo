@@ -33,8 +33,7 @@
 	"scripts": {
 		"test": "vitest",
 		"build": "unbuild",
-		"univo": "NODE_ENV=production LOG_LEVEL=DEBUG jiti ./src/cli",
-		"build:release": "pnpm build && changelogen --release --push && pnpm build && npm publish"
+		"univo": "NODE_ENV=production LOG_LEVEL=DEBUG jiti ./src/cli"
 	},
 	"dependencies": {
 		"citty": "^0.1.6",
