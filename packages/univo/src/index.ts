@@ -368,19 +368,26 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	const public_getFinalizedHeight = async (chain: `0x${string}`) => {
-		const [stored] = await metadata.blocks.get({ chain });
-
-		if (stored !== undefined) {
-			return hexToNumber(stored.eth_getBlockByNumber.number) - 1;
-		}
-
-		const finalized = await getBlock({ chain, number: "finalized" });
+		const [finalized, [stored]] = await Promise.all([
+			getBlock({ chain, number: "finalized" }), //
+			metadata.blocks.get({ chain }),
+		]);
 
 		if (finalized === null) {
 			throw new Error("Failed to determine unfinalized height");
 		}
 
-		return hexToNumber(finalized.eth_getBlockByNumber.number);
+		const finalizedHeight = hexToNumber(finalized.eth_getBlockByNumber.number);
+
+		if (stored === undefined) {
+			return finalizedHeight;
+		}
+
+		// We minus one because the store represents unfinalized blocks
+		const storedHeight = hexToNumber(stored.eth_getBlockByNumber.number) - 1;
+
+		// Return whichever height is least finalized
+		return Math.min(finalizedHeight, storedHeight);
 	};
 
 	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
