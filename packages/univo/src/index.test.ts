@@ -1,10 +1,8 @@
-import { http } from "msw";
+import { expect, test } from "vitest";
 import { createStorage } from "unstorage";
-import { expect, test, assert } from "vitest";
 
 import { indexer } from ".";
 import type { Event } from ".";
-import { server } from "../vitest.setup";
 import { hexToNumber, numberToHex } from "./utils";
 import { test_Block, test_getBlock, test_indexer } from "../tests/utils";
 
@@ -40,88 +38,10 @@ test.concurrent("throws an error if an event with an invalid id is defined", () 
 	}).toThrowError;
 });
 
-test("public_writeAndReturnBlocks reports no results when provided a block that matches no event filters", async () => {
+test.concurrent("public_writeUnfinalizedHeads upserts events", async () => {
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
-	univo.event({
-		id: "test",
-		handler: () => [],
-		storage: { upsert: async () => {} },
-		filters: [{ chain: 1, fromBlock: 0, toBlock: 0 }],
-	});
-
-	server.use(
-		http.post("https://api.univo.app/v1/results", async () => {
-			assert.fail("There should be no results to submit");
-		}),
-	);
-
-	await test_indexer(univo).request({
-		method: "public_writeAndReturnBlocks",
-		params: [
-			"https://endpoint.com",
-			[
-				{
-					chain: "0x1",
-					number: "0xa",
-					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-				},
-			],
-		],
-	});
-});
-
-test("public_writeAndReturnBlocks reports ok results if we return an empty handler", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
-
-	univo.event({
-		id: "test",
-		handler: () => [],
-		storage: { upsert: async () => {} },
-		filters: [{ chain: 1, fromBlock: 0 }],
-	});
-
-	server.use(
-		http.post("https://api.univo.app/v1/results", async ({ request }) => {
-			const json = await request.json();
-
-			expect(json).toStrictEqual({
-				endpoint: "https://endpoint.com",
-				results: [
-					{
-						status: "ok",
-						chain: "0x1",
-						event_id: "test",
-						block_number: "0xa",
-						block_hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-						created_at: expect.any(Number),
-					},
-				],
-			});
-
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
-	await test_indexer(univo).request({
-		method: "public_writeAndReturnBlocks",
-		params: [
-			"https://endpoint.com",
-			[
-				{
-					chain: "0x1",
-					number: "0xa",
-					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-				},
-			],
-		],
-	});
-});
-
-test("public_writeAndReturnBlocks reports ok results if we successfully upsert events", async () => {
 	const upserted: any[] = [];
-
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -134,37 +54,15 @@ test("public_writeAndReturnBlocks reports ok results if we successfully upsert e
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	server.use(
-		http.post("https://api.univo.app/v1/results", async ({ request }) => {
-			const json = await request.json();
-
-			expect(json).toStrictEqual({
-				endpoint: "https://endpoint.com",
-				results: [
-					{
-						status: "ok",
-						chain: "0x1",
-						event_id: "test",
-						block_number: "0xa",
-						block_hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-						created_at: expect.any(Number),
-					},
-				],
-			});
-
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
 	await test_indexer(univo).request({
-		method: "public_writeAndReturnBlocks",
+		method: "public_writeUnfinalizedHeads",
 		params: [
-			"https://endpoint.com",
 			[
 				{
 					chain: "0x1",
 					number: "0xa",
 					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
+					parentHash: "0x997e47bf4cac509c627753c06385ac866641ec6f883734ff7944411000dc576e",
 				},
 			],
 		],
@@ -173,180 +71,10 @@ test("public_writeAndReturnBlocks reports ok results if we successfully upsert e
 	expect(upserted.length).toBe(1);
 });
 
-test("public_writeAndReturnBlocks reports a block_error for all events when failing to load a block", async () => {
-	const univo = indexer({
-		quiet: true,
-		signingKey: "test",
-		metadataStorage: createStorage(),
-		getBlock: async () => {
-			throw new Error("Failed to load block");
-		},
-	});
-
-	univo.event({
-		id: "event1",
-		handler: () => [],
-		storage: { upsert: async () => {} },
-		filters: [{ chain: 1, fromBlock: 0 }],
-	});
-
-	univo.event({
-		id: "event2",
-		handler: () => [],
-		storage: { upsert: async () => {} },
-		filters: [{ chain: 1, fromBlock: 0 }],
-	});
-
-	server.use(
-		http.post("https://api.univo.app/v1/results", async ({ request }) => {
-			const json: any = await request.json();
-
-			expect(json).toStrictEqual({
-				endpoint: "https://endpoint.com",
-				results: [
-					{
-						status: "block_error",
-						chain: "0x1",
-						event_id: "event1",
-						block_number: "0xa",
-						block_hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-						created_at: expect.any(Number),
-					},
-					{
-						status: "block_error",
-						chain: "0x1",
-						event_id: "event2",
-						block_number: "0xa",
-						block_hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-						created_at: expect.any(Number),
-					},
-				],
-			});
-
-			expect(json.results.length).toBe(2);
-
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
-	await test_indexer(univo).request({
-		method: "public_writeAndReturnBlocks",
-		params: [
-			"https://endpoint.com",
-			[
-				{
-					chain: "0x1",
-					number: "0xa",
-					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-				},
-			],
-		],
-	});
-});
-
-test("public_writeAndReturnBlocks reports a handler_error", async () => {
+test.concurrent("public_writeUnfinalizedHeads retries upsert errors", async () => {
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
-	univo.event({
-		id: "test",
-		handler: () => {
-			throw new Error("Handler failed");
-		},
-		storage: { upsert: async () => {} },
-		filters: [{ chain: 1, fromBlock: 0 }],
-	});
-
-	server.use(
-		http.post("https://api.univo.app/v1/results", async ({ request }) => {
-			const json = await request.json();
-
-			expect(json).toStrictEqual({
-				endpoint: "https://endpoint.com",
-				results: [
-					{
-						status: "handler_error",
-						chain: "0x1",
-						event_id: "test",
-						block_number: "0xa",
-						block_hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-						created_at: expect.any(Number),
-					},
-				],
-			});
-
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
-	await test_indexer(univo).request({
-		method: "public_writeAndReturnBlocks",
-		params: [
-			"https://endpoint.com",
-			[
-				{
-					chain: "0x1",
-					number: "0xa",
-					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-				},
-			],
-		],
-	});
-});
-
-test("public_writeAndReturnBlocks reports any upsert errors", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
-
-	univo.event({
-		id: "test",
-		handler: (block) => [block.eth_getBlockByNumber.hash],
-		storage: {
-			async upsert() {
-				throw new Error("Upsert failed");
-			},
-		},
-		filters: [{ chain: 1, fromBlock: 0 }],
-	});
-
-	server.use(
-		http.post("https://api.univo.app/v1/results", async ({ request }) => {
-			const json = await request.json();
-
-			expect(json).toStrictEqual({
-				endpoint: "https://endpoint.com",
-				results: [
-					{
-						status: "upsert_error",
-						chain: "0x1",
-						event_id: "test",
-						block_number: "0xa",
-						block_hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-						created_at: expect.any(Number),
-					},
-				],
-			});
-
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
-	await test_indexer(univo).request({
-		method: "public_writeAndReturnBlocks",
-		params: [
-			"https://endpoint.com",
-			[
-				{
-					chain: "0x1",
-					number: "0xa",
-					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-				},
-			],
-		],
-	});
-});
-
-test("public_writeAndReturnBlocks retries upsert errors", async () => {
 	let count = 0;
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "test",
@@ -354,36 +82,34 @@ test("public_writeAndReturnBlocks retries upsert errors", async () => {
 		handler: (block) => [block.eth_getBlockByNumber.hash],
 		storage: {
 			async upsert() {
-				count++;
-				throw new Error("Upsert failed");
+				if (count < 2) {
+					count++;
+					throw new Error();
+				}
 			},
 		},
 	});
 
-	server.use(
-		http.post("https://api.univo.app/v1/results", async () => {
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
 	await test_indexer(univo).request({
-		method: "public_writeAndReturnBlocks",
+		method: "public_writeUnfinalizedHeads",
 		params: [
-			"https://endpoint.com",
 			[
 				{
 					chain: "0x1",
 					number: "0xa",
 					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
+					parentHash: "0x997e47bf4cac509c627753c06385ac866641ec6f883734ff7944411000dc576e",
 				},
 			],
 		],
 	});
 
-	expect(count).toEqual(3);
+	expect(count).toEqual(2);
 });
 
-test("public_writeAndReturnBlocks deduplicates events with the same storage adapter", async () => {
+test.concurrent("public_writeUnfinalizedHeads deduplicates events with the same storage adapter", async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
 	let count = 0;
 	let batch = [] as any[];
 
@@ -393,8 +119,6 @@ test("public_writeAndReturnBlocks deduplicates events with the same storage adap
 			batch = events;
 		},
 	};
-
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		storage,
@@ -410,21 +134,15 @@ test("public_writeAndReturnBlocks deduplicates events with the same storage adap
 		handler: (block) => [`event2-${block.eth_getBlockByNumber.hash}`],
 	});
 
-	server.use(
-		http.post("https://api.univo.app/v1/results", async () => {
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
 	await test_indexer(univo).request({
-		method: "public_writeAndReturnBlocks",
+		method: "public_writeUnfinalizedHeads",
 		params: [
-			"https://endpoint.com",
 			[
 				{
 					chain: "0x1",
 					number: "0xa",
 					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
+					parentHash: "0x997e47bf4cac509c627753c06385ac866641ec6f883734ff7944411000dc576e",
 				},
 			],
 		],
@@ -438,159 +156,7 @@ test("public_writeAndReturnBlocks deduplicates events with the same storage adap
 	]);
 });
 
-test("public_writeAndReturnBlocks returns blocks", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
-
-	univo.event({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByNumber.hash],
-		storage: {
-			async upsert() {
-				//
-			},
-			async delete() {
-				//
-			},
-		},
-	});
-
-	server.use(
-		http.post("https://api.univo.app/v1/results", async () => {
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
-	const response = await test_indexer(univo).request({
-		method: "public_writeAndReturnBlocks",
-		params: [
-			"https://endpoint.com",
-			[
-				{
-					chain: "0x1",
-					number: "0xa",
-					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d", // This hash is fake
-				},
-			],
-		],
-	});
-
-	const blocks = response.blocks[0];
-
-	expect(blocks).toBeDefined();
-});
-
-test("public_writeAndReturnBlocks only returns blocks it successfully loaded", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
-
-	univo.event({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByNumber.hash],
-		storage: {
-			async upsert() {
-				//
-			},
-			async delete() {
-				//
-			},
-		},
-	});
-
-	server.use(
-		http.post("https://api.univo.app/v1/results", async () => {
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
-	const response = await test_indexer(univo).request({
-		method: "public_writeAndReturnBlocks",
-		params: [
-			"https://endpoint.com",
-			[
-				{
-					chain: "0x1",
-					number: "0xa",
-					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4e", // This hash is fake
-				},
-			],
-		],
-	});
-
-	const block = response.blocks[0];
-
-	expect(block).toBe(null);
-});
-
-test.concurrent("public_deleteBlock rejects invalid blocks", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
-
-	expect(async () => {
-		await test_indexer(univo).request({
-			method: "public_deleteBlock",
-			params: ["https://endpoint.com", "this_is_an_invalid_block"],
-		});
-	}).toThrowError;
-});
-
-test("public_deleteBlock never deletes events from canonical blocks", async () => {
-	let deleted = false;
-	let upserted = false;
-
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
-
-	univo.event({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByNumber.hash],
-		storage: {
-			async upsert() {
-				upserted = true;
-			},
-			async delete() {
-				deleted = true;
-			},
-		},
-	});
-
-	const client = test_indexer(univo);
-
-	server.use(
-		http.post("https://api.univo.app/v1/results", async () => {
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
-	const response = await client.request({
-		method: "public_writeAndReturnBlocks",
-		params: [
-			"https://endpoint.com",
-			[
-				{
-					chain: "0x1",
-					number: "0xa",
-					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-				},
-			],
-		],
-	});
-
-	const block = response.blocks[0];
-
-	if (block === null || block === undefined) {
-		throw new Error("Expected block to be defined");
-	}
-
-	await client.request({
-		method: "public_deleteBlock",
-		params: ["https://endpoint.com", block],
-	});
-
-	expect(deleted).toBe(false);
-	expect(upserted).toBe(true);
-});
-
-test("public_deleteBlock deletes events from reorganised blocks", async () => {
+test.concurrent("public_deleteReorganisedHead deletes events from reorganised blocks", async () => {
 	let deleted = false;
 	let upserted = false;
 
@@ -599,20 +165,18 @@ test("public_deleteBlock deletes events from reorganised blocks", async () => {
 		signingKey: "test",
 		metadataStorage: createStorage(),
 		getBlock: async () => {
-			// The first request happens we are writing a block and we want this to be the reorganised block
 			if (upserted === false) {
 				return await test_getBlock({
 					chain: "0x1",
 					number: "0x17ebb67",
-					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334", // Reorged
 				});
 			}
 
-			// This second request happens during deletion and should return the canonical block
 			return await test_getBlock({
 				chain: "0x1",
 				number: "0x17ebb67",
-				hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
+				hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358", // Canonical
 			});
 		},
 	});
@@ -633,46 +197,640 @@ test("public_deleteBlock deletes events from reorganised blocks", async () => {
 
 	const client = test_indexer(univo);
 
-	server.use(
-		http.post("https://api.univo.app/v1/results", async () => {
-			return Response.json({ success: true, data: null });
-		}),
-	);
-
-	const response = await client.request({
-		method: "public_writeAndReturnBlocks",
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
 		params: [
-			"https://endpoint.com",
 			[
 				{
 					chain: "0x1",
 					number: "0x17ebb67",
-					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334", // Reorged
+					parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
 				},
 			],
 		],
 	});
 
-	const block = response.blocks[0];
-
-	if (block === null || block === undefined) {
-		throw new Error("Expected block to be defined");
-	}
-
 	await client.request({
-		method: "public_deleteBlock",
-		params: ["https://endpoint.com", block],
+		method: "public_deleteReorganisedHead",
+		params: [
+			{
+				chain: "0x1",
+				number: "0x17ebb67",
+				hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334", // Reorged
+				parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+			},
+		],
 	});
 
-	expect(deleted).toBe(true);
 	expect(upserted).toBe(true);
+	expect(deleted).toBe(true);
 });
 
-test("private_writeEvents indexes only the events requested", async () => {
+test.concurrent("public_deleteReorganisedHead never deletes events from canonical blocks", async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
+	let deleted = false;
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert() {
+				//
+			},
+			async delete() {
+				deleted = true;
+			},
+		},
+	});
+
+	await test_indexer(univo).request({
+		method: "public_deleteReorganisedHead",
+		params: [
+			{
+				chain: "0x1",
+				number: "0xa",
+				hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
+				parentHash: "0x997e47bf4cac509c627753c06385ac866641ec6f883734ff7944411000dc576e",
+			},
+		],
+	});
+
+	expect(deleted).toBe(false);
+});
+
+test.concurrent("public_writeFinalizedHeads writes finalized heads", async () => {
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block0;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	const upserted: string[] = [];
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				upserted.push(...events);
+			},
+		},
+	});
+
+	const head = {
+		chain: block0.eth_chainId,
+		number: block0.eth_getBlockByNumber.number,
+		hash: block0.eth_getBlockByNumber.hash,
+		parentHash: block0.eth_getBlockByNumber.parentHash,
+	};
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [[head]],
+	});
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [[head]],
+	});
+
+	expect(upserted).toStrictEqual([block0.eth_getBlockByNumber.hash, block0.eth_getBlockByNumber.hash]);
+});
+
+test.concurrent("public_writeFinalizedHeads removes reorganised events", async () => {
+	let upserted = false;
+	let deleted = false;
+	let unfinalizedWritten = false;
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ number }) => {
+			if (number === "finalized") {
+				return await test_getBlock({
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358", // Canonical
+				});
+			}
+
+			if (unfinalizedWritten === false) {
+				return await test_getBlock({
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334", // Reorged
+				});
+			}
+
+			return await test_getBlock({
+				chain: "0x1",
+				number: "0x17ebb67",
+				hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358", // Canonical
+			});
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				if (events.includes("0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334")) {
+					upserted = true;
+					unfinalizedWritten = true;
+				}
+			},
+			async delete(events) {
+				if (events.includes("0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334")) {
+					deleted = true;
+				}
+			},
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334", // Reorged
+					parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+				},
+			],
+		],
+	});
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358", // Canonical
+					parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+				},
+			],
+		],
+	});
+
+	expect(upserted).toBe(true);
+	expect(deleted).toBe(true);
+});
+
+test.concurrent("public_writeFinalizedHeads throws when receiving heads from different chains", async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
+	await expect(
+		test_indexer(univo).request({
+			method: "public_writeFinalizedHeads",
+			params: [
+				[
+					{
+						chain: "0x1",
+						number: "0xa",
+						hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
+						parentHash: "0x997e47bf4cac509c627753c06385ac866641ec6f883734ff7944411000dc576e",
+					},
+					{
+						chain: "0x2",
+						number: "0xb",
+						hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
+						parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+					},
+				],
+			],
+		}),
+	).rejects.toThrowError("Received heads from separate chains");
+});
+
+test.concurrent("public_writeFinalizedHeads throws when receiving an unknown head", async () => {
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block10;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: block10.eth_chainId,
+					number: block10.eth_getBlockByNumber.number,
+					hash: block10.eth_getBlockByNumber.hash,
+					parentHash: block10.eth_getBlockByNumber.parentHash,
+				},
+			],
+		],
+	});
+
+	await expect(
+		client.request({
+			method: "public_writeFinalizedHeads",
+			params: [
+				[
+					{
+						chain: block10.eth_chainId,
+						number: block10.eth_getBlockByNumber.number,
+						hash: "0x1111111111111111111111111111111111111111111111111111111111111111",
+						parentHash: block10.eth_getBlockByNumber.parentHash,
+					},
+				],
+			],
+		}),
+	).rejects.toThrowError("Received invalid finalized heads");
+});
+
+test.concurrent("public_writeFinalizedHeads throws if it doesn't receive the next unfinalized block", async () => {
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+	const block11 = await test_getBlock({ chain: "0x1", number: "0xb" });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block11;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: block10.eth_chainId,
+					number: block10.eth_getBlockByNumber.number,
+					hash: block10.eth_getBlockByNumber.hash,
+					parentHash: block10.eth_getBlockByNumber.parentHash,
+				},
+			],
+		],
+	});
+
+	await expect(
+		client.request({
+			method: "public_writeFinalizedHeads",
+			params: [
+				[
+					{
+						chain: block11.eth_chainId,
+						number: block11.eth_getBlockByNumber.number,
+						hash: block11.eth_getBlockByNumber.hash,
+						parentHash: block11.eth_getBlockByNumber.parentHash,
+					},
+				],
+			],
+		}),
+	).rejects.toThrowError("Received invalid finalized heads");
+});
+
+test.concurrent("public_writeFinalizedHeads deletes finalized metadata blocks after successful processing", async () => {
+	const metadataStorage = createStorage();
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage,
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block10;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: { upsert: async () => {} },
+	});
+
+	const head = {
+		chain: block10.eth_chainId,
+		number: block10.eth_getBlockByNumber.number,
+		hash: block10.eth_getBlockByNumber.hash,
+		parentHash: block10.eth_getBlockByNumber.parentHash,
+	};
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [[head]],
+	});
+
+	expect(await metadataStorage.getKeys("/blocks/v1/0x1")).not.toStrictEqual([]);
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [[head]],
+	});
+
+	expect(await metadataStorage.getKeys("/blocks/v1/0x1")).toStrictEqual([]);
+});
+
+test.concurrent("public_writeFinalizedHeads rejects wrong parent linkage between adjacent finalized heads", async () => {
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+	const block11 = await test_getBlock({ chain: "0x1", number: "0xb" });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block11;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: block10.eth_chainId,
+					number: block10.eth_getBlockByNumber.number,
+					hash: block10.eth_getBlockByNumber.hash,
+					parentHash: block10.eth_getBlockByNumber.parentHash,
+				},
+				{
+					chain: block11.eth_chainId,
+					number: block11.eth_getBlockByNumber.number,
+					hash: block11.eth_getBlockByNumber.hash,
+					parentHash: block11.eth_getBlockByNumber.parentHash,
+				},
+			],
+		],
+	});
+
+	await expect(
+		client.request({
+			method: "public_writeFinalizedHeads",
+			params: [
+				[
+					{
+						chain: block10.eth_chainId,
+						number: block10.eth_getBlockByNumber.number,
+						hash: block10.eth_getBlockByNumber.hash,
+						parentHash: block10.eth_getBlockByNumber.parentHash,
+					},
+					{
+						chain: block11.eth_chainId,
+						number: block11.eth_getBlockByNumber.number,
+						hash: block11.eth_getBlockByNumber.hash,
+						parentHash: block10.eth_getBlockByNumber.parentHash,
+					},
+				],
+			],
+		}),
+	).rejects.toThrowError("Received invalid finalized heads");
+});
+
+test.concurrent("public_writeFinalizedHeads retries delete errors for reorganised events", async () => {
+	let deleteCount = 0;
+	let unfinalizedWritten = false;
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ number }) => {
+			if (number === "finalized") {
+				return await test_getBlock({
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
+				});
+			}
+
+			if (unfinalizedWritten === false) {
+				return await test_getBlock({
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334",
+				});
+			}
+
+			return await test_getBlock({
+				chain: "0x1",
+				number: "0x17ebb67",
+				hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
+			});
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				if (events.includes("0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334")) {
+					unfinalizedWritten = true;
+				}
+			},
+			async delete() {
+				if (deleteCount < 2) {
+					deleteCount++;
+					throw new Error("Test error message");
+				}
+			},
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x9b8a7605b52262203ca0541d5a46b6ceb83f0d55849572bcd5c4633c319c5334",
+					parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+				},
+			],
+		],
+	});
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0x17ebb67",
+					hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
+					parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+				},
+			],
+		],
+	});
+
+	expect(deleteCount).toBe(2);
+});
+
+test.concurrent("public_writeUnfinalizedHeads tolerates partial block-load failure", async () => {
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+	const upserted: string[] = [];
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "0xb") {
+				return null;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				upserted.push(...events);
+			},
+		},
+	});
+
+	await test_indexer(univo).request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0xa",
+					hash: block10.eth_getBlockByNumber.hash,
+					parentHash: block10.eth_getBlockByNumber.parentHash,
+				},
+				{
+					chain: "0x1",
+					number: "0xb",
+					hash: "0x1111111111111111111111111111111111111111111111111111111111111111",
+					parentHash: block10.eth_getBlockByNumber.hash,
+				},
+			],
+		],
+	});
+
+	expect(upserted).toStrictEqual([block10.eth_getBlockByNumber.hash]);
+});
+
+test.concurrent("public_writeFinalizedHeads is idempotent when called twice with the same finalized window", async () => {
+	const metadataStorage = createStorage();
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+	const upserted: string[] = [];
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage,
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block10;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				upserted.push(...events);
+			},
+		},
+	});
+
+	const head = {
+		chain: block10.eth_chainId,
+		number: block10.eth_getBlockByNumber.number,
+		hash: block10.eth_getBlockByNumber.hash,
+		parentHash: block10.eth_getBlockByNumber.parentHash,
+	};
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [[head]],
+	});
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [[head]],
+	});
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [[head]],
+	});
+
+	expect(upserted).toStrictEqual([block10.eth_getBlockByNumber.hash, block10.eth_getBlockByNumber.hash]);
+});
+
+test.concurrent("private_writeEvents indexes only the events requested", async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
 	const upserted: any[] = [];
 	let event2HandlerCalled = false;
-
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "event1",
@@ -713,6 +871,8 @@ test("private_writeEvents indexes only the events requested", async () => {
 });
 
 test.concurrent("private_writeEvents deduplicates events with the same storage adapter", async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
 	let count = 0;
 	let batch = [] as any[];
 
@@ -722,8 +882,6 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 			batch = events;
 		},
 	};
-
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		storage,
@@ -915,8 +1073,9 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 });
 
 test.concurrent("private_writeEvents retries upsert errors", async () => {
-	let count = 0;
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
+	let count = 0;
 
 	univo.event({
 		id: "test",
@@ -1352,11 +1511,11 @@ test.concurrent("private_writeEvents never upserts if handler returns empty even
 	expect(response.failures).toStrictEqual([]); // Empty array implies successes
 });
 
-test("private_writeEventsAndGetKeys indexes only the events requested", async () => {
+test.concurrent("private_writeEventsAndGetKeys indexes only the events requested", async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
 	const upserted: any[] = [];
 	let event2HandlerCalled = false;
-
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	univo.event({
 		id: "event1",

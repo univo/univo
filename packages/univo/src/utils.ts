@@ -81,37 +81,6 @@ export type Prettify<T> = unknown & {
 	[K in keyof T]: T[K];
 };
 
-export async function getSignature(opts: { body: string | ArrayBuffer; key: string }) {
-	const keyData = encoder.encode(opts.key);
-	const key = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-
-	if (typeof opts.body === "string") {
-		const dataToAuthenticate = encoder.encode(opts.body);
-		const hmac = await crypto.subtle.sign("HMAC", key, dataToAuthenticate);
-		return [...new Uint8Array(hmac)].map((binary) => binary.toString(16).padStart(2, "0")).join("");
-	}
-
-	const hmac = await crypto.subtle.sign("HMAC", key, opts.body);
-	return [...new Uint8Array(hmac)].map((binary) => binary.toString(16).padStart(2, "0")).join("");
-}
-
-export async function verifySignature(opts: { body: string | ArrayBuffer; key: string; signature: string }) {
-	const keyData = encoder.encode(opts.key);
-	const key = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
-
-	const pairs = opts.signature.match(/[\da-f]{2}/gi);
-	if (!pairs) return false;
-
-	if (typeof opts.body === "string") {
-		const dataToAuthenticate = encoder.encode(opts.body);
-		const hmac = new Uint8Array(pairs.map((byte) => Number.parseInt(byte, 16))).buffer;
-		return await crypto.subtle.verify("HMAC", key, hmac, dataToAuthenticate);
-	}
-
-	const hmac = new Uint8Array(pairs.map((byte) => Number.parseInt(byte, 16))).buffer;
-	return await crypto.subtle.verify("HMAC", key, hmac, opts.body);
-}
-
 export function hexToNumber(hex: string) {
 	return Number.parseInt(hex, 16);
 }
@@ -138,18 +107,13 @@ export function isHexEqual(a: `0x${string}`, b: `0x${string}`) {
 /**
  * Retries a function n number of times before giving up
  */
-export async function retry<T extends (...arg0: any[]) => any>(
-	fn: T,
-	args: Parameters<T>,
-	retries: number,
-	__count = 1,
-): Promise<Awaited<ReturnType<T>>> {
+export async function retry<T>(fn: () => Promise<T>, retries: number, __count = 1): Promise<T> {
 	try {
-		return await fn(...args);
+		return await fn();
 	} catch (error) {
 		if (__count > retries) throw error;
 		await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** __count));
-		return retry(fn, args, retries, __count + 1);
+		return retry(fn, retries, __count + 1);
 	}
 }
 
@@ -183,34 +147,3 @@ export async function decompress(input: ArrayBuffer): Promise<string> {
 }
 
 export const decoder = new TextDecoder();
-
-function arrayBufferToHex(buffer: ArrayBuffer) {
-	return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function hexToArrayBuffer(hex: string) {
-	const pairs = hex.match(/[\da-f]{2}/gi);
-	if (!pairs || pairs.join("").length !== hex.length) {
-		throw new Error("Invalid hex string");
-	}
-
-	return new Uint8Array(pairs.map((byte) => Number.parseInt(byte, 16))).buffer;
-}
-
-export async function encrypt(opts: { body: ArrayBuffer; key: string }) {
-	const digest = await crypto.subtle.digest("SHA-256", encoder.encode(opts.key));
-	const key = await crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt"]);
-	const iv = crypto.getRandomValues(new Uint8Array(12));
-	const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, opts.body);
-	const iv_hex = arrayBufferToHex(iv.buffer);
-	const body_hex = arrayBufferToHex(encrypted);
-	return `${iv_hex}.${body_hex}`;
-}
-
-export async function decrypt(opts: { body: string; iv: string; key: string }) {
-	const digest = await crypto.subtle.digest("SHA-256", encoder.encode(opts.key));
-	const key = await crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["decrypt"]);
-	const iv = hexToArrayBuffer(opts.iv);
-	const body = hexToArrayBuffer(opts.body);
-	return crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, body);
-}

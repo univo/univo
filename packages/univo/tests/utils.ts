@@ -4,8 +4,9 @@ import { promises as fs } from "node:fs";
 import { serve as start } from "@hono/node-server";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
-import { http } from "../src/client";
-import type { Indexer, Rpc } from "../src";
+import type { Indexer } from "../src";
+import { http } from "../src/transport";
+import { IndexerRpc } from "../src/rpc";
 import { hexToNumber, iife, raise, retry } from "../src/utils";
 
 export const test_indexer = iife(() => {
@@ -27,14 +28,7 @@ export const test_indexer = iife(() => {
 		cache.set(id, indexer);
 
 		// Signing key should be "test" for all test indexers
-		const client = http(url, { signingKey: "test" });
-
-		const request = async <M extends keyof Rpc>(args: { method: M; params: Parameters<Rpc[M]> }) => {
-			const full_args = { id: 0, jsonrpc: "2.0", method: args.method, params: args.params } as const;
-			const response = await client.request(full_args);
-			if (response.error) throw new Error(response.error.message);
-			return response.result as ReturnType<Rpc[M]>;
-		};
+		const { request } = http<IndexerRpc>(url, { signingKey: "test" });
 
 		return { url, request };
 	};
@@ -59,7 +53,9 @@ export type test_Block = {
 	eth_getBlockReceipts: RpcTransactionReceipt[];
 };
 
-export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
+export async function test_getBlock(block: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
+	// TODO: Don't cache blocks when the number is a tag like `latest` or `finalized`
+
 	const cacheDir = "tests/blocks";
 
 	let filename = `${hexToNumber(block.chain)}-${hexToNumber(block.number)}`;
@@ -78,8 +74,8 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${
 
 	// Fetch from network
 	const [eth_getBlockByNumber, eth_getBlockReceipts] = await Promise.all([
-		retry(rpc, [{ id: 1, method: "eth_getBlockByNumber", params: [block.number, true] }], 4),
-		retry(rpc, [{ id: 2, method: "eth_getBlockReceipts", params: [block.number] }], 4),
+		retry(() => rpc({ id: 1, method: "eth_getBlockByNumber", params: [block.number, true] }), 4),
+		retry(() => rpc({ id: 2, method: "eth_getBlockReceipts", params: [block.number] }), 4),
 	]);
 
 	if (!eth_getBlockByNumber) throw new Error("eth_getBlockByNumber is null");

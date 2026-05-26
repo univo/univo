@@ -1,11 +1,14 @@
 import type { Storage } from "unstorage";
 
-import * as utils from "./utils";
-import type { Flatten } from "./utils";
+import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
+import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, retry } from "./utils";
 
-// Block ------------------------------------------------------------------------------------------------------------------------------------
+/**
+ * Block -----------------------------------------------------------------------------------------------------------------------------------
+ */
+
 // This is the minimum set of block fields univo needs to function. These are mostly required to allow to perform
 // filter matching on a given block. We need to have _some_ agreed contract to able to understand the chain,
 // the block, and log address and events. We also expect some methods so that we can verify these known methods
@@ -17,6 +20,7 @@ type Block = {
 	eth_getBlockByNumber: {
 		hash: `0x${string}`;
 		number: `0x${string}`;
+		parentHash: `0x${string}`;
 	};
 
 	eth_getBlockReceipts: Array<{
@@ -29,7 +33,9 @@ type Block = {
 	}>;
 };
 
-// Filters ------------------------------------------------------------------------------------------------------------------------------------
+/**
+ * Filters -----------------------------------------------------------------------------------------------------------------------------------
+ */
 
 type Filter = {
 	/** Index blocks with this chain id */
@@ -56,18 +62,18 @@ function matchFilter(block: Block, filter: Filter) {
 type MatchFilter = (block: Block, filter: Filter) => boolean;
 
 const chainValid: MatchFilter = (block, filter) => {
-	if (utils.hexToNumber(block.eth_chainId) === filter.chain) return true;
+	if (hexToNumber(block.eth_chainId) === filter.chain) return true;
 	return false;
 };
 
 const fromBlockValid: MatchFilter = (block, filter) => {
-	if (utils.hexToNumber(block.eth_getBlockByNumber.number) >= filter.fromBlock) return true;
+	if (hexToNumber(block.eth_getBlockByNumber.number) >= filter.fromBlock) return true;
 	return false;
 };
 
 const toBlockValid: MatchFilter = (block, filter) => {
 	if (filter.toBlock === undefined) return true;
-	if (utils.hexToNumber(block.eth_getBlockByNumber.number) <= filter.toBlock) return true;
+	if (hexToNumber(block.eth_getBlockByNumber.number) <= filter.toBlock) return true;
 	return false;
 };
 
@@ -76,7 +82,7 @@ const includesLogAddress: MatchFilter = (block, filter) => {
 
 	for (const receipt of block.eth_getBlockReceipts) {
 		for (const log of receipt.logs) {
-			if (utils.isHexEqual(log.address, filter.address)) return true;
+			if (isHexEqual(log.address, filter.address)) return true;
 		}
 	}
 
@@ -95,7 +101,9 @@ const includesLogEvent: MatchFilter = (block, filter) => {
 	return false;
 };
 
-// Events --------------------------------------------------------------------------------------------------------------------------------------
+/**
+ * Events -----------------------------------------------------------------------------------------------------------------------------------
+ */
 
 type Event<TBlock, TEvent> = {
 	/**
@@ -104,7 +112,7 @@ type Event<TBlock, TEvent> = {
 	id: string;
 
 	/**
-	 * Filters let you define what the specific blocks you want this event to index.
+	 * Filters let you define what specific blocks you want this event to index.
 	 *
 	 * Blockchains are massive datasets and most of the time we are only ever interested in small portions of it.
 	 * Sometimes that can be specific events like ERC20 transfers and other times it could be all events emitted
@@ -169,12 +177,15 @@ type Event<TBlock, TEvent> = {
 	};
 };
 
-// Indexer ------------------------------------------------------------------------------------------------------------------------------------
+/**
+ * Indexer -----------------------------------------------------------------------------------------------------------------------------------
+ */
 
 type Head = {
 	hash: `0x${string}`;
 	chain: `0x${string}`;
 	number: `0x${string}`;
+	parentHash: `0x${string}`;
 };
 
 type Metadata = {
@@ -193,18 +204,20 @@ type Result = {
 
 type IndexerOptions<TBlock> = {
 	/**
-	 * Silences all logs (INCLUDING ERRORS).
+	 * Silences all logs including errors.
 	 *
 	 * Logs are emitted based on the environment LOG_LEVEL. Set `quiet: true` to surpress all logs.
 	 * Available log options are `DEBUG`, `INFO`, `WARN`, and `ERROR`.
 	 */
 	quiet?: boolean;
+
 	/**
 	 * Request signing key
 	 *
 	 * Facilitates secure communication with a trusted source like the univo dashboard.
 	 */
 	signingKey: string;
+
 	/**
 	 * Storage interface for durably persisting indexer metadata.
 	 *
@@ -213,10 +226,11 @@ type IndexerOptions<TBlock> = {
 	 * a full list of [supported storage drivers](https://unstorage.unjs.io/drivers).
 	 *
 	 * Functionally, storing metadata is fundamental to ensure the correct operation of your indexer. It
-	 * ensures that you indexer recovers from downtime, ensures that all blocks are processed correctly during
-	 * chain reorganisations, and records any errors when unable to upsert or delete events in realtime.
+	 * ensures that you indexer recovers from downtime and ensures that all blocks are processed correctly during
+	 * chain reorganisations.
 	 */
 	metadataStorage: Storage;
+
 	/**
 	 * Loads raw block data in realtime from a trusted set of RPC sources.
 	 *
@@ -236,7 +250,7 @@ type IndexerOptions<TBlock> = {
 	 * that all methods return the expected block hash. However, for any custom methods you add you must manually
 	 * verify the block hash is consistent with the other known methods.
 	 */
-	getBlock: (block: { chain: `0x${string}`; number: `0x${string}` }) => Promise<TBlock | null>;
+	getBlock: (block: { chain: `0x${string}`; number: string }) => Promise<TBlock | null>;
 };
 
 type Indexer<TBlock> = {
@@ -244,43 +258,8 @@ type Indexer<TBlock> = {
 	event: <TEvent>(event: Event<TBlock, TEvent>) => Event<TBlock, TEvent>;
 };
 
-type Rpc = {
-	/**
-	 * Accepts a reorganised block and deletes all events generated by it from storage
-	 */
-	public_deleteBlock(endpoint: string, block: string): Promise<void>;
-
-	/**
-	 * Accepts the latest block head and writes all events to storage
-	 * @returns A list of signed, compressed, and encrypted blocks that were loaded
-	 */
-	public_writeAndReturnBlocks(endpoint: string, heads: Head[]): Promise<{ blocks: (string | null)[] }>;
-
-	/**
-	 * @returns Specified metadata about the indexer
-	 */
-	private_getMetadata(): Promise<Metadata>;
-
-	/**
-	 * @returns All events defined on this indexer
-	 */
-	private_getEvents(): Promise<{ id: string; filters: Flatten<Filter>[] }[]>;
-
-	/**
-	 * Accepts a list of events and a batch of minified block data and writes to storage
-	 * @returns A list of failures that occured for each event and block pair
-	 */
-	private_writeEvents(params: { events: string[]; blocks: Block[] }): Promise<{ failures: Result[] }>;
-
-	/**
-	 * Accepts a raw block directly from the chain and writes events to storage
-	 * @returns A list of the block keys that were accessed as events are written to storage
-	 */
-	private_writeEventsAndGetKeys(params: { events: string[]; block: Block }): Promise<{ results: Result[]; keys: string[] }>;
-};
-
 function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
-	const log = utils.createLogger({ quiet: opts.quiet ?? false });
+	const log = createLogger({ quiet: opts.quiet ?? false });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
 	// events that share the same storage adapter to be combined into the same batch for upsert.
@@ -288,46 +267,85 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const all_events: Event<any, any>[] = [];
 	const events_grouped_by_storage_map = new Map<Event<any, any>["storage"], Event<any, any>[]>();
 
-	const results = {
-		async submit(endpoint: string, results: Result[]) {
-			const body = JSON.stringify({ endpoint, results });
-			const signature = await utils.getSignature({ body, key: opts.signingKey });
-
-			const res = await fetch("https://api.univo.app/v1/results", {
-				body,
-				method: "POST",
-				headers: {
-					"X-Univo-Signature": signature,
-					"Content-Type": "application/json",
-				},
-			});
-
-			if (res.status !== 200) {
-				throw new Error("Received non-200 response from univo API");
-			}
-
-			log.debug(`Recorded ${results.length} result(s)`);
-		},
-	};
-
 	// Metadata storage interface. Functionally this is responsible for storing all state related to ensuring
 	// the correct processing of the indexer.
 
-	const metadata = {};
+	const metadata = {
+		blocks: {
+			async get(head: { chain: `0x${string}`; number?: `0x${string}`; hash?: `0x${string}` }) {
+				let prefix = `/blocks/v1/${head.chain.toLowerCase()}`;
 
-	/**
-	 * Fetches a block using the provided `getBlock` function. Handles retries. The block hash is optional
-	 * because we sometimes want the canonical block using only the block number. If a hash is provided we
-	 * will assert that the block returned via the block number lookup is the expected block
-	 */
-	async function getBlock(head: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
-		return await utils.retry(retry_getBlock, [head], 2).catch(() => {
+				if (typeof head.number === "string") {
+					prefix += `/${head.number.toLowerCase()}`;
+				}
+
+				if (typeof head.hash === "string") {
+					if (head.number === undefined) {
+						throw new Error("Requested block by hash without specifying a block number");
+					}
+
+					prefix += `/${head.hash.toLowerCase()}`;
+
+					// When we have the full key we don't perform a prefix search and instead load the key directly
+					const block = await opts.metadataStorage.getItem<TBlock>(prefix);
+
+					if (block === null) {
+						return [];
+					}
+
+					return [block];
+				}
+
+				// Otherwise we perform a prefixed search for the values
+				const keys = await opts.metadataStorage.getKeys(prefix);
+				const results = await opts.metadataStorage.getItems<TBlock>(keys);
+
+				return results.map((result) => result.value);
+			},
+			async upsert(blocks: TBlock[]) {
+				if (blocks.length === 0) {
+					return;
+				}
+
+				await opts.metadataStorage.setItems(
+					blocks.map((block) => {
+						const chain = block.eth_chainId.toLowerCase();
+						const hash = block.eth_getBlockByNumber.hash.toLowerCase();
+						const number = block.eth_getBlockByNumber.number.toLowerCase();
+						const key = `/blocks/v1/${chain}/${number}/${hash}`;
+						return { key, value: block };
+					}),
+				);
+			},
+			async delete(blocks: TBlock[]) {
+				if (blocks.length === 0) {
+					return;
+				}
+
+				await Promise.all(
+					blocks.map(async (block) => {
+						const chain = block.eth_chainId.toLowerCase();
+						const hash = block.eth_getBlockByNumber.hash.toLowerCase();
+						const number = block.eth_getBlockByNumber.number.toLowerCase();
+						await opts.metadataStorage.del(`/blocks/v1/${chain}/${number}/${hash}`);
+					}),
+				);
+			},
+		},
+	};
+
+	// Fetches a block using the provided `getBlock` function. Handles retries. The block hash is optional
+	// because we sometimes want the canonical block using only the block number. If a hash is provided we
+	// will assert that the block returned via the block number lookup is the expected block
+
+	async function getBlock(head: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
+		return await retry(() => retry_getBlock(head), 2).catch(() => {
 			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
 			return null;
 		});
 	}
 
-	async function retry_getBlock(head: { chain: `0x${string}`; number: `0x${string}`; hash?: `0x${string}` }) {
+	async function retry_getBlock(head: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
 		const block = await opts.getBlock({ chain: head.chain, number: head.number });
 
 		if (block === null) {
@@ -335,12 +353,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		if (typeof head.hash === "string") {
-			if (!utils.isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
+			if (!isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
 				throw new Error("Method `eth_getBlockByNumber` returned unexpected block hash");
 			}
 
 			for (const receipt of block.eth_getBlockReceipts) {
-				if (!utils.isHexEqual(head.hash, receipt.blockHash)) {
+				if (!isHexEqual(head.hash, receipt.blockHash)) {
 					throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
 				}
 			}
@@ -349,313 +367,447 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return block;
 	}
 
-	async function signCompressAndEncryptBlock(block: TBlock) {
-		const json = JSON.stringify(block);
-		const compressed = await utils.compress(json);
-		const encrypted = await utils.encrypt({ body: compressed, key: opts.signingKey });
-		const signature = await utils.getSignature({ body: encrypted, key: opts.signingKey });
-		return `${signature}.${encrypted}`;
-	}
+	const public_getFinalizedHeight = async (chain: `0x${string}`) => {
+		const [stored] = await metadata.blocks.get({ chain });
 
-	async function verifyDecryptAndDecompressBlock(block: string) {
-		try {
-			const [signature, iv, body] = block.split(".");
-
-			if (signature === undefined || iv === undefined || body === undefined) {
-				throw new Error();
-			}
-
-			const valid = await utils.verifySignature({ body: `${iv}.${body}`, key: opts.signingKey, signature });
-
-			if (!valid) {
-				throw new Error();
-			}
-
-			const compressed = await utils.decrypt({ body, iv, key: opts.signingKey });
-			const json = await utils.decompress(compressed);
-			return JSON.parse(json) as Block;
-		} catch {
-			throw new Error(InvalidBlockError);
+		if (stored !== undefined) {
+			return hexToNumber(stored.eth_getBlockByNumber.number) - 1;
 		}
-	}
 
-	const public_writeAndReturnBlocks: Rpc["public_writeAndReturnBlocks"] = async (endpoint, heads) => {
-		log.debug(`Received ${heads.length} heads...`);
+		const finalized = await getBlock({ chain, number: "finalized" });
+
+		if (finalized === null) {
+			throw new Error("Failed to determine unfinalized height");
+		}
+
+		return hexToNumber(finalized.eth_getBlockByNumber.number);
+	};
+
+	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
+		// Verify that all heads received are from the same chain
+
+		let chain = undefined;
+
+		for (const head of heads) {
+			if (chain === undefined) {
+				chain = head.chain;
+			}
+
+			if (!isHexEqual(chain, head.chain)) {
+				throw new Error(MultipleChainsError);
+			}
+		}
+
+		if (chain === undefined) {
+			return; // No heads were received
+		}
+
+		log.debug(`Received ${heads.length} unfinalized heads...`);
 
 		const blocks_start = Date.now();
-		const results_map: Record<string, Result> = {};
 
 		const blocks_nullable = await Promise.all(
 			heads.map(async (head) => {
-				const block_nullable = await getBlock(head);
-
-				// A null response is actually a common case during chain reorganisations. Because we load by block number it
-				// is common the the client and server to be connected to different nodes. There is no guarantee that both
-				// those nodes see the same reorganisation so when we load the block on the server we get null. Because it's
-				// not possible for us to determine when this is the case versus the `getBlock` function just error we always
-				// report a block error result
-
-				if (block_nullable !== null) {
-					return block_nullable;
-				}
-
-				for (const event of all_events) {
-					const event_id = event.id;
-					const chain = head.chain;
-					const block_hash = head.hash;
-					const block_number = head.number;
-
-					results_map[chain + block_number + block_hash + event_id] ??= {
-						status: "block_error",
-						event_id,
-						chain,
-						block_hash,
-						block_number,
-						created_at: Date.now(),
-					};
-				}
-
-				return null;
+				return await getBlock({ chain, number: head.number, hash: head.hash });
 			}),
 		);
 
-		const blocks = blocks_nullable.filter(utils.nonNullable);
+		// A null response is actually a common case during chain reorganisations. Because we load by block number it
+		// is common for the client and server to be connected to different nodes. There is no guarantee that both
+		// those nodes see the same reorganisation so when we load the block on the server we get null
+
+		const blocks = blocks_nullable.filter(nonNullable);
+
+		if (blocks.length === 0) {
+			return log.debug("All blocks failed to load, aborting early...");
+		}
 
 		log.debug(`Loaded ${blocks.length} block(s) in ${Date.now() - blocks_start}ms`);
 
-		if (blocks.length > 0) {
-			const events_start = Date.now();
+		// Before any blocks are processed they must be committed to the metadata storage. This ensures we have a record
+		// of the events that were upserted to storage. This is necessary to ensure that we can correctly discard any events
+		// from blocks that are later reorganised and no longer included in the canonical chain
 
-			const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
-				const batch = [];
+		await metadata.blocks.upsert(blocks);
 
-				for (const block of blocks) {
-					for (const event of grouped_events) {
-						try {
-							if (!event.filters.some((filter) => matchFilter(block, filter))) {
-								log.debug(`Block matches no filters for event ${event.id}`);
-								continue;
-							}
+		log.debug(`Recorded ${blocks.length} block(s) to metadata storage`);
 
-							const events = event.handler(block);
+		const events_start = Date.now();
 
-							for (const event of events) {
-								batch.push(event);
-							}
-						} catch (error) {
-							if (error instanceof Error) {
-								log.error(error.message);
-							}
+		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
+			const batch: any[] = [];
 
-							const event_id = event.id;
-							const chain = block.eth_chainId;
-							const block_hash = block.eth_getBlockByNumber.hash;
-							const block_number = block.eth_getBlockByNumber.number;
-
-							results_map[chain + block_number + block_hash + event_id] ??= {
-								status: "handler_error",
-								event_id,
-								chain,
-								block_hash,
-								block_number,
-								created_at: Date.now(),
-							};
-						}
-					}
-				}
-
-				if (batch.length > 0) {
-					const start = Date.now();
-
-					await utils.retry(storage.upsert, [batch], 2).catch((error) => {
-						if (error instanceof Error) {
-							log.error(error.message);
+			for (const block of blocks) {
+				for (const event of grouped_events) {
+					try {
+						if (!event.filters.some((filter) => matchFilter(block, filter))) {
+							log.debug(`Block matches no filters for event ${event.id}`);
+							continue;
 						}
 
-						for (const block of blocks) {
-							for (const event of grouped_events) {
-								// Ignore blocks that don't match any of the defined event filters
-								if (!event.filters.some((filter) => matchFilter(block, filter))) {
-									continue;
-								}
+						const events = event.handler(block);
 
-								const event_id = event.id;
-								const chain = block.eth_chainId;
-								const block_hash = block.eth_getBlockByNumber.hash;
-								const block_number = block.eth_getBlockByNumber.number;
-
-								results_map[chain + block_number + block_hash + event_id] ??= {
-									status: "upsert_error",
-									event_id,
-									chain,
-									block_hash,
-									block_number,
-									created_at: Date.now(),
-								};
-							}
+						for (const event of events) {
+							batch.push(event);
 						}
-					});
+					} catch (error) {
+						log.error(`Failed to run your 'handler' for event ${event.id}`);
 
-					for (const event of grouped_events) {
-						log.debug(`Recorded ${batch.length} ${event.id} in ${Date.now() - start}ms`);
+						throw error;
 					}
 				}
+			}
 
-				for (const block of blocks) {
+			if (batch.length > 0) {
+				const start = Date.now();
+
+				await retry(() => storage.upsert(batch), 2).catch((error) => {
 					for (const event of grouped_events) {
-						// Ignore blocks that don't match any of the defined event filters
-						if (!event.filters.some((filter) => matchFilter(block, filter))) continue;
-
-						const event_id = event.id;
-						const chain = block.eth_chainId;
-						const block_hash = block.eth_getBlockByNumber.hash;
-						const block_number = block.eth_getBlockByNumber.number;
-
-						results_map[chain + block_number + block_hash + event_id] ??= {
-							status: "ok",
-							event_id,
-							chain,
-							block_hash,
-							block_number,
-							created_at: Date.now(),
-						};
+						log.error(`Failed to run your 'upsert' handler for event ${event.id}`);
 					}
+
+					throw error;
+				});
+
+				for (const event of grouped_events) {
+					log.debug(`Recorded ${batch.length} ${event.id} in ${Date.now() - start}ms`);
 				}
-			});
+			}
+		});
 
-			await Promise.all(promises);
+		await Promise.all(promises);
 
-			log.debug(`Wrote ${heads.length} heads in ${Date.now() - events_start}ms`);
-		}
-
-		const results_array = Object.values(results_map);
-
-		// It's possible that we have no results to record if we successfully loaded all heads
-		// and determined that none of those blocks matched the defined event filters.
-
-		if (results_array.length > 0) {
-			await utils.retry(results.submit, [endpoint, results_array], 2).catch(() => {
-				log.error("Failed to submit realtime results");
-			});
-		}
-
-		// Returning block data is a fundamental step in handling chain reorganisations. We can't know the exact
-		// chain until finalization, and by the time finalization occurs the initial block data used we indexed
-		// won't be available. Returning it here allows clients to store it, and allows us to process it later
-		// once we are confident a block was reorganised. Compressing, encrypting, and signing the payload is
-		// what allows this server to trust the data wasn't tampered with and is exactly the initial data we used
-
-		const blocks_returned = await Promise.all(
-			blocks_nullable.map(async (block) => {
-				return block === null ? null : signCompressAndEncryptBlock(block);
-			}),
-		);
-
-		return { blocks: blocks_returned };
+		log.debug(`Wrote ${heads.length} heads in ${Date.now() - events_start}ms`);
 	};
 
-	const public_deleteBlock: Rpc["public_deleteBlock"] = async (endpoint, block) => {
-		const decrypted = await verifyDecryptAndDecompressBlock(block);
-
-		log.debug(`Received reorganised block ${utils.hexToNumber(decrypted.eth_getBlockByNumber.number)}`);
+	const public_deleteReorganisedHead = async (head: Head) => {
+		log.debug(`Received reorganised head ${hexToNumber(head.number)}`);
 
 		// Loading blocks happens via the block number. If this block was truly reorganised and is no longer part of
 		// the canonical chain than this request should yield a block with a different block hash. This is our proof
 		// that this block is no longer included in the chain and that it's safe to delete data associated with it
 
-		const canonical = await getBlock({ chain: decrypted.eth_chainId, number: decrypted.eth_getBlockByNumber.number });
+		const [canonical_block, [stored_block]] = await Promise.all([
+			getBlock({ chain: head.chain, number: head.number }),
+			metadata.blocks.get({ chain: head.chain, number: head.number, hash: head.hash }),
+		]);
 
-		if (canonical === null) {
-			return log.debug("Attempted to delete unknown block, ignoring...");
+		if (stored_block === undefined) {
+			return log.debug("Reorganised block never/already processed");
 		}
 
-		if (utils.isHexEqual(canonical.eth_getBlockByNumber.hash, decrypted.eth_getBlockByNumber.hash)) {
-			return log.debug("Attempted to delete canonical block, ignoring...");
+		if (canonical_block === null) {
+			throw new Error("Attempted to delete unknown block");
+		}
+
+		if (isHexEqual(head.hash, canonical_block.eth_getBlockByNumber.hash)) {
+			throw new Error("Attempted to delete canonical block");
+		}
+
+		// We know the block is not included in the canonical chain and we know that our storage system may have upserted
+		// events with this block data. We use the block data to generate the same set of events that could have been
+		// upserted and provide them to each events delete function
+
+		const promises = all_events.map(async (event) => {
+			// TODO: If they update the indexer to remove the delete method it's possible that reorged events remain in storage
+
+			if (event.storage.delete === undefined) {
+				return;
+			}
+
+			// TODO
+			// We intentionally ignore filters and basically perform an optimistic delete on events that might
+			// have never been upserted. I make this choice because there is a time delay between upsert and delete,
+			// it's possible for a new deployment to update the filters in this gap that would prevent the delete
+			// from removing the upserted events if the filters were changed in just the right way
+
+			const batch: any[] = [];
+
+			try {
+				const events = event.handler(stored_block);
+
+				for (const event of events) {
+					batch.push(event);
+				}
+			} catch (error) {
+				log.error(`Failed to run your 'handler' for event ${event.id}`);
+
+				throw error;
+			}
+
+			if (batch.length === 0) {
+				return;
+			}
+
+			await retry(() => event.storage.delete!(batch), 2).catch((error) => {
+				log.error(`Failed to run your 'delete' handler for event ${event.id}`);
+
+				throw error;
+			});
+		});
+
+		await Promise.all(promises);
+	};
+
+	const public_writeFinalizedHeads = async (heads: Head[]) => {
+		// Verify that all heads received are from the same chain
+
+		let chain = undefined;
+
+		for (const head of heads) {
+			if (chain === undefined) {
+				chain = head.chain;
+			}
+
+			if (!isHexEqual(chain, head.chain)) {
+				throw new Error(MultipleChainsError);
+			}
+		}
+
+		if (chain === undefined) {
+			throw new Error("Received invalid chain");
+		}
+
+		log.debug(`Received ${heads.length} finalized heads...`);
+
+		// We load the finalized block from the chain and the first unfinalized block from storage.
+
+		// Clients can send as many heads as they want. This finalization design is really optimized for a single
+		// writer. Multiple clients would contend on finalizing the next block the chain.
+
+		const [unfinalizedBlocks, finalizedBlock] = await Promise.all([
+			metadata.blocks.get({ chain }), //
+			getBlock({ chain, number: "finalized" }),
+		]);
+
+		const [nextUnfinalizedBlock] = unfinalizedBlocks;
+
+		// If we are yet to process this chain then we have no canonical chain to verify and process and can return
+
+		if (nextUnfinalizedBlock === undefined) {
+			return log.debug(`No unfinalised blocks processed for chain ${hexToNumber(chain)}, ignoring...`);
+		}
+
+		if (finalizedBlock === null) {
+			throw new Error(GetBlockError);
+		}
+
+		// We want to retain only the heads greater than or equal to the first unfinalized head and less than
+		// or equal to the finalized head. We can safely process these blocks.
+
+		const nextUnfinalizedHeight = hexToNumber(nextUnfinalizedBlock.eth_getBlockByNumber.number);
+		const canonicalFinalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+
+		assert(canonicalFinalizedHeight >= nextUnfinalizedHeight, "We should always trail the canonical chain");
+
+		const finalizedHeads = heads.filter((head) => {
+			return hexToNumber(head.number) >= nextUnfinalizedHeight && hexToNumber(head.number) <= canonicalFinalizedHeight;
+		});
+
+		// Our correctness check means enforcing that we received at least the first unfinalized block and that all
+		// heads processed are less than or equal to the latest finalized block. It is also important to verify that
+		// the heads themselves form a contiguous chain because we never want to skip a block number.
+
+		const [firstFinalizedHead, ...remainingFinalizedHeads] = finalizedHeads;
+
+		if (firstFinalizedHead === undefined) {
+			throw new Error(InvalidHeadsError);
+		}
+
+		if (hexToNumber(firstFinalizedHead.number) !== nextUnfinalizedHeight) {
+			throw new Error(InvalidHeadsError);
+		}
+
+		let previousHead = firstFinalizedHead;
+
+		for (const head of remainingFinalizedHeads) {
+			if (hexToNumber(head.number) !== hexToNumber(previousHead.number) + 1) {
+				throw new Error(InvalidHeadsError);
+			}
+
+			if (!isHexEqual(head.parentHash, previousHead.hash)) {
+				throw new Error(InvalidHeadsError);
+			}
+
+			previousHead = head;
+		}
+
+		// After verifying the canonical finalized chain, we essentially have to determine the difference between the
+		// remote and what we've processed locally. In general this function doesn't need to be fast. Clients always
+		// send the tip, so if we ever recover from downtime we will start processing new blocks immediately. As these
+		// are sucessfuly processed it doesn't increase the amount of blocks that this function needs to validate for
+		// correctness, it actually has no impact. So that means when we play "catch-up" it's over a finite set of
+		// blocks so there are no speed issues. This means simply iterating one by one and processing correctly is a
+		// fine strategy
+
+		for (const finalizedHead of finalizedHeads) {
+			let processedBlocks = undefined;
+
+			// An optimisation is that we will have already loaded the first few blocks when loading the first unfinalized
+			// block. This is because our storage layer has no concept of pagination. So we look for blocks in that
+			// response before attempting to load them again from storage
+
+			processedBlocks = unfinalizedBlocks.filter((block) => {
+				return isHexEqual(finalizedHead.number, block.eth_getBlockByNumber.number);
+			});
+
+			// If we have run out of the initially loaded pending blocks we resort to loading by the head specifically
+
+			if (processedBlocks.length === 0) {
+				processedBlocks = await metadata.blocks.get({ chain: finalizedHead.chain, number: finalizedHead.number });
+			}
+
+			// When a block finalizes we fully re process it. This means that we delete any reorganised blocks and we
+			// upsert the final canonical block again. In general this is pretty slow and expensive. In practice this is
+			// okay because this function doesn't need to be fast, and the goal of the system is that we use the two methods
+			// in public_writeUnfinalizedHeads and public_deleteReorganisedHead to ensure that the latest chain matches exactly
+			// what the finalized chain processes. So it's likely that this correctness function has no material impact on
+			// the data stored and is just verifies correctness when the chain finalizes
+
+			await reprocessFinalizedHead(finalizedHead, processedBlocks);
+
+			// Once this canonical block is successfully processed all stored blocks can be safely discarded
+
+			await metadata.blocks.delete(processedBlocks);
+		}
+	};
+
+	async function reprocessFinalizedHead(canonical: Head, processed: TBlock[]) {
+		if (processed.length === 0) {
+			return await writeFinalizedHead(canonical, null);
+		}
+
+		const reorganised = processed.filter((block) => {
+			return !isHexEqual(canonical.hash, block.eth_getBlockByNumber.hash);
+		});
+
+		if (reorganised.length > 0) {
+			await deleteReorganisedBlocks(reorganised);
+		}
+
+		const block = processed.find((block) => {
+			return isHexEqual(canonical.hash, block.eth_getBlockByNumber.hash);
+		});
+
+		if (block === undefined) {
+			return await writeFinalizedHead(canonical, null);
+		}
+
+		return await writeFinalizedHead(canonical, block);
+	}
+
+	async function writeFinalizedHead(head: Head, block_nullable: TBlock | null) {
+		let block = block_nullable;
+
+		if (block === null) {
+			block = await getBlock({ chain: head.chain, number: head.number, hash: head.hash });
+		}
+
+		if (block === null) {
+			throw new Error(InvalidHeadsError);
+		}
+
+		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
+			const batch: any[] = [];
+
+			for (const event of grouped_events) {
+				try {
+					if (!event.filters.some((filter) => matchFilter(block, filter))) {
+						log.debug(`Block matches no filters for event ${event.id}`);
+						continue;
+					}
+
+					const events = event.handler(block);
+
+					for (const event of events) {
+						batch.push(event);
+					}
+				} catch (error) {
+					log.error(`Failed to run your 'handler' for event ${event.id}`);
+
+					throw error;
+				}
+			}
+
+			if (batch.length > 0) {
+				const start = Date.now();
+
+				await retry(() => storage.upsert(batch), 2).catch((error) => {
+					for (const event of grouped_events) {
+						log.error(`Failed to run your 'upsert' handler for event ${event.id}`);
+					}
+
+					throw error;
+				});
+
+				for (const event of grouped_events) {
+					log.debug(`Recorded ${batch.length} ${event.id} in ${Date.now() - start}ms`);
+				}
+			}
+		});
+
+		await Promise.all(promises);
+	}
+
+	async function deleteReorganisedBlocks(blocks: TBlock[]) {
+		if (blocks.length === 0) {
+			return;
 		}
 
 		// We know the block is not included in the canonical chain and we know that our storage system upserted
 		// events with this block data. We use the block data to generate the same set of events that we upserted
 		// and provide them to each events delete function
 
-		const results_map: Record<string, Result> = {};
-
 		const promises = all_events.map(async (event) => {
-			try {
-				if (event.storage.delete === undefined) {
-					return;
-				}
+			// If they update the indexer to remove the delete method it's possible that reorged events remain in storage
 
-				if (!event.filters.some((filter) => matchFilter(decrypted, filter))) {
-					return;
-				}
-
-				const events = event.handler(decrypted);
-
-				if (events.length === 0) {
-					return;
-				}
-
-				await utils.retry(event.storage.delete, [events], 2);
-			} catch (error) {
-				if (error instanceof Error) {
-					log.error(error.message);
-				}
-
-				const event_id = event.id;
-				const chain = decrypted.eth_chainId;
-				const block_hash = decrypted.eth_getBlockByNumber.hash;
-				const block_number = decrypted.eth_getBlockByNumber.number;
-
-				results_map[chain + block_number + block_hash + event_id] ??= {
-					status: "delete_error",
-					chain,
-					event_id,
-					block_hash,
-					block_number,
-					created_at: Date.now(),
-				};
+			if (event.storage.delete === undefined) {
+				return;
 			}
+
+			// We intentionally ignore filters and basically perform an optimistic delete on events that might
+			// have never been upserted. I make this choice because there is a time delay between upsert and delete,
+			// it's possible for a new deployment to update the filters in this gap that would prevent the delete
+			// from removing the upserted events if the filters were changed in just the right way
+
+			const batch: any[] = [];
+
+			try {
+				for (const block of blocks) {
+					const events = event.handler(block);
+
+					for (const event of events) {
+						batch.push(event);
+					}
+				}
+			} catch (error) {
+				log.error(`Failed to run your 'handler' for event ${event.id}`);
+
+				throw error;
+			}
+
+			if (batch.length === 0) {
+				return;
+			}
+
+			await retry(() => event.storage.delete!(batch), 2).catch((error) => {
+				log.error(`Failed to run your 'delete' handler for event ${event.id}`);
+
+				throw error;
+			});
 		});
 
 		await Promise.all(promises);
+	}
 
-		// We optimistically send delete results for all events where an error wasn't already recorded.
-		// This is overkill for correctness in the sense we don't need to do this for events that don't
-		// expose a delete interface, or events where the block doesn't match one of the provided filters.
-		// However it makes it much simpler to detect errors, i.e. failing to delete events created from a
-		// reorganised block, simply from the absence of a successful delete result for a each event
-
-		for (const event of all_events) {
-			const event_id = event.id;
-			const chain = decrypted.eth_chainId;
-			const block_hash = decrypted.eth_getBlockByNumber.hash;
-			const block_number = decrypted.eth_getBlockByNumber.number;
-
-			results_map[chain + block_number + block_hash + event_id] ??= {
-				status: "delete",
-				chain,
-				event_id,
-				block_hash,
-				block_number,
-				created_at: Date.now(),
-			};
-		}
-
-		const results_array = Object.values(results_map);
-
-		await utils.retry(results.submit, [endpoint, results_array], 2).catch(() => {
-			log.error("Failed to submit delete results");
-		});
-	};
-
-	const private_getMetadata: Rpc["private_getMetadata"] = async () => {
+	const private_getMetadata: IndexerRpc["request"]["private_getMetadata"] = async () => {
 		return {
 			version,
 			language: "javascript",
 		};
 	};
 
-	const private_getEvents: Rpc["private_getEvents"] = async () => {
+	const private_getEvents: IndexerRpc["request"]["private_getEvents"] = async () => {
 		return all_events.map((event) => {
 			const filters = event.filters.map((filter) => {
 				return {
@@ -727,7 +879,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return new Proxy(value, createProxyHandler("")) as T;
 	};
 
-	const private_writeEvents: Rpc["private_writeEvents"] = async (params) => {
+	const private_writeEvents: IndexerRpc["request"]["private_writeEvents"] = async (params) => {
 		// TODO: Return an error
 		if (all_events.length === 0) return { failures: [] };
 
@@ -755,7 +907,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
 			// For all events that share the same storage adapter we push to the batch
-			const batch = [];
+			const batch: any[] = [];
 
 			for (const event of grouped_events) {
 				// Ensure event is requested for write
@@ -795,7 +947,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const start = Date.now();
 
 			try {
-				await utils.retry(storage.upsert, [batch], 2);
+				await retry(() => storage.upsert(batch), 2);
 				if (accessed_undefined_key) throw new Error(IncompleteBlockError);
 			} catch (error) {
 				const status = catchException(error, IncompleteBlockError) ? "incomplete_error" : "upsert_error";
@@ -838,7 +990,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { failures: failures_array };
 	};
 
-	const private_writeEventsAndGetKeys: Rpc["private_writeEventsAndGetKeys"] = async (params) => {
+	const private_writeEventsAndGetKeys: IndexerRpc["request"]["private_writeEventsAndGetKeys"] = async (params) => {
 		if (all_events.length === 0) return { results: [], keys: [] };
 		if (params.events.length === 0) return { results: [], keys: [] };
 
@@ -979,9 +1131,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { results: results_array, keys: filtered_keys };
 	};
 
-	const rpc: Rpc = {
-		public_deleteBlock,
-		public_writeAndReturnBlocks,
+	const rpc: IndexerRpc["request"] = {
+		public_getFinalizedHeight,
+		public_writeFinalizedHeads,
+		public_writeUnfinalizedHeads,
+		public_deleteReorganisedHead,
 
 		private_getEvents,
 		private_getMetadata,
@@ -1043,9 +1197,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				);
 			}
 
-			body_string = await utils.decompress(body_buffer);
+			body_string = await decompress(body_buffer);
 		} else {
-			body_string = utils.decoder.decode(body_buffer);
+			body_string = decoder.decode(body_buffer);
 		}
 
 		// Parse request as JSON
@@ -1079,7 +1233,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Perform RPC
 		try {
-			if (rpc[json.method as keyof Rpc] === undefined) throw new Error(UnknownMethodError);
+			if (rpc[json.method as keyof IndexerRpc["request"]] === undefined) throw new Error(UnknownMethodError);
 
 			// @ts-expect-error types too complicated
 			const result = await rpc[json.method](...json.params);
@@ -1110,11 +1264,15 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	return { fetch: handler, event };
 }
 
-const InvalidBlockError = createException("Received invalid block");
+const InvalidHeadsError = createException("Received invalid finalized heads");
 const UnknownMethodError = createException("The requested method does not exist");
+const MultipleChainsError = createException("Received heads from separate chains");
 const IncompleteBlockError = createException("Received block with missing required property");
+const GetBlockError = createException("Failed to load block from the provided `getBlock` function");
 
-// Exports ------------------------------------------------------------------------------------------------------------------------------------
+/**
+ * Exports -----------------------------------------------------------------------------------------------------------------------------------
+ */
 
 export { indexer, matchFilter };
-export type { Rpc, Indexer, Event };
+export type { Indexer, Event, Filter, Block, Head, Metadata, Result };
