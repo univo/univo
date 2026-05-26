@@ -261,6 +261,47 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 	expect(deleted).toBe(false);
 });
 
+test.concurrent("public_getFinalizedHeight never returns an unfinalized height from metadata", async () => {
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+	const block11 = await test_getBlock({ chain: "0x1", number: "0xb" });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block10;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: block11.eth_chainId,
+					number: block11.eth_getBlockByNumber.number,
+					hash: block11.eth_getBlockByNumber.hash,
+					parentHash: block11.eth_getBlockByNumber.parentHash,
+				},
+			],
+		],
+	});
+
+	const height = await client.request({
+		method: "public_getFinalizedHeight",
+		params: [block11.eth_chainId],
+	});
+
+	expect(height).toBe(hexToNumber(block10.eth_getBlockByNumber.number));
+});
+
 test.concurrent("public_writeFinalizedHeads writes finalized heads", async () => {
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 
