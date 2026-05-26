@@ -3,7 +3,7 @@ import type { Storage } from "unstorage";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
-import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, retry, assert } from "./utils";
+import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, retry } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -336,7 +336,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	// Fetches a block using the provided `getBlock` function. Handles retries. The block hash is optional
 	// because we sometimes want the canonical block using only the block number. If a hash is provided we
-	// will assert that the block returned via the block number lookup is the expected block
+	// will ensure that the block returned via the block number lookup is the expected block
 
 	async function getBlock(head: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
 		return await retry(() => retry_getBlock(head), 2).catch(() => {
@@ -598,7 +598,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const nextUnfinalizedHeight = hexToNumber(nextUnfinalizedBlock.eth_getBlockByNumber.number);
 		const canonicalFinalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
-		assert(canonicalFinalizedHeight >= nextUnfinalizedHeight, "We should always trail the canonical chain");
+		if (canonicalFinalizedHeight < nextUnfinalizedHeight) {
+			throw new Error("Expected finalized chain to trail canonical chain");
+		}
 
 		const finalizedHeads = heads.filter((head) => {
 			return hexToNumber(head.number) >= nextUnfinalizedHeight && hexToNumber(head.number) <= canonicalFinalizedHeight;

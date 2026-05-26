@@ -34,45 +34,11 @@ export function createLogger(opts: { quiet: boolean }) {
 				return;
 			}
 
-			if (
-				process.env.LOG_LEVEL === "DEBUG" ||
-				process.env.LOG_LEVEL === "INFO" ||
-				process.env.LOG_LEVEL === "WARN" ||
-				process.env.LOG_LEVEL === "ERROR"
-			) {
+			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN" || process.env.LOG_LEVEL === "ERROR") {
 				console.log(`[${name}@${version}] ERROR`, ...any);
 			}
 		},
 	};
-}
-
-const encoder = new TextEncoder();
-
-/**
- * Assertion function.
- *
- * @example
- * ```ts
- * // You can just use the return value in an expression:
- * let dialog = assert(dialogRef.current) // throws if `false | null | undefined`
- * // >> Element
- * ```
- *
- * @example
- * // It still works to assert other boolean conditions
- * let value = Math.random() > 0.5 ? "hello" : false
- * // value is `string | false`
- * assert(typeof value === 'string')
- * // value is `string`
- */
-export function assert(condition: boolean, message?: string): asserts condition;
-export function assert<T>(value: T | null | undefined, message?: string): NonNullable<T>;
-export function assert<T>(value: T, message?: string): T {
-	if (value === false || value === null || value === undefined) {
-		throw new Error(message ?? `Assertion failed: value is ${String(value)}`);
-	}
-
-	return value;
 }
 
 export const iife = <T>(fn: () => T): T => fn();
