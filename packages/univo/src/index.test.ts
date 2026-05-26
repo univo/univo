@@ -263,6 +263,73 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 	expect(deleted).toBe(false);
 });
 
+test.concurrent("public_writeFinalizedHeads writes finalized heads", async () => {
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block0;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	const upserted: string[] = [];
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				upserted.push(...events);
+			},
+		},
+	});
+
+	const head = {
+		chain: block0.eth_chainId,
+		number: block0.eth_getBlockByNumber.number,
+		hash: block0.eth_getBlockByNumber.hash,
+		parentHash: block0.eth_getBlockByNumber.parentHash,
+	};
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [[head]],
+	});
+
+	await client.request({
+		method: "public_writeFinalizedHeads",
+		params: [[head]],
+	});
+
+	expect(upserted).toStrictEqual([block0.eth_getBlockByNumber.hash, block0.eth_getBlockByNumber.hash]);
+});
+
+test.concurrent("public_writeFinalizedHeads removes reorganised events", async () => {
+	//
+});
+
+test.concurrent("public_writeFinalizedHeads throws when receiving heads from different chains", async () => {
+	//
+});
+
+test.concurrent("public_writeFinalizedHeads throws when receiving an unknown head", async () => {
+	//
+});
+
+test.concurrent("public_writeFinalizedHeads throws if it doesn't receive the next unfinalized block", async () => {
+	//
+});
+
 test.concurrent("private_writeEvents indexes only the events requested", async () => {
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 

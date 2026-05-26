@@ -574,8 +574,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// writer. Multiple clients would contend on finalizing the next block the chain.
 
 		const [unfinalizedBlocks, finalizedBlock] = await Promise.all([
-			metadata.blocks.get({ chain: "0x1" }), //
-			getBlock({ chain: "0x1", number: "finalized" }),
+			metadata.blocks.get({ chain }), //
+			getBlock({ chain, number: "finalized" }),
 		]);
 
 		const [nextUnfinalizedBlock] = unfinalizedBlocks;
@@ -607,29 +607,25 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// heads processed are less than or equal to the latest finalized block. It is also important to verify that
 		// the heads themselves form a contiguous chain because we never want to skip a block number.
 
-		if (finalizedHeads.length === 0) {
-			throw new Error("Received invalid finalized heads");
-		}
-
-		const [firstFinalizedHead] = finalizedHeads;
+		const [firstFinalizedHead, ...remainingFinalizedHeads] = finalizedHeads;
 
 		if (firstFinalizedHead === undefined) {
-			throw new Error("Expected head to be defined");
+			throw new Error("Expected invalid heads");
 		}
 
 		if (hexToNumber(firstFinalizedHead.number) !== nextUnfinalizedHeight) {
-			throw new Error("Received incomplete chain");
+			throw new Error("Received invalid heads");
 		}
 
 		let previousHead = firstFinalizedHead;
 
-		for (const head of finalizedHeads) {
+		for (const head of remainingFinalizedHeads) {
 			if (hexToNumber(head.number) !== hexToNumber(previousHead.number) + 1) {
-				throw new Error("Received incomplete chain");
+				throw new Error("Received invalid heads");
 			}
 
 			if (!isHexEqual(head.parentHash, previousHead.hash)) {
-				throw new Error("Received invalid finalized head");
+				throw new Error("Received invalid heads");
 			}
 
 			previousHead = head;
