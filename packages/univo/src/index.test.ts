@@ -318,7 +318,7 @@ test.concurrent("public_writeFinalizedHeads removes reorganised events", async (
 	let unfinalizedWritten = false;
 
 	const univo = indexer({
-		quiet: false,
+		quiet: true,
 		signingKey: "test",
 		metadataStorage: createStorage(),
 		getBlock: async ({ number }) => {
@@ -426,7 +426,52 @@ test.concurrent("public_writeFinalizedHeads throws when receiving heads from dif
 });
 
 test.concurrent("public_writeFinalizedHeads throws when receiving an unknown head", async () => {
-	//
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block10;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	const client = test_indexer(univo);
+
+	await client.request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: block10.eth_chainId,
+					number: block10.eth_getBlockByNumber.number,
+					hash: block10.eth_getBlockByNumber.hash,
+					parentHash: block10.eth_getBlockByNumber.parentHash,
+				},
+			],
+		],
+	});
+
+	await expect(
+		client.request({
+			method: "public_writeFinalizedHeads",
+			params: [
+				[
+					{
+						chain: block10.eth_chainId,
+						number: block10.eth_getBlockByNumber.number,
+						hash: "0x1111111111111111111111111111111111111111111111111111111111111111",
+						parentHash: block10.eth_getBlockByNumber.parentHash,
+					},
+				],
+			],
+		}),
+	).rejects.toThrowError("Received invalid finalized heads");
 });
 
 test.concurrent("public_writeFinalizedHeads throws if it doesn't receive the next unfinalized block", async () => {

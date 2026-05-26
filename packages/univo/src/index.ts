@@ -611,22 +611,22 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const [firstFinalizedHead, ...remainingFinalizedHeads] = finalizedHeads;
 
 		if (firstFinalizedHead === undefined) {
-			throw new Error("Expected invalid heads");
+			throw new Error(InvalidHeadsError);
 		}
 
 		if (hexToNumber(firstFinalizedHead.number) !== nextUnfinalizedHeight) {
-			throw new Error("Received invalid heads");
+			throw new Error(InvalidHeadsError);
 		}
 
 		let previousHead = firstFinalizedHead;
 
 		for (const head of remainingFinalizedHeads) {
 			if (hexToNumber(head.number) !== hexToNumber(previousHead.number) + 1) {
-				throw new Error("Received invalid heads");
+				throw new Error(InvalidHeadsError);
 			}
 
 			if (!isHexEqual(head.parentHash, previousHead.hash)) {
-				throw new Error("Received invalid heads");
+				throw new Error(InvalidHeadsError);
 			}
 
 			previousHead = head;
@@ -704,7 +704,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		if (block === null) {
-			throw new Error("Received non-canonical head from malicious client");
+			throw new Error(InvalidHeadsError);
 		}
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
@@ -1264,6 +1264,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	return { fetch: handler, event };
 }
 
+const InvalidHeadsError = createException("Received invalid finalized heads");
 const UnknownMethodError = createException("The requested method does not exist");
 const MultipleChainsError = createException("Received heads from separate chains");
 const IncompleteBlockError = createException("Received block with missing required property");
