@@ -1,11 +1,11 @@
 import { realtime } from "univo/realtime";
 import { http, wss } from "univo/transport";
 
-if (!process.env.ENDPOINT_URL) throw new Error("ENDPOINT_URL is not defined");
-if (!process.env.TRANSPORT_URL) throw new Error("TRANSPORT_URL is not defined");
+if (!process.env.RPC_URL) throw new Error("RPC_URL is not defined");
+if (!process.env.INDEXER_URL) throw new Error("INDEXER_URL is not defined");
 
 realtime({
 	quiet: false,
-	node: wss(process.env.TRANSPORT_URL),
+	node: wss(process.env.RPC_URL),
 	indexer: http(process.env.ENDPOINT_URL),
 });
