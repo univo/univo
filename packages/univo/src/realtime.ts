@@ -1,6 +1,6 @@
 import { IndexerRpc, NodeRpc } from "./rpc";
 import type { Transport } from "./transport";
-import { assert, createLogger, hexToNumber, iife, isHexEqual, mutex, numberToHex, retry } from "./utils";
+import { createLogger, hexToNumber, iife, isHexEqual, mutex, numberToHex, retry } from "./utils";
 
 /**
  * Blockchain -----------------------------------------------------------------------------------------------------------------------------------
@@ -61,13 +61,21 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 
 	function getHeadBlock() {
 		const block = chain[chain.length - 1];
-		assert(block !== undefined, "Expected non-empty chain when retrieving latest block");
+
+		if (block === undefined) {
+			throw new Error("Expected non-empty chain when retrieving latest block");
+		}
+
 		return block;
 	}
 
 	function getOldestBlock() {
 		const block = chain[0];
-		assert(block !== undefined, "Expected non-empty chain when retrieving oldest block");
+
+		if (block === undefined) {
+			throw new Error("Expected non-empty chain when retrieving oldest block");
+		}
+
 		return block;
 	}
 
@@ -145,7 +153,9 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 			throw new Error(`Failed to fetch parent block ${hexToNumber(newBlock.number)} ${newBlock.parentHash.slice(0, 16)}`);
 		}
 
-		assert(isHexEqual(parentBlock.hash, newBlock.parentHash), "Expected block hashes to match");
+		if (!isHexEqual(parentBlock.hash, newBlock.parentHash)) {
+			throw new Error("Expected block hashes to match");
+		}
 
 		await reconcile(parentBlock); // Reconcile up to the parent block
 		return await reconcile(newBlock); // Finally we add this block
