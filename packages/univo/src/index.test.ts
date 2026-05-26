@@ -400,7 +400,29 @@ test.concurrent("public_writeFinalizedHeads removes reorganised events", async (
 });
 
 test.concurrent("public_writeFinalizedHeads throws when receiving heads from different chains", async () => {
-	//
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
+	await expect(
+		test_indexer(univo).request({
+			method: "public_writeFinalizedHeads",
+			params: [
+				[
+					{
+						chain: "0x1",
+						number: "0xa",
+						hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
+						parentHash: "0x997e47bf4cac509c627753c06385ac866641ec6f883734ff7944411000dc576e",
+					},
+					{
+						chain: "0x2",
+						number: "0xb",
+						hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
+						parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+					},
+				],
+			],
+		}),
+	).rejects.toThrowError("Received heads from separate chains");
 });
 
 test.concurrent("public_writeFinalizedHeads throws when receiving an unknown head", async () => {

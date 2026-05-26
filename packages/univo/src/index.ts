@@ -394,7 +394,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			}
 
 			if (!isHexEqual(chain, head.chain)) {
-				throw new Error("All heads received should originate from the same chain");
+				throw new Error(MultipleChainsError);
 			}
 		}
 
@@ -560,7 +560,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			}
 
 			if (!isHexEqual(chain, head.chain)) {
-				throw new Error("All heads received should originate from the same chain");
+				throw new Error(MultipleChainsError);
 			}
 		}
 
@@ -589,8 +589,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		if (finalizedBlock === null) {
-			log.error("Failed to load finalized block from the provided `getBlock` function");
-			throw new Error("Failed to load finalized block from the provided `getBlock` function");
+			throw new Error(GetBlockError);
 		}
 
 		// We want to retain only the heads greater than or equal to the first unfinalized head and less than
@@ -1266,7 +1265,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 }
 
 const UnknownMethodError = createException("The requested method does not exist");
+const MultipleChainsError = createException("Received heads from separate chains");
 const IncompleteBlockError = createException("Received block with missing required property");
+const GetBlockError = createException("Failed to load block from the provided `getBlock` function");
 
 /**
  * Exports -----------------------------------------------------------------------------------------------------------------------------------
