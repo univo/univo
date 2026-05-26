@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.1
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.0...release/0.2.1)
+
+### 🩹 Fixes
+
+- **assert:** Fix missing assert import ([#13](https://github.com/univo/univo/pull/13))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.0
 
 [compare changes](https://github.com/univo/univo/compare/v0.1.19...v0.2.0)
