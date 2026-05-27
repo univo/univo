@@ -1,6 +1,6 @@
 import { name, version } from "../package.json";
 
-export function createLogger(opts: { quiet: boolean }) {
+export function createLogger(opts: { quiet: boolean; prefix: string }) {
 	return {
 		debug(...any: any[]) {
 			if (opts.quiet) {
@@ -8,7 +8,7 @@ export function createLogger(opts: { quiet: boolean }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG") {
-				console.log(`[${name}@${version}] DEBUG`, ...any);
+				console.log(`[${name}@${version}] ${opts.prefix} DEBUG`, ...any);
 			}
 		},
 		info(...any: any[]) {
@@ -17,7 +17,7 @@ export function createLogger(opts: { quiet: boolean }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO") {
-				console.log(`[${name}@${version}] INFO`, ...any);
+				console.log(`[${name}@${version}] ${opts.prefix} INFO`, ...any);
 			}
 		},
 		warn(...any: any[]) {
@@ -26,7 +26,7 @@ export function createLogger(opts: { quiet: boolean }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN") {
-				console.log(`[${name}@${version}] WARN`, ...any);
+				console.log(`[${name}@${version}] ${opts.prefix} WARN`, ...any);
 			}
 		},
 		error(...any: any[]) {
@@ -35,7 +35,7 @@ export function createLogger(opts: { quiet: boolean }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN" || process.env.LOG_LEVEL === "ERROR") {
-				console.log(`[${name}@${version}] ERROR`, ...any);
+				console.log(`[${name}@${version}] ${opts.prefix} ERROR`, ...any);
 			}
 		},
 	};

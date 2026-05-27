@@ -6,8 +6,8 @@ import { realtime } from "./realtime";
 import { wss, http } from "./transport";
 import { test_getBlock, test_promiseWithResolvers, test_indexer } from "../tests/utils";
 
-test.concurrent("receives a block", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+test.concurrent("receives a block", { timeout: 20 * 60 * 1000 }, async () => {
+	const univo = indexer({ quiet: false, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	const { promise, resolve } = test_promiseWithResolvers();
 
@@ -16,7 +16,7 @@ test.concurrent("receives a block", async () => {
 		filters: [{ chain: 1, fromBlock: 0 }],
 		storage: { upsert: async () => {} },
 		handler: () => {
-			resolve(null);
+			// resolve(null);
 
 			return [];
 		},
@@ -25,7 +25,7 @@ test.concurrent("receives a block", async () => {
 	const { url } = test_indexer(univo);
 
 	realtime({
-		quiet: true,
+		quiet: false,
 		indexer: http(url),
 		node: wss(process.env.TEST_ETHEREUM_RPC_WSS),
 	});

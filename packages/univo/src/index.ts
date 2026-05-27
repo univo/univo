@@ -259,7 +259,7 @@ type Indexer<TBlock> = {
 };
 
 function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
-	const log = createLogger({ quiet: opts.quiet ?? false });
+	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[indexer]" });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
 	// events that share the same storage adapter to be combined into the same batch for upsert.
@@ -299,6 +299,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				// Otherwise we perform a prefixed search for the values
 				const keys = await opts.metadataStorage.getKeys(prefix);
 				const results = await opts.metadataStorage.getItems<TBlock>(keys);
+
+				results.sort((a, b) => a.key.localeCompare(b.key));
 
 				return results.map((result) => result.value);
 			},
@@ -368,26 +370,14 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	const public_getFinalizedHeight = async (chain: `0x${string}`) => {
-		const [finalized, [stored]] = await Promise.all([
-			getBlock({ chain, number: "finalized" }), //
-			metadata.blocks.get({ chain }),
-		]);
-
-		if (finalized === null) {
-			throw new Error("Failed to determine unfinalized height");
-		}
-
-		const finalizedHeight = hexToNumber(finalized.eth_getBlockByNumber.number);
+		const [stored] = await metadata.blocks.get({ chain });
 
 		if (stored === undefined) {
-			return finalizedHeight;
+			return null;
 		}
 
-		// We minus one because the store represents unfinalized blocks
-		const storedHeight = hexToNumber(stored.eth_getBlockByNumber.number) - 1;
-
-		// Return whichever height is least finalized
-		return Math.min(finalizedHeight, storedHeight);
+		// We minus one because the stored chain represents unfinalized blocks
+		return hexToNumber(stored.eth_getBlockByNumber.number) - 1;
 	};
 
 	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
@@ -572,7 +562,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		if (chain === undefined) {
-			throw new Error("Received invalid chain");
+			throw new Error(InvalidHeadsError);
 		}
 
 		log.debug(`Received ${heads.length} finalized heads...`);
@@ -589,13 +579,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const [nextUnfinalizedBlock] = unfinalizedBlocks;
 
-		// If we are yet to process this chain then we have no canonical chain to verify and process and can return
+		// If we are yet to process this chain then we throw. Basically clients shouldn't have issued this request
+		// if there is no unfinalised chain to finalise
 
 		if (nextUnfinalizedBlock === undefined) {
-			return log.debug(`No unfinalised blocks processed for chain ${hexToNumber(chain)}, ignoring...`);
+			log.debug("Received unfinalized heads when no unfinalized chain exists in metadata, aborting...");
+
+			throw new Error(InvalidHeadsError);
 		}
 
 		if (finalizedBlock === null) {
+			log.debug("Failed to load finalized block, aborting...");
+
 			throw new Error(GetBlockError);
 		}
 
@@ -605,12 +600,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const nextUnfinalizedHeight = hexToNumber(nextUnfinalizedBlock.eth_getBlockByNumber.number);
 		const canonicalFinalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
-		if (canonicalFinalizedHeight < nextUnfinalizedHeight) {
-			throw new Error("Expected finalized chain to trail canonical chain");
-		}
+		log.debug(`Next unfinalized height ${nextUnfinalizedHeight}, canonical finalized height ${canonicalFinalizedHeight}`);
 
 		const finalizedHeads = heads.filter((head) => {
-			return hexToNumber(head.number) >= nextUnfinalizedHeight && hexToNumber(head.number) <= canonicalFinalizedHeight;
+			if (hexToNumber(head.number) < nextUnfinalizedHeight) {
+				return false;
+			}
+
+			if (hexToNumber(head.number) > canonicalFinalizedHeight) {
+				return false;
+			}
+
+			return true;
 		});
 
 		// Our correctness check means enforcing that we received at least the first unfinalized block and that all
@@ -620,10 +621,14 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const [firstFinalizedHead, ...remainingFinalizedHeads] = finalizedHeads;
 
 		if (firstFinalizedHead === undefined) {
+			log.debug("Received no new finalized heads, aborting...");
+
 			throw new Error(InvalidHeadsError);
 		}
 
 		if (hexToNumber(firstFinalizedHead.number) !== nextUnfinalizedHeight) {
+			log.debug("First unfinalized head received didn't match metadata, aborting...");
+
 			throw new Error(InvalidHeadsError);
 		}
 
@@ -631,10 +636,14 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		for (const head of remainingFinalizedHeads) {
 			if (hexToNumber(head.number) !== hexToNumber(previousHead.number) + 1) {
+				log.debug("Found invalid block number in received heads, aborting...");
+
 				throw new Error(InvalidHeadsError);
 			}
 
 			if (!isHexEqual(head.parentHash, previousHead.hash)) {
+				log.debug("Found invalid block hash in received heads, aborting...");
+
 				throw new Error(InvalidHeadsError);
 			}
 

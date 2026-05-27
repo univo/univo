@@ -54,8 +54,6 @@ export type test_Block = {
 };
 
 export async function test_getBlock(block: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
-	// TODO: Don't cache blocks when the number is a tag like `latest` or `finalized`
-
 	const cacheDir = "tests/blocks";
 
 	let filename = `${hexToNumber(block.chain)}-${hexToNumber(block.number)}`;
@@ -64,12 +62,17 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 
 	const cacheFile = join(cacheDir, filename);
 
-	// Try to read from cache first
-	try {
-		const cachedData = await fs.readFile(cacheFile, "utf-8");
-		return JSON.parse(cachedData) as test_Block;
-	} catch {
-		// Cache miss or invalid cache, continue to fetch from network
+	// We don't want to cache block tags like `latest` or `finalized`
+	const isBlockNumber = block.number.startsWith("0x");
+
+	if (isBlockNumber) {
+		// Try to read from cache first
+		try {
+			const cachedData = await fs.readFile(cacheFile, "utf-8");
+			return JSON.parse(cachedData) as test_Block;
+		} catch {
+			// Cache miss or invalid cache, continue to fetch from network
+		}
 	}
 
 	// Fetch from network
@@ -87,8 +90,10 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 		eth_getBlockReceipts,
 	};
 
-	// Save to cache (non-blocking)
-	saveToCache(cacheDir, cacheFile, blockData);
+	if (isBlockNumber) {
+		// Save to cache (non-blocking)
+		saveToCache(cacheDir, cacheFile, blockData);
+	}
 
 	return blockData;
 }
