@@ -579,13 +579,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const [nextUnfinalizedBlock] = unfinalizedBlocks;
 
-		// If we are yet to process this chain then we throw. Basically clients shouldn't have issued this request
-		// if there is no unfinalised chain to finalise
-
 		if (nextUnfinalizedBlock === undefined) {
-			log.debug("Received unfinalized heads when no unfinalized chain exists in metadata, aborting...");
-
-			throw new Error(InvalidHeadsError);
+			return log.debug(`No unfinalized blocks processed for chain ${hexToNumber(chain)}, aborting...`);
 		}
 
 		if (finalizedBlock === null) {
