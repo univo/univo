@@ -117,9 +117,9 @@ export const decoder = new TextDecoder();
 /**
  * Normalizes a hex string to lowercase and an optional length
  */
-export const normalizeHex = (hex: `0x${string}`, length?: number) => {
+export const normalizeHex = (hex: `0x${string}`, length?: number): `0x${string}` => {
 	if (length === undefined) {
-		return hex.toLowerCase();
+		return hex.toLowerCase() as `0x${string}`;
 	}
 
 	return `0x${hex.slice(2).toLowerCase().padStart(length, "0")}`;

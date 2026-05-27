@@ -202,15 +202,6 @@ type Result = {
 	created_at: number;
 };
 
-const METADATA_BLOCK_NUMBER_BYTES = 8;
-
-function formatMetadataBlockNumber(number: `0x${string}`) {
-	return `0x${number
-		.slice(2)
-		.toLowerCase()
-		.padStart(METADATA_BLOCK_NUMBER_BYTES * 2, "0")}`;
-}
-
 type IndexerOptions<TBlock> = {
 	/**
 	 * Silences all logs including errors.
