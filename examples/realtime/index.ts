@@ -1,9 +1,11 @@
-import { realtime, defineTransport } from "univo/realtime";
+import { realtime } from "univo/realtime";
+import { http, wss } from "univo/transport";
 
-if (!process.env.ENDPOINT_URL) throw new Error("ENDPOINT_URL is not defined");
-if (!process.env.TRANSPORT_URL) throw new Error("TRANSPORT_URL is not defined");
+if (!process.env.NODE_URL) throw new Error("NODE_URL is not defined");
+if (!process.env.INDEXER_URL) throw new Error("INDEXER_URL is not defined");
 
 realtime({
-	endpoints: [process.env.ENDPOINT_URL],
-	transport: defineTransport(process.env.TRANSPORT_URL),
+	quiet: false,
+	node: wss(process.env.NODE_URL),
+	indexer: http(process.env.INDEXER_URL),
 });
