@@ -113,3 +113,14 @@ export async function decompress(input: ArrayBuffer): Promise<string> {
 }
 
 export const decoder = new TextDecoder();
+
+/**
+ * Normalizes a hex string to lowercase and an optional length
+ */
+export const normalizeHex = (hex: `0x${string}`, length?: number) => {
+	if (length === undefined) {
+		return hex.toLowerCase();
+	}
+
+	return `0x${hex.slice(2).toLowerCase().padStart(length, "0")}`;
+};

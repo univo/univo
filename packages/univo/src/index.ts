@@ -3,7 +3,7 @@ import type { Storage } from "unstorage";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
-import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, retry } from "./utils";
+import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, normalizeHex, retry } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -202,6 +202,15 @@ type Result = {
 	created_at: number;
 };
 
+const METADATA_BLOCK_NUMBER_BYTES = 8;
+
+function formatMetadataBlockNumber(number: `0x${string}`) {
+	return `0x${number
+		.slice(2)
+		.toLowerCase()
+		.padStart(METADATA_BLOCK_NUMBER_BYTES * 2, "0")}`;
+}
+
 type IndexerOptions<TBlock> = {
 	/**
 	 * Silences all logs including errors.
@@ -276,7 +285,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				let prefix = `/blocks/v1/${head.chain.toLowerCase()}`;
 
 				if (typeof head.number === "string") {
-					prefix += `/${head.number.toLowerCase()}`;
+					prefix += `/${normalizeHex(head.number, 16)}`;
 				}
 
 				if (typeof head.hash === "string") {
@@ -300,7 +309,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				const keys = await opts.metadataStorage.getKeys(prefix);
 				const results = await opts.metadataStorage.getItems<TBlock>(keys);
 
-				results.sort((a, b) => a.key.localeCompare(b.key));
+				results.sort((a, b) => a.key.localeCompare(b.key)); // TODO: Remove after testing
 
 				return results.map((result) => result.value);
 			},
@@ -311,9 +320,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				await opts.metadataStorage.setItems(
 					blocks.map((block) => {
-						const chain = block.eth_chainId.toLowerCase();
-						const hash = block.eth_getBlockByNumber.hash.toLowerCase();
-						const number = block.eth_getBlockByNumber.number.toLowerCase();
+						const chain = normalizeHex(block.eth_chainId);
+						const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+						const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
 						const key = `/blocks/v1/${chain}/${number}/${hash}`;
 						return { key, value: block };
 					}),
@@ -326,9 +335,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				await Promise.all(
 					blocks.map(async (block) => {
-						const chain = block.eth_chainId.toLowerCase();
-						const hash = block.eth_getBlockByNumber.hash.toLowerCase();
-						const number = block.eth_getBlockByNumber.number.toLowerCase();
+						const chain = normalizeHex(block.eth_chainId);
+						const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+						const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
 						await opts.metadataStorage.del(`/blocks/v1/${chain}/${number}/${hash}`);
 					}),
 				);
