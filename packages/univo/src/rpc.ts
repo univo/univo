@@ -28,13 +28,13 @@ type NodeRpc = {
 		 * Accepts a block tag and boolean for including receipts
 		 * @returns A block with optional receipts
 		 */
-		eth_getBlockByNumber: (number: string, receipts: boolean) => Promise<Head>;
+		eth_getBlockByNumber: (number: string, receipts: boolean) => Promise<{ hash: `0x${string}`; number: `0x${string}`; parentHash: `0x${string}` }>;
 
 		/**
 		 * Accepts a block hash and boolean for including receipts
 		 * @returns A block with optional receipts
 		 */
-		eth_getBlockByHash: (hash: `0x${string}`, receipts: boolean) => Promise<Head>;
+		eth_getBlockByHash: (hash: `0x${string}`, receipts: boolean) => Promise<{ hash: `0x${string}`; number: `0x${string}`; parentHash: `0x${string}` }>;
 	};
 
 	subscribe: {
