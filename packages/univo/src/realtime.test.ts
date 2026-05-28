@@ -26,11 +26,7 @@ test.concurrent("receives the latest block", async () => {
 
 	const { url } = test_indexer(univo);
 
-	realtime({
-		quiet: false,
-		indexer: http(url),
-		node: wss(process.env.TEST_ETHEREUM_RPC_WSS),
-	});
+	realtime({ quiet: true, indexer: http(url), node: wss(process.env.TEST_ETHEREUM_RPC_WSS) });
 
 	await promise;
 });
@@ -117,11 +113,7 @@ test.concurrent("retries blocks", async () => {
 
 	const { url } = test_indexer(univo);
 
-	realtime({
-		quiet: true,
-		indexer: http(url),
-		node: wss(process.env.TEST_ETHEREUM_RPC_WSS),
-	});
+	realtime({ quiet: true, indexer: http(url), node: wss(process.env.TEST_ETHEREUM_RPC_WSS) });
 
 	await promise;
 });
