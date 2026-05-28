@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.6
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.5...v0.2.6)
+
+### 🚀 Enhancements
+
+- **memory:** Reduce memory usage of public_getFinalizedHeight ([#23](https://github.com/univo/univo/pull/23))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.5
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.4...v0.2.5)
