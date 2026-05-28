@@ -5,9 +5,11 @@ import { indexer } from ".";
 import { realtime } from "./realtime";
 import { wss, http } from "./transport";
 import { test_getBlock, test_promiseWithResolvers, test_indexer } from "../tests/utils";
+import { NodeRpc } from "./rpc";
+import { hexToNumber, numberToHex } from "./utils";
 
-test.concurrent("receives a block", { timeout: 20 * 60 * 1000 }, async () => {
-	const univo = indexer({ quiet: false, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+test.concurrent("receives the latest block", async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	const { promise, resolve } = test_promiseWithResolvers();
 
@@ -16,7 +18,7 @@ test.concurrent("receives a block", { timeout: 20 * 60 * 1000 }, async () => {
 		filters: [{ chain: 1, fromBlock: 0 }],
 		storage: { upsert: async () => {} },
 		handler: () => {
-			// resolve(null);
+			resolve(null);
 
 			return [];
 		},
@@ -29,6 +31,63 @@ test.concurrent("receives a block", { timeout: 20 * 60 * 1000 }, async () => {
 		indexer: http(url),
 		node: wss(process.env.TEST_ETHEREUM_RPC_WSS),
 	});
+
+	await promise;
+});
+
+test.concurrent("finalises a block", { timeout: 1 * 60 * 1000 }, async () => {
+	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+
+	const { promise, resolve } = test_promiseWithResolvers();
+
+	let count = 0;
+
+	univo.event({
+		id: "test",
+		storage: { async upsert() {} },
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: () => {
+			count++;
+
+			// We should process 13 blocks (12 + the finalised block)
+
+			if (count === 13) {
+				resolve(null);
+			}
+
+			return [];
+		},
+	});
+
+	const url = test_indexer(univo).url;
+	const node = wss<NodeRpc>(process.env.TEST_ETHEREUM_RPC_WSS);
+
+	// We load a block that was finalized recently and submit it as unfinalized. When we start our realtime client
+	// it should see that indexer lags the finalized chain and submits the the newly finalized heads for processing
+
+	const [chainId, finalizedBlock] = await Promise.all([
+		node.request({ method: "eth_chainId", params: [] }),
+		node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
+	]);
+
+	const finalizedBlockNumber = numberToHex(hexToNumber(finalizedBlock.number) - 12);
+	const block = await node.request({ method: "eth_getBlockByNumber", params: [finalizedBlockNumber, false] });
+
+	await test_indexer(univo).request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: chainId,
+					hash: block.hash,
+					number: block.number,
+					parentHash: block.parentHash,
+				},
+			],
+		],
+	});
+
+	realtime({ quiet: true, node, indexer: http(url) });
 
 	await promise;
 });
