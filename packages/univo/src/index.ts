@@ -624,9 +624,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const [firstHead, ...remainingHeads] = newHeads;
 
 		if (firstHead === undefined) {
-			log.debug("Received no new finalized heads, aborting...");
+			// We don't throw an error here intentionally because clients are technically correct and returning a
+			// success allows them to advance their indexer height. This is especially important when clients recover
+			// from extended down time they may and have thousands of heads to repair. The indexer repairs one by one
+			// but it's likely that the request times out. Clients naturally retry the request (sending all heads) to
+			// continue processing where the last request timed out. Eventually this repairs the entire chain.
 
-			throw new Error(InvalidHeadsError);
+			return log.debug("Received no new finalized heads, aborting...");
 		}
 
 		if (hexToNumber(firstHead.number) !== indexerHeight + 1) {
