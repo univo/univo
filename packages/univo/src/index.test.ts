@@ -156,6 +156,57 @@ test.concurrent("public_writeUnfinalizedHeads deduplicates events with the same 
 	]);
 });
 
+test.concurrent("public_writeUnfinalizedHeads tolerates partial block-load failure", async () => {
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+	const upserted: string[] = [];
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "0xb") {
+				return null;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	univo.event({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				upserted.push(...events);
+			},
+		},
+	});
+
+	await test_indexer(univo).request({
+		method: "public_writeUnfinalizedHeads",
+		params: [
+			[
+				{
+					chain: "0x1",
+					number: "0xa",
+					hash: block10.eth_getBlockByNumber.hash,
+					parentHash: block10.eth_getBlockByNumber.parentHash,
+				},
+				{
+					chain: "0x1",
+					number: "0xb",
+					hash: "0x1111111111111111111111111111111111111111111111111111111111111111",
+					parentHash: block10.eth_getBlockByNumber.hash,
+				},
+			],
+		],
+	});
+
+	expect(upserted).toStrictEqual([block10.eth_getBlockByNumber.hash]);
+});
+
 test.concurrent("public_deleteReorganisedHead deletes events from reorganised blocks", async () => {
 	let deleted = false;
 	let upserted = false;
@@ -474,7 +525,7 @@ test.concurrent("public_writeFinalizedHeads throws when receiving an unknown hea
 	).rejects.toThrowError("Received invalid finalized heads");
 });
 
-test.concurrent("public_writeFinalizedHeads throws if it doesn't receive the next unfinalized block", async () => {
+test.concurrent("public_writeFinalizedHeads throws if it receives a head greater than chain finalization", async () => {
 	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
 	const block11 = await test_getBlock({ chain: "0x1", number: "0xb" });
 
@@ -484,31 +535,15 @@ test.concurrent("public_writeFinalizedHeads throws if it doesn't receive the nex
 		metadataStorage: createStorage(),
 		getBlock: async ({ chain, number }) => {
 			if (number === "finalized") {
-				return block11;
+				return block10;
 			}
 
 			return await test_getBlock({ chain, number });
 		},
 	});
 
-	const client = test_indexer(univo);
-
-	await client.request({
-		method: "public_writeUnfinalizedHeads",
-		params: [
-			[
-				{
-					chain: block10.eth_chainId,
-					number: block10.eth_getBlockByNumber.number,
-					hash: block10.eth_getBlockByNumber.hash,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
-				},
-			],
-		],
-	});
-
 	await expect(
-		client.request({
+		test_indexer(univo).request({
 			method: "public_writeFinalizedHeads",
 			params: [
 				[
@@ -717,57 +752,6 @@ test.concurrent("public_writeFinalizedHeads retries delete errors for reorganise
 	});
 
 	expect(deleteCount).toBe(2);
-});
-
-test.concurrent("public_writeUnfinalizedHeads tolerates partial block-load failure", async () => {
-	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
-	const upserted: string[] = [];
-
-	const univo = indexer({
-		quiet: true,
-		signingKey: "test",
-		metadataStorage: createStorage(),
-		getBlock: async ({ chain, number }) => {
-			if (number === "0xb") {
-				return null;
-			}
-
-			return await test_getBlock({ chain, number });
-		},
-	});
-
-	univo.event({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByNumber.hash],
-		storage: {
-			async upsert(events) {
-				upserted.push(...events);
-			},
-		},
-	});
-
-	await test_indexer(univo).request({
-		method: "public_writeUnfinalizedHeads",
-		params: [
-			[
-				{
-					chain: "0x1",
-					number: "0xa",
-					hash: block10.eth_getBlockByNumber.hash,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
-				},
-				{
-					chain: "0x1",
-					number: "0xb",
-					hash: "0x1111111111111111111111111111111111111111111111111111111111111111",
-					parentHash: block10.eth_getBlockByNumber.hash,
-				},
-			],
-		],
-	});
-
-	expect(upserted).toStrictEqual([block10.eth_getBlockByNumber.hash]);
 });
 
 test.concurrent("public_writeFinalizedHeads is idempotent when called twice with the same finalized window", async () => {

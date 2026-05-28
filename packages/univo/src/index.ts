@@ -382,13 +382,27 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	const public_getFinalizedHeight = async (chain: `0x${string}`) => {
-		const [stored] = await metadata.blocks.list({ chain });
+		const [[stored], finalizedBlock] = await Promise.all([
+			metadata.blocks.list({ chain }), //
+			getBlock({ chain, number: "finalized" }),
+		]);
 
-		if (stored === undefined) {
-			return null;
+		if (finalizedBlock === null) {
+			log.debug("Failed to fetch finalized block and unable to determine finalized height, aborting...");
+
+			throw new Error(GetBlockError);
 		}
 
-		return hexToNumber(stored.number) - 1; // Minus one because the stored chain represents unfinalized blocks
+		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+
+		if (stored === undefined) {
+			return finalizedHeight;
+		}
+
+		// Minus one because the stored chain represents unfinalized blocks
+		const indexerHeight = hexToNumber(stored.number) - 1;
+
+		return Math.min(indexerHeight, finalizedHeight);
 	};
 
 	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
@@ -557,7 +571,20 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await Promise.all(promises);
 	};
 
+	// The goal of this function is to accept a contigious list of heads that our indexer has not finalized,
+	// but the chain has. We process each head sequentially (deleting reorged blocks and writing canonical
+	// blocks). Returning an OK success response indicates to the client that the indexer has successfully
+	// finalized heads up to the largest head received
+
 	const public_writeFinalizedHeads = async (heads: Head[]) => {
+		if (heads.length === 0) {
+			// No heads received actually holds for our invariants above
+
+			return log.debug("No heads received, returning...");
+		}
+
+		log.debug(`Received ${heads.length} finalized heads...`);
+
 		// Verify that all heads received are from the same chain
 
 		let chain = undefined;
@@ -573,70 +600,16 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		if (chain === undefined) {
-			throw new Error(InvalidHeadsError);
+			throw new Error("Internal error. Expected chain to be defined after checking heads length");
 		}
 
-		log.debug(`Received ${heads.length} finalized heads...`);
+		// Verify that the heads received are contigouous and sequential i.e. all hash and parentHash
+		// relationships match with an incrementing block number with each head
 
-		// We load the finalized block from the chain and the first unfinalized block from storage.
-
-		// Clients can send as many heads as they want. This finalization design is really optimized for a single
-		// writer. Multiple clients would contend on finalizing the next block the chain.
-
-		const [indexerHeight, finalizedBlock] = await Promise.all([
-			public_getFinalizedHeight(chain), //
-			getBlock({ chain, number: "finalized" }),
-		]);
-
-		if (indexerHeight === null) {
-			return log.debug(`No unfinalized blocks processed for chain ${hexToNumber(chain)}, aborting...`);
-		}
-
-		if (finalizedBlock === null) {
-			log.debug("Failed to load finalized block, aborting...");
-
-			throw new Error(GetBlockError);
-		}
-
-		// We want to retain only the heads greater than or equal to the first unfinalized head and less than
-		// or equal to the finalized head. We can safely process these blocks.
-
-		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
-
-		log.debug(`Indexer height ${indexerHeight}, finalized height ${finalizedHeight}`);
-
-		const newHeads = heads.filter((head) => {
-			if (hexToNumber(head.number) > finalizedHeight) {
-				return false;
-			}
-
-			if (hexToNumber(head.number) > indexerHeight) {
-				return true;
-			}
-
-			return false;
-		});
-
-		// Our correctness check means enforcing that we received at least the first unfinalized block and that all
-		// heads processed are less than or equal to the latest finalized block. It is also important to verify that
-		// the heads themselves form a contiguous chain because we never want to skip a block number.
-
-		const [firstHead, ...remainingHeads] = newHeads;
+		const [firstHead, ...remainingHeads] = heads;
 
 		if (firstHead === undefined) {
-			// We don't throw an error here intentionally because clients are technically correct and returning a
-			// success allows them to advance their indexer height. This is especially important when clients recover
-			// from extended down time they may and have thousands of heads to repair. The indexer repairs one by one
-			// but it's likely that the request times out. Clients naturally retry the request (sending all heads) to
-			// continue processing where the last request timed out. Eventually this repairs the entire chain.
-
-			return log.debug("Received no new finalized heads, aborting...");
-		}
-
-		if (hexToNumber(firstHead.number) !== indexerHeight + 1) {
-			log.debug("First unfinalized head received didn't match metadata, aborting...");
-
-			throw new Error(InvalidHeadsError);
+			throw new Error("Internal error. Expected firstHead to be defined after checking heads length");
 		}
 
 		let previousHead = firstHead;
@@ -655,6 +628,51 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			}
 
 			previousHead = head;
+		}
+
+		// Now we know the heads are valid by themselves, we need to assert their validity in the context of the
+		// metadata and external chain state. We load the current indexer height and the finalized block.
+
+		const [indexerHeight, finalizedBlock] = await Promise.all([
+			public_getFinalizedHeight(chain), //
+			getBlock({ chain, number: "finalized" }),
+		]);
+
+		if (finalizedBlock === null) {
+			log.debug("Failed to load chain finalized block. Request should be retried");
+
+			throw new Error(GetBlockError);
+		}
+
+		// Ensure that all heads are less than or equal to the chain finalized head. This is important because
+		// we never want to return a success to the client above what the chain has finalized
+
+		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+
+		for (const head of heads) {
+			if (hexToNumber(head.number) > finalizedHeight) {
+				throw new Error(InvalidHeadsError);
+			}
+		}
+
+		log.debug(`Indexer height ${indexerHeight}, finalized height ${finalizedHeight}`);
+
+		// We know that all the heads received are valid and less than the chain finalized state. To begin processing
+		// we discard all heads less than the indexer height (because they have already been processed)
+
+		const newHeads = heads.filter((head) => {
+			return hexToNumber(head.number) > indexerHeight;
+		});
+
+		if (newHeads.length === 0) {
+			// This likely means that the indexer height is equal to the finalized height so we have no work to do.
+			// We can OK and return to the client that all new heads received have been finalized.
+
+			// Can also mean the client only sent heads less than the indexer height. This likely means the client is
+			// lagging behind on their understanding of the current indexer height. We can actually safely return
+			// here to indicate to clients to advance the heads sent.
+
+			return log.debug("No new heads received, returning...");
 		}
 
 		// After verifying the canonical finalized chain, we essentially have to determine the difference between the

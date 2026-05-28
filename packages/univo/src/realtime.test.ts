@@ -17,10 +17,10 @@ test.concurrent("receives the latest block", async () => {
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		storage: { upsert: async () => {} },
-		handler: () => {
+		handler: (block) => {
 			resolve(null);
 
-			return [];
+			return [block.eth_getBlockByNumber.number];
 		},
 	});
 
