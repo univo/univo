@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.2.5
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.4...v0.2.5)
+
+### 🩹 Fixes
+
+- **correctness:** Fix finalisation at chain initialisation ([#21](https://github.com/univo/univo/pull/21))
+
+### 🏡 Chore
+
+- **examples:** Update realtime example ([#12](https://github.com/univo/univo/pull/12))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.4
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.3...v0.2.4)
@@ -14,7 +30,7 @@
 
 ## v0.2.3
 
-[compare changes](https://github.com/univo/univo/compare/v0.2.1...v0.2.3)
+[compare changes](https://github.com/univo/univo/compare/v0.2.2...v0.2.3)
 
 ### 🩹 Fixes
 
