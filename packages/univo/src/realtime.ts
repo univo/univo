@@ -203,7 +203,9 @@ function realtime(opts: RealtimeOptions) {
 	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[realtime]" });
 
 	const getBlockByHash = async (hash: `0x${string}`) => {
-		return await opts.node.request({ method: "eth_getBlockByHash", params: [hash, false] });
+		const block = await opts.node.request({ method: "eth_getBlockByHash", params: [hash, false] });
+
+		return { number: block.number, hash: block.hash, parentHash: block.parentHash };
 	};
 
 	const promise = iife(async () => {
@@ -341,20 +343,15 @@ function realtime(opts: RealtimeOptions) {
 
 				const newHeads = indexer.chain
 					.filter((head) => {
-						// First we remove all heads less than what the indexer is finalised at. We want to send
-						// all the new heads that have finalzed on chain but not with our indexer
-
-						if (hexToNumber(head.number) <= indexerHeight) {
-							return false;
-						}
-
-						// And remove heads greater than the chain finalized height
-
 						if (hexToNumber(head.number) > finalizedHeight) {
 							return false;
 						}
 
-						return true;
+						if (hexToNumber(head.number) > indexerHeight) {
+							return true;
+						}
+
+						return false;
 					})
 					.map((head) => {
 						return { chain, ...head };
