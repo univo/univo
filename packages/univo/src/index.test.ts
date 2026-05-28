@@ -526,7 +526,37 @@ test.concurrent("public_writeFinalizedHeads throws when receiving an unknown hea
 });
 
 test.concurrent("public_writeFinalizedHeads throws if it receives a head greater than chain finalization", async () => {
-	//
+	const block10 = await test_getBlock({ chain: "0x1", number: "0xa" });
+	const block11 = await test_getBlock({ chain: "0x1", number: "0xb" });
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: createStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return block10;
+			}
+
+			return await test_getBlock({ chain, number });
+		},
+	});
+
+	await expect(
+		test_indexer(univo).request({
+			method: "public_writeFinalizedHeads",
+			params: [
+				[
+					{
+						chain: block11.eth_chainId,
+						number: block11.eth_getBlockByNumber.number,
+						hash: block11.eth_getBlockByNumber.hash,
+						parentHash: block11.eth_getBlockByNumber.parentHash,
+					},
+				],
+			],
+		}),
+	).rejects.toThrowError("Received invalid finalized heads");
 });
 
 test.concurrent("public_writeFinalizedHeads deletes finalized metadata blocks after successful processing", async () => {

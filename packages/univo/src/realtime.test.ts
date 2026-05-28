@@ -8,7 +8,7 @@ import { test_getBlock, test_promiseWithResolvers, test_indexer } from "../tests
 import { NodeRpc } from "./rpc";
 import { hexToNumber, numberToHex } from "./utils";
 
-test.concurrent("receives the latest block", { timeout: 60 * 60 * 1000 }, async () => {
+test.concurrent("receives the latest block", async () => {
 	const univo = indexer({ quiet: false, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	const { promise, resolve } = test_promiseWithResolvers();
@@ -18,7 +18,7 @@ test.concurrent("receives the latest block", { timeout: 60 * 60 * 1000 }, async 
 		filters: [{ chain: 1, fromBlock: 0 }],
 		storage: { upsert: async () => {} },
 		handler: (block) => {
-			// resolve(null);
+			resolve(null);
 
 			return [block.eth_getBlockByNumber.number];
 		},
