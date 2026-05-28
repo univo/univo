@@ -31,7 +31,7 @@ test.concurrent("receives the latest block", async () => {
 	await promise;
 });
 
-test.concurrent("finalises a block", { timeout: 1 * 60 * 1000 }, async () => {
+test.concurrent("finalises blocks", { timeout: 1 * 60 * 1000 }, async () => {
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	const { promise, resolve } = test_promiseWithResolvers();
