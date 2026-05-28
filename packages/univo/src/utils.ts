@@ -1,6 +1,6 @@
 import { name, version } from "../package.json";
 
-export function createLogger(opts: { quiet: boolean }) {
+export function createLogger(opts: { quiet: boolean; prefix: string }) {
 	return {
 		debug(...any: any[]) {
 			if (opts.quiet) {
@@ -8,7 +8,7 @@ export function createLogger(opts: { quiet: boolean }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG") {
-				console.log(`[${name}@${version}] DEBUG`, ...any);
+				console.log(`[${name}@${version}] ${opts.prefix} DEBUG`, ...any);
 			}
 		},
 		info(...any: any[]) {
@@ -17,7 +17,7 @@ export function createLogger(opts: { quiet: boolean }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO") {
-				console.log(`[${name}@${version}] INFO`, ...any);
+				console.log(`[${name}@${version}] ${opts.prefix} INFO`, ...any);
 			}
 		},
 		warn(...any: any[]) {
@@ -26,7 +26,7 @@ export function createLogger(opts: { quiet: boolean }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN") {
-				console.log(`[${name}@${version}] WARN`, ...any);
+				console.log(`[${name}@${version}] ${opts.prefix} WARN`, ...any);
 			}
 		},
 		error(...any: any[]) {
@@ -35,7 +35,7 @@ export function createLogger(opts: { quiet: boolean }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN" || process.env.LOG_LEVEL === "ERROR") {
-				console.log(`[${name}@${version}] ERROR`, ...any);
+				console.log(`[${name}@${version}] ${opts.prefix} ERROR`, ...any);
 			}
 		},
 	};
@@ -113,3 +113,14 @@ export async function decompress(input: ArrayBuffer): Promise<string> {
 }
 
 export const decoder = new TextDecoder();
+
+/**
+ * Normalizes a hex string to lowercase and an optional length
+ */
+export const normalizeHex = (hex: `0x${string}`, length?: number): `0x${string}` => {
+	if (length === undefined) {
+		return hex.toLowerCase() as `0x${string}`;
+	}
+
+	return `0x${hex.slice(2).toLowerCase().padStart(length, "0")}`;
+};

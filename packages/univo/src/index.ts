@@ -3,7 +3,7 @@ import type { Storage } from "unstorage";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
-import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, retry } from "./utils";
+import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, normalizeHex, retry } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -259,7 +259,7 @@ type Indexer<TBlock> = {
 };
 
 function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
-	const log = createLogger({ quiet: opts.quiet ?? false });
+	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[indexer]" });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
 	// events that share the same storage adapter to be combined into the same batch for upsert.
@@ -276,7 +276,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				let prefix = `/blocks/v1/${head.chain.toLowerCase()}`;
 
 				if (typeof head.number === "string") {
-					prefix += `/${head.number.toLowerCase()}`;
+					prefix += `/${normalizeHex(head.number, 16)}`;
 				}
 
 				if (typeof head.hash === "string") {
@@ -300,6 +300,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				const keys = await opts.metadataStorage.getKeys(prefix);
 				const results = await opts.metadataStorage.getItems<TBlock>(keys);
 
+				results.sort((a, b) => a.key.localeCompare(b.key)); // TODO: Remove after testing
+
 				return results.map((result) => result.value);
 			},
 			async upsert(blocks: TBlock[]) {
@@ -309,9 +311,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				await opts.metadataStorage.setItems(
 					blocks.map((block) => {
-						const chain = block.eth_chainId.toLowerCase();
-						const hash = block.eth_getBlockByNumber.hash.toLowerCase();
-						const number = block.eth_getBlockByNumber.number.toLowerCase();
+						const chain = normalizeHex(block.eth_chainId);
+						const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+						const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
 						const key = `/blocks/v1/${chain}/${number}/${hash}`;
 						return { key, value: block };
 					}),
@@ -324,9 +326,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				await Promise.all(
 					blocks.map(async (block) => {
-						const chain = block.eth_chainId.toLowerCase();
-						const hash = block.eth_getBlockByNumber.hash.toLowerCase();
-						const number = block.eth_getBlockByNumber.number.toLowerCase();
+						const chain = normalizeHex(block.eth_chainId);
+						const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+						const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
 						await opts.metadataStorage.del(`/blocks/v1/${chain}/${number}/${hash}`);
 					}),
 				);
@@ -368,26 +370,14 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	const public_getFinalizedHeight = async (chain: `0x${string}`) => {
-		const [finalized, [stored]] = await Promise.all([
-			getBlock({ chain, number: "finalized" }), //
-			metadata.blocks.get({ chain }),
-		]);
-
-		if (finalized === null) {
-			throw new Error("Failed to determine unfinalized height");
-		}
-
-		const finalizedHeight = hexToNumber(finalized.eth_getBlockByNumber.number);
+		const [stored] = await metadata.blocks.get({ chain });
 
 		if (stored === undefined) {
-			return finalizedHeight;
+			return null;
 		}
 
-		// We minus one because the store represents unfinalized blocks
-		const storedHeight = hexToNumber(stored.eth_getBlockByNumber.number) - 1;
-
-		// Return whichever height is least finalized
-		return Math.min(finalizedHeight, storedHeight);
+		// We minus one because the stored chain represents unfinalized blocks
+		return hexToNumber(stored.eth_getBlockByNumber.number) - 1;
 	};
 
 	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
@@ -572,7 +562,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		if (chain === undefined) {
-			throw new Error("Received invalid chain");
+			throw new Error(InvalidHeadsError);
 		}
 
 		log.debug(`Received ${heads.length} finalized heads...`);
@@ -582,59 +572,70 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// Clients can send as many heads as they want. This finalization design is really optimized for a single
 		// writer. Multiple clients would contend on finalizing the next block the chain.
 
-		const [unfinalizedBlocks, finalizedBlock] = await Promise.all([
-			metadata.blocks.get({ chain }), //
+		const [indexerHeight, finalizedBlock] = await Promise.all([
+			public_getFinalizedHeight(chain), //
 			getBlock({ chain, number: "finalized" }),
 		]);
 
-		const [nextUnfinalizedBlock] = unfinalizedBlocks;
-
-		// If we are yet to process this chain then we have no canonical chain to verify and process and can return
-
-		if (nextUnfinalizedBlock === undefined) {
-			return log.debug(`No unfinalised blocks processed for chain ${hexToNumber(chain)}, ignoring...`);
+		if (indexerHeight === null) {
+			return log.debug(`No unfinalized blocks processed for chain ${hexToNumber(chain)}, aborting...`);
 		}
 
 		if (finalizedBlock === null) {
+			log.debug("Failed to load finalized block, aborting...");
+
 			throw new Error(GetBlockError);
 		}
 
 		// We want to retain only the heads greater than or equal to the first unfinalized head and less than
 		// or equal to the finalized head. We can safely process these blocks.
 
-		const nextUnfinalizedHeight = hexToNumber(nextUnfinalizedBlock.eth_getBlockByNumber.number);
-		const canonicalFinalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
-		if (canonicalFinalizedHeight < nextUnfinalizedHeight) {
-			throw new Error("Expected finalized chain to trail canonical chain");
-		}
+		log.debug(`Indexer height ${indexerHeight}, finalized height ${finalizedHeight}`);
 
-		const finalizedHeads = heads.filter((head) => {
-			return hexToNumber(head.number) >= nextUnfinalizedHeight && hexToNumber(head.number) <= canonicalFinalizedHeight;
+		const newHeads = heads.filter((head) => {
+			if (hexToNumber(head.number) > finalizedHeight) {
+				return false;
+			}
+
+			if (hexToNumber(head.number) > indexerHeight) {
+				return true;
+			}
+
+			return false;
 		});
 
 		// Our correctness check means enforcing that we received at least the first unfinalized block and that all
 		// heads processed are less than or equal to the latest finalized block. It is also important to verify that
 		// the heads themselves form a contiguous chain because we never want to skip a block number.
 
-		const [firstFinalizedHead, ...remainingFinalizedHeads] = finalizedHeads;
+		const [firstHead, ...remainingHeads] = newHeads;
 
-		if (firstFinalizedHead === undefined) {
+		if (firstHead === undefined) {
+			log.debug("Received no new finalized heads, aborting...");
+
 			throw new Error(InvalidHeadsError);
 		}
 
-		if (hexToNumber(firstFinalizedHead.number) !== nextUnfinalizedHeight) {
+		if (hexToNumber(firstHead.number) !== indexerHeight + 1) {
+			log.debug("First unfinalized head received didn't match metadata, aborting...");
+
 			throw new Error(InvalidHeadsError);
 		}
 
-		let previousHead = firstFinalizedHead;
+		let previousHead = firstHead;
 
-		for (const head of remainingFinalizedHeads) {
+		for (const head of remainingHeads) {
 			if (hexToNumber(head.number) !== hexToNumber(previousHead.number) + 1) {
+				log.debug("Found invalid block number in received heads, aborting...");
+
 				throw new Error(InvalidHeadsError);
 			}
 
 			if (!isHexEqual(head.parentHash, previousHead.hash)) {
+				log.debug("Found invalid block hash in received heads, aborting...");
+
 				throw new Error(InvalidHeadsError);
 			}
 
@@ -642,68 +643,47 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		// After verifying the canonical finalized chain, we essentially have to determine the difference between the
-		// remote and what we've processed locally. In general this function doesn't need to be fast. Clients always
-		// send the tip, so if we ever recover from downtime we will start processing new blocks immediately. As these
-		// are sucessfuly processed it doesn't increase the amount of blocks that this function needs to validate for
-		// correctness, it actually has no impact. So that means when we play "catch-up" it's over a finite set of
-		// blocks so there are no speed issues. This means simply iterating one by one and processing correctly is a
-		// fine strategy
+		// remote and what we've processed locally. In general this function needs to be faster than chain finalization
+		// so that it can consistently catch up to the remote chain. If it lags enough behind there's probably a case
+		// that a backfill is more appropriate
 
-		for (const finalizedHead of finalizedHeads) {
-			let processedBlocks = undefined;
-
-			// An optimisation is that we will have already loaded the first few blocks when loading the first unfinalized
-			// block. This is because our storage layer has no concept of pagination. So we look for blocks in that
-			// response before attempting to load them again from storage
-
-			processedBlocks = unfinalizedBlocks.filter((block) => {
-				return isHexEqual(finalizedHead.number, block.eth_getBlockByNumber.number);
-			});
-
-			// If we have run out of the initially loaded pending blocks we resort to loading by the head specifically
-
-			if (processedBlocks.length === 0) {
-				processedBlocks = await metadata.blocks.get({ chain: finalizedHead.chain, number: finalizedHead.number });
-			}
-
-			// When a block finalizes we fully re process it. This means that we delete any reorganised blocks and we
+		for (const head of newHeads) {
+			// When a block finalizes we fully reprocess it. This means that we delete any reorganised blocks and we
 			// upsert the final canonical block again. In general this is pretty slow and expensive. In practice this is
 			// okay because this function doesn't need to be fast, and the goal of the system is that we use the two methods
 			// in public_writeUnfinalizedHeads and public_deleteReorganisedHead to ensure that the latest chain matches exactly
 			// what the finalized chain processes. So it's likely that this correctness function has no material impact on
 			// the data stored and is just verifies correctness when the chain finalizes
 
-			await reprocessFinalizedHead(finalizedHead, processedBlocks);
+			const processed = await metadata.blocks.get({ chain: head.chain, number: head.number });
 
-			// Once this canonical block is successfully processed all stored blocks can be safely discarded
+			if (processed.length === 0) {
+				await writeFinalizedHead(head, null);
 
-			await metadata.blocks.delete(processedBlocks);
+				continue; // There is no metadata to delete so we just continue
+			}
+
+			const reorganised = processed.filter((block) => {
+				return !isHexEqual(head.hash, block.eth_getBlockByNumber.hash);
+			});
+
+			if (reorganised.length > 0) {
+				await deleteReorganisedBlocks(reorganised);
+			}
+
+			// It's possible that we only processed reorganised blocks and never processed the canonical,
+			// that's why this block can result in a undefined value. In that case we just force the
+			// writeFinalizedHead fn to load the full block again
+
+			const block = processed.find((block) => {
+				return isHexEqual(head.hash, block.eth_getBlockByNumber.hash);
+			});
+
+			await writeFinalizedHead(head, block ?? null);
+
+			await metadata.blocks.delete(processed);
 		}
 	};
-
-	async function reprocessFinalizedHead(canonical: Head, processed: TBlock[]) {
-		if (processed.length === 0) {
-			return await writeFinalizedHead(canonical, null);
-		}
-
-		const reorganised = processed.filter((block) => {
-			return !isHexEqual(canonical.hash, block.eth_getBlockByNumber.hash);
-		});
-
-		if (reorganised.length > 0) {
-			await deleteReorganisedBlocks(reorganised);
-		}
-
-		const block = processed.find((block) => {
-			return isHexEqual(canonical.hash, block.eth_getBlockByNumber.hash);
-		});
-
-		if (block === undefined) {
-			return await writeFinalizedHead(canonical, null);
-		}
-
-		return await writeFinalizedHead(canonical, block);
-	}
 
 	async function writeFinalizedHead(head: Head, block_nullable: TBlock | null) {
 		let block = block_nullable;

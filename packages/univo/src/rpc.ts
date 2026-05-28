@@ -28,13 +28,13 @@ type NodeRpc = {
 		 * Accepts a block tag and boolean for including receipts
 		 * @returns A block with optional receipts
 		 */
-		eth_getBlockByNumber: (number: string, receipts: boolean) => Promise<Head>;
+		eth_getBlockByNumber: (number: string, receipts: boolean) => Promise<{ hash: `0x${string}`; number: `0x${string}`; parentHash: `0x${string}` }>;
 
 		/**
 		 * Accepts a block hash and boolean for including receipts
 		 * @returns A block with optional receipts
 		 */
-		eth_getBlockByHash: (hash: `0x${string}`, receipts: boolean) => Promise<Head>;
+		eth_getBlockByHash: (hash: `0x${string}`, receipts: boolean) => Promise<{ hash: `0x${string}`; number: `0x${string}`; parentHash: `0x${string}` }>;
 	};
 
 	subscribe: {
@@ -52,7 +52,7 @@ type IndexerRpc = {
 		 * Accepts a chain identifier
 		 * @returns Height of the last finalized block indexed
 		 */
-		public_getFinalizedHeight: (chain: `0x${string}`) => Promise<number>;
+		public_getFinalizedHeight: (chain: `0x${string}`) => Promise<number | null>;
 
 		/**
 		 * Accepts a reorganised block and deletes all related events from storage
