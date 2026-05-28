@@ -52,7 +52,7 @@ type IndexerRpc = {
 		 * Accepts a chain identifier
 		 * @returns Height of the last finalized block indexed
 		 */
-		public_getFinalizedHeight: (chain: `0x${string}`) => Promise<number | null>;
+		public_getFinalizedHeight: (chain: `0x${string}`) => Promise<number>;
 
 		/**
 		 * Accepts a reorganised block and deletes all related events from storage

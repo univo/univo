@@ -293,21 +293,17 @@ function realtime(opts: RealtimeOptions) {
 			quiet: opts.quiet ?? false,
 		});
 
-		if (initialIndexerHeight === null) {
-			await indexer.reconcile(latestBlock);
-		} else {
-			log.debug(`Indexer last finalized at ${initialIndexerHeight}, reconciling local chain...`);
+		log.debug(`Indexer last finalized at ${initialIndexerHeight}, reconciling local chain...`);
 
-			const indexerBlock = await opts.node.request({
-				method: "eth_getBlockByNumber",
-				params: [numberToHex(initialIndexerHeight), false],
-			});
+		const indexerBlock = await opts.node.request({
+			method: "eth_getBlockByNumber",
+			params: [numberToHex(initialIndexerHeight), false],
+		});
 
-			await indexer.reconcile(indexerBlock);
-			await indexer.reconcile(latestBlock);
+		await indexer.reconcile(indexerBlock);
+		await indexer.reconcile(latestBlock);
 
-			log.debug("Reconciled local indexer chain");
-		}
+		log.debug("Reconciled local indexer chain");
 
 		// After we have fully constructed the indexer chain we set up a handler to process when new blocks finalize. Right
 		// now there exists no subscription for this so we have to poll. When new blocks finalize we send as many heads as
@@ -325,7 +321,7 @@ function realtime(opts: RealtimeOptions) {
 
 		log.debug("Subscribed indexer chain to new heads");
 
-		let indexerHeight = initialIndexerHeight || hexToNumber(latestBlock.number);
+		let indexerHeight = initialIndexerHeight;
 
 		const poll = async () => {
 			try {

@@ -8,8 +8,8 @@ import { test_getBlock, test_promiseWithResolvers, test_indexer } from "../tests
 import { NodeRpc } from "./rpc";
 import { hexToNumber, numberToHex } from "./utils";
 
-test.concurrent("receives the latest block", async () => {
-	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
+test.concurrent("receives the latest block", { timeout: 60 * 60 * 1000 }, async () => {
+	const univo = indexer({ quiet: false, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	const { promise, resolve } = test_promiseWithResolvers();
 
@@ -17,16 +17,16 @@ test.concurrent("receives the latest block", async () => {
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		storage: { upsert: async () => {} },
-		handler: () => {
-			resolve(null);
+		handler: (block) => {
+			// resolve(null);
 
-			return [];
+			return [block.eth_getBlockByNumber.number];
 		},
 	});
 
 	const { url } = test_indexer(univo);
 
-	realtime({ quiet: true, indexer: http(url), node: wss(process.env.TEST_ETHEREUM_RPC_WSS) });
+	realtime({ quiet: false, indexer: http(url), node: wss(process.env.TEST_ETHEREUM_RPC_WSS) });
 
 	await promise;
 });
