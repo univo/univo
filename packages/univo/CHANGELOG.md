@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.8
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.7...v0.2.8)
+
+### 🩹 Fixes
+
+- **client-sync:** Prevent client out-of-sync issue ([#27](https://github.com/univo/univo/pull/27))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.7
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.6...v0.2.7)
