@@ -10,7 +10,7 @@ import { http } from "./transport";
 import { createLogger } from "./utils.js";
 import { name, version } from "../package.json";
 
-const log = createLogger({ quiet: false, prefix: "[cli]" });
+const log = createLogger({ quiet: false });
 
 /**
  * Dev -------------------------------------------------------------------------------------------------------------------------------------------

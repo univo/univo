@@ -272,6 +272,20 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const metadata = {
 		blocks: {
+			async list(head: { chain: `0x${string}`; number?: `0x${string}` }) {
+				let prefix = `/blocks/v1/${normalizeHex(head.chain)}`;
+
+				if (typeof head.number === "string") {
+					prefix += `/${normalizeHex(head.number, 16)}`;
+				}
+
+				const keys = await opts.metadataStorage.getKeys(prefix);
+
+				return keys.map((key) => {
+					const [__, ___, chain, number, hash] = key.split(":") as [string, string, string, string, string, string];
+					return { chain, number, hash };
+				});
+			},
 			async get(head: { chain: `0x${string}`; number?: `0x${string}`; hash?: `0x${string}` }) {
 				let prefix = `/blocks/v1/${head.chain.toLowerCase()}`;
 
@@ -299,8 +313,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				// Otherwise we perform a prefixed search for the values
 				const keys = await opts.metadataStorage.getKeys(prefix);
 				const results = await opts.metadataStorage.getItems<TBlock>(keys);
-
-				results.sort((a, b) => a.key.localeCompare(b.key)); // TODO: Remove after testing
 
 				return results.map((result) => result.value);
 			},
@@ -370,14 +382,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	const public_getFinalizedHeight = async (chain: `0x${string}`) => {
-		const [stored] = await metadata.blocks.get({ chain });
+		const [stored] = await metadata.blocks.list({ chain });
 
 		if (stored === undefined) {
 			return null;
 		}
 
-		// We minus one because the stored chain represents unfinalized blocks
-		return hexToNumber(stored.eth_getBlockByNumber.number) - 1;
+		return hexToNumber(stored.number) - 1; // Minus one because the stored chain represents unfinalized blocks
 	};
 
 	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
