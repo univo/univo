@@ -27,7 +27,7 @@ type Blockchain = {
 };
 
 function defineBlockchain(opts: BlockchainOptions): Blockchain {
-	const log = createLogger({ quiet: opts.quiet, prefix: "[realtime]" });
+	const log = createLogger({ quiet: opts.quiet });
 
 	const chain: Head[] = [];
 

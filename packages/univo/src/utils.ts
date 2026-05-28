@@ -1,6 +1,12 @@
 import { name, version } from "../package.json";
 
-export function createLogger(opts: { quiet: boolean; prefix: string }) {
+export function createLogger(opts: { quiet: boolean; prefix?: string }) {
+	let prefix = `[${name}@${version}]`;
+
+	if (opts.prefix !== undefined) {
+		prefix += ` ${opts.prefix}`;
+	}
+
 	return {
 		debug(...any: any[]) {
 			if (opts.quiet) {
@@ -8,7 +14,7 @@ export function createLogger(opts: { quiet: boolean; prefix: string }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG") {
-				console.log(`[${name}@${version}] ${opts.prefix} DEBUG`, ...any);
+				console.log(`${opts.prefix} DEBUG`, ...any);
 			}
 		},
 		info(...any: any[]) {
@@ -17,7 +23,7 @@ export function createLogger(opts: { quiet: boolean; prefix: string }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO") {
-				console.log(`[${name}@${version}] ${opts.prefix} INFO`, ...any);
+				console.log(`${opts.prefix} INFO`, ...any);
 			}
 		},
 		warn(...any: any[]) {
@@ -26,7 +32,7 @@ export function createLogger(opts: { quiet: boolean; prefix: string }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN") {
-				console.log(`[${name}@${version}] ${opts.prefix} WARN`, ...any);
+				console.log(`${opts.prefix} WARN`, ...any);
 			}
 		},
 		error(...any: any[]) {
@@ -35,7 +41,7 @@ export function createLogger(opts: { quiet: boolean; prefix: string }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN" || process.env.LOG_LEVEL === "ERROR") {
-				console.log(`[${name}@${version}] ${opts.prefix} ERROR`, ...any);
+				console.log(`${opts.prefix} ERROR`, ...any);
 			}
 		},
 	};
