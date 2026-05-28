@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.7
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.6...v0.2.7)
+
+### 🚀 Enhancements
+
+- **retry-recovery:** Increase retry success rate when finalizing heads ([#25](https://github.com/univo/univo/pull/25))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.6
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.5...v0.2.6)
