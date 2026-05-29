@@ -450,8 +450,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
-		// TODO: Our tests need to modify getBlock to include an old finalized block
-
 		const blocks = blocks_nullable.flatMap((block) => {
 			// A null response is actually a common case during chain reorganisations. Because we load by block number it
 			// is common for the client and server to be connected to different nodes. There is no guarantee that both
