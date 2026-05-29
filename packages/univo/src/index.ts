@@ -442,13 +442,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			}),
 		]);
 
-		// if (finalizedBlock === null) {
-		// 	log.debug("Failed to determine finalized height when processing unfinalized heads");
+		if (finalizedBlock === null) {
+			log.debug("Failed to determine finalized height when processing unfinalized heads");
 
-		// 	throw new Error(GetBlockError);
-		// }
+			throw new Error(GetBlockError);
+		}
 
-		// const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
 		// TODO: Our tests need to modify getBlock to include an old finalized block
 
@@ -465,9 +465,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
 			// stall indexing
 
-			// if (hexToNumber(block.eth_getBlockByNumber.number) <= finalizedHeight) {
-			// 	return [];
-			// }
+			if (hexToNumber(block.eth_getBlockByNumber.number) <= finalizedHeight) {
+				return [];
+			}
 
 			return block;
 		});
