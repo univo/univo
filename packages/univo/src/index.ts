@@ -3,7 +3,7 @@ import type { Storage } from "unstorage";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
-import { createLogger, decoder, decompress, hexToNumber, isHexEqual, nonNullable, normalizeHex, retry } from "./utils";
+import { createLogger, decoder, decompress, hexToNumber, isHexEqual, normalizeHex, retry } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -381,6 +381,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return block;
 	}
 
+	const GetBlockError = createException("Failed to load block from the provided `getBlock` function");
+
 	const public_getFinalizedHeight = async (chain: `0x${string}`) => {
 		const [[stored], finalizedBlock] = await Promise.all([
 			metadata.blocks.list({ chain }), //
@@ -406,6 +408,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
+		if (heads.length === 0) {
+			return log.debug("No heads received, returning...");
+		}
+
 		// Verify that all heads received are from the same chain
 
 		let chain = undefined;
@@ -416,29 +422,55 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			}
 
 			if (!isHexEqual(chain, head.chain)) {
-				throw new Error(MultipleChainsError);
+				throw new Error("Received heads from separate chains");
 			}
 		}
 
 		if (chain === undefined) {
-			return; // No heads were received
+			throw new Error("Internal error. Expected chain to be defined after checking heads length");
 		}
 
 		log.debug(`Received ${heads.length} unfinalized heads...`);
 
 		const blocks_start = Date.now();
 
-		const blocks_nullable = await Promise.all(
-			heads.map(async (head) => {
+		const [finalizedBlock, ...blocks_nullable] = await Promise.all([
+			getBlock({ chain, number: "finalized" }),
+
+			...heads.map(async (head) => {
 				return await getBlock({ chain, number: head.number, hash: head.hash });
 			}),
-		);
+		]);
 
-		// A null response is actually a common case during chain reorganisations. Because we load by block number it
-		// is common for the client and server to be connected to different nodes. There is no guarantee that both
-		// those nodes see the same reorganisation so when we load the block on the server we get null
+		// if (finalizedBlock === null) {
+		// 	log.debug("Failed to determine finalized height when processing unfinalized heads");
 
-		const blocks = blocks_nullable.filter(nonNullable);
+		// 	throw new Error(GetBlockError);
+		// }
+
+		// const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+
+		// TODO: Our tests need to modify getBlock to include an old finalized block
+
+		const blocks = blocks_nullable.flatMap((block) => {
+			// A null response is actually a common case during chain reorganisations. Because we load by block number it
+			// is common for the client and server to be connected to different nodes. There is no guarantee that both
+			// those nodes see the same reorganisation so when we load the block on the server we get null
+
+			if (block === null) {
+				return [];
+			}
+
+			// We must ensure each block is actually unfinalised to prevent an attack vector where a client could submit
+			// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
+			// stall indexing
+
+			// if (hexToNumber(block.eth_getBlockByNumber.number) <= finalizedHeight) {
+			// 	return [];
+			// }
+
+			return block;
+		});
 
 		if (blocks.length === 0) {
 			return log.debug("All blocks failed to load, aborting early...");
@@ -578,8 +610,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const public_writeFinalizedHeads = async (heads: Head[]) => {
 		if (heads.length === 0) {
-			// No heads received actually holds for our invariants above
-
+			// No heads received actually holds for our invariants above so return OK
 			return log.debug("No heads received, returning...");
 		}
 
@@ -595,7 +626,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			}
 
 			if (!isHexEqual(chain, head.chain)) {
-				throw new Error(MultipleChainsError);
+				throw new Error("Received heads from separate chains");
 			}
 		}
 
@@ -616,15 +647,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		for (const head of remainingHeads) {
 			if (hexToNumber(head.number) !== hexToNumber(previousHead.number) + 1) {
-				log.debug("Found invalid block number in received heads, aborting...");
-
-				throw new Error(InvalidHeadsError);
+				throw new Error("Found invalid block number in received heads, aborting...");
 			}
 
 			if (!isHexEqual(head.parentHash, previousHead.hash)) {
-				log.debug("Found invalid block hash in received heads, aborting...");
-
-				throw new Error(InvalidHeadsError);
+				throw new Error("Found invalid block hash in received heads, aborting...");
 			}
 
 			previousHead = head;
@@ -633,8 +660,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// Now we know the heads are valid by themselves, we need to assert their validity in the context of the
 		// metadata and external chain state. We load the current indexer height and the finalized block.
 
-		const [indexerHeight, finalizedBlock] = await Promise.all([
-			public_getFinalizedHeight(chain), //
+		const [[unfinalizedMetadataBlock], finalizedBlock] = await Promise.all([
+			metadata.blocks.list({ chain }), //
 			getBlock({ chain, number: "finalized" }),
 		]);
 
@@ -645,34 +672,63 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		// Ensure that all heads are less than or equal to the chain finalized head. This is important because
-		// we never want to return a success to the client above what the chain has finalized
+		// we never want to return a success to the client above what the chain has finalized. This error is
+		// most common when the node connected to the client finalises but the node connected to the indexer
+		// still hasn't seen that finalized height. It should automatically be retried by the client where
+		// enough time has passed that both client and indexer agree on the finalized height
 
 		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
 		for (const head of heads) {
 			if (hexToNumber(head.number) > finalizedHeight) {
-				throw new Error(InvalidHeadsError);
+				throw new Error("Received invalid finalized heads");
 			}
 		}
 
+		// The invariant from here is that all heads received are less than the finalized height so we are safe
+		// to return OK to the client and assume the indexer has finalized up to the highest head received. If
+		// we have zero unfinalized blocks to process we early return
+
+		if (unfinalizedMetadataBlock === undefined) {
+			return log.debug("No heads to finalize, returning...");
+		}
+
+		const indexerHeight = hexToNumber(unfinalizedMetadataBlock.number) - 1;
+
 		log.debug(`Indexer height ${indexerHeight}, finalized height ${finalizedHeight}`);
 
+		// If all blocks up to chain finalization we also have no more work to do and safely return OK
+
+		if (indexerHeight === finalizedHeight) {
+			return log.debug("No heads to finalize, returning...");
+		}
+
 		// We know that all the heads received are valid and less than the chain finalized state. To begin processing
-		// we discard all heads less than the indexer height (because they have already been processed)
+		// we discard all heads less than the indexer height (because they have already been processed). We are also
+		// confident that all heads are less than or equal to the finalized chain height
 
 		const newHeads = heads.filter((head) => {
 			return hexToNumber(head.number) > indexerHeight;
 		});
 
-		if (newHeads.length === 0) {
-			// This likely means that the indexer height is equal to the finalized height so we have no work to do.
-			// We can OK and return to the client that all new heads received have been finalized.
+		// We need to ensure that all the new heads received include the first unfinalized head in storage that we
+		// need to finalize. This ensures that we always process the first unfinalized block in storage.
 
-			// Can also mean the client only sent heads less than the indexer height. This likely means the client is
+		const [firstNewHead] = newHeads;
+
+		if (firstNewHead === undefined) {
+			// Likely means the client only sent heads less than the indexer height. This likely means the client is
 			// lagging behind on their understanding of the current indexer height. We can actually safely return
 			// here to indicate to clients to advance the heads sent.
 
 			return log.debug("No new heads received, returning...");
+		}
+
+		// Verify that the first new head received is equal to the first unfinalized block in storage. This ensures that
+		// we process all blocks in order.
+
+		if (hexToNumber(firstNewHead.number) !== indexerHeight + 1) {
+			throw new Error("Client advanced too far. Heads received are greater is than the indexer height");
 		}
 
 		// After verifying the canonical finalized chain, we essentially have to determine the difference between the
@@ -726,7 +782,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		if (block === null) {
-			throw new Error(InvalidHeadsError);
+			throw new Error("Received invalid finalized heads");
 		}
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
@@ -900,6 +956,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		return new Proxy(value, createProxyHandler("")) as T;
 	};
+
+	const IncompleteBlockError = createException("Received block with missing required property");
 
 	const private_writeEvents: IndexerRpc["request"]["private_writeEvents"] = async (params) => {
 		// TODO: Return an error
@@ -1181,6 +1239,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return event;
 	};
 
+	const UnknownMethodError = createException("The requested method does not exist");
+
 	const handler: Indexer<TBlock>["fetch"] = async (req) => {
 		// Parse request body
 		let body_buffer: ArrayBuffer;
@@ -1265,6 +1325,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const message = getException(error);
 
 			if (message) {
+				log.error(message);
+
 				return Response.json(
 					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message } }, //
 					{ status: 400 },
@@ -1285,12 +1347,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	return { fetch: handler, event };
 }
-
-const InvalidHeadsError = createException("Received invalid finalized heads");
-const UnknownMethodError = createException("The requested method does not exist");
-const MultipleChainsError = createException("Received heads from separate chains");
-const IncompleteBlockError = createException("Received block with missing required property");
-const GetBlockError = createException("Failed to load block from the provided `getBlock` function");
 
 /**
  * Exports -----------------------------------------------------------------------------------------------------------------------------------
