@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.9
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.8...v0.2.9)
+
+### 🚀 Enhancements
+
+- **correctness:** Ensure heads are unfinalized for public_writeUnfinalizedHeads ([#29](https://github.com/univo/univo/pull/29))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.8
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.7...v0.2.8)
