@@ -1,15 +1,12 @@
 {
+  "private": true,
+  "type": "module",
   "name": "realtime",
   "module": "index.ts",
-  "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
   "dependencies": {
-    "univo": "latest"
+    "univo": "0.2.11"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
   }
 }
