@@ -170,16 +170,27 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 	});
 
 	const request: Transport<Rpc>["request"] = async (opts) => {
-		return await new Promise<any>((resolve) => {
+		return await new Promise<any>((resolve, reject) => {
 			const body = Object.assign({ id: id++ }, opts);
 
+			const timeout = setTimeout(() => {
+				requests.delete(body.id);
+				reject(new Error("wss request timed out after 30 seconds"));
+			}, 30 * 1000);
+
 			requests.set(body.id, (data) => {
-				// TODO: Could set a timeout to clean up the request to mitigate memory leaks
+				clearTimeout(timeout);
 				requests.delete(body.id);
 				resolve(data);
 			});
 
-			socket.send(JSON.stringify(body));
+			try {
+				socket.send(JSON.stringify(body));
+			} catch (cause) {
+				clearTimeout(timeout);
+				requests.delete(body.id);
+				reject(new Error(ClientConnectionError, { cause }));
+			}
 		});
 	};
 
