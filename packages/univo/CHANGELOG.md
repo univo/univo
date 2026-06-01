@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.11
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.10...v0.2.11)
+
+### 🩹 Fixes
+
+- **rpc:** Ensure RPC errors are propagated ([#33](https://github.com/univo/univo/pull/33))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.10
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.9...v0.2.10)
