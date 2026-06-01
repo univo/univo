@@ -14,7 +14,7 @@ export function createLogger(opts: { quiet: boolean; prefix?: string }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG") {
-				console.log(`${opts.prefix} DEBUG`, ...any);
+				console.log(`${prefix} DEBUG`, ...any);
 			}
 		},
 		info(...any: any[]) {
@@ -23,7 +23,7 @@ export function createLogger(opts: { quiet: boolean; prefix?: string }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO") {
-				console.log(`${opts.prefix} INFO`, ...any);
+				console.log(`${prefix} INFO`, ...any);
 			}
 		},
 		warn(...any: any[]) {
@@ -32,7 +32,7 @@ export function createLogger(opts: { quiet: boolean; prefix?: string }) {
 			}
 
 			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN") {
-				console.log(`${opts.prefix} WARN`, ...any);
+				console.log(`${prefix} WARN`, ...any);
 			}
 		},
 		error(...any: any[]) {
@@ -46,7 +46,7 @@ export function createLogger(opts: { quiet: boolean; prefix?: string }) {
 				process.env.LOG_LEVEL === "WARN" ||
 				process.env.LOG_LEVEL === "ERROR"
 			) {
-				console.log(`${opts.prefix} ERROR`, ...any);
+				console.log(`${prefix} ERROR`, ...any);
 			}
 		},
 	};
