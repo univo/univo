@@ -293,6 +293,10 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 			throw new Error(ClientConnectionError, { cause });
 		});
 
+		if (!res.ok || res.status < 200 || res.status >= 300) {
+			throw new Error(ClientConnectionError);
+		}
+
 		const json = await res.json().catch((cause) => {
 			throw new Error(ClientResponseError, { cause });
 		});

@@ -242,7 +242,7 @@ function realtime(opts: RealtimeOptions) {
 
 					await opts.indexer.request({ method: "public_writeUnfinalizedHeads", params: [heads] });
 
-					log.debug(`Delivered ${heads.length} unfinalized heads`);
+					log.debug(`Delivered ${heads.length} unfinalized head(s)`);
 
 					pending = pending.filter((head) => {
 						return !heads.some((_head) => {
