@@ -679,7 +679,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		for (const head of heads) {
 			if (hexToNumber(head.number) > finalizedHeight) {
-				throw new Error("Received invalid finalized heads. Received head greater than chain finalized height");
+				throw new Error("Received head greater than chain finalized height");
 			}
 		}
 
