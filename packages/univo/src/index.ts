@@ -679,7 +679,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		for (const head of heads) {
 			if (hexToNumber(head.number) > finalizedHeight) {
-				throw new Error("Received invalid finalized heads");
+				throw new Error("Received invalid finalized heads. Received head greater than chain finalized height");
 			}
 		}
 
@@ -726,7 +726,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// we process all blocks in order.
 
 		if (hexToNumber(firstNewHead.number) !== indexerHeight + 1) {
-			throw new Error("Client advanced too far. Heads received are greater is than the indexer height");
+			throw new Error("Client advanced too far. Heads received are greater than the indexer height");
 		}
 
 		// After verifying the canonical finalized chain, we essentially have to determine the difference between the
@@ -780,7 +780,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		if (block === null) {
-			throw new Error("Received invalid finalized heads");
+			throw new Error("Received unknown head that wasn't canonical");
 		}
 
 		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {

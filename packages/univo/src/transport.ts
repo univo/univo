@@ -6,9 +6,9 @@ import type { Rpc } from "./rpc";
 import { createException } from "./exceptions";
 import { compress, createLogger, raise } from "./utils";
 
-type Protcol = "http" | "wss";
+type Protocol = "http" | "wss";
 
-type Transport<R extends Rpc, P extends Protcol = Protcol> = {
+type Transport<R extends Rpc, P extends Protocol = Protocol> = {
 	/**
 	 * The underlying transport protocol.
 	 */
@@ -18,7 +18,10 @@ type Transport<R extends Rpc, P extends Protcol = Protcol> = {
 	 * Performs a JSON RPC request
 	 * @returns The RPC response
 	 */
-	request: <M extends keyof R["request"]>(opts: { method: M; params: Parameters<R["request"][M]> }) => Promise<Awaited<ReturnType<R["request"][M]>>>;
+	request: <M extends keyof R["request"]>(opts: {
+		method: M;
+		params: Parameters<R["request"][M]>;
+	}) => Promise<Awaited<ReturnType<R["request"][M]>>>;
 
 	/**
 	 * Subscribes to specific event to receive and invoke a callback for a stream of values
@@ -94,7 +97,9 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		},
 
 		async onOpen() {
-			if (subscriptions.size === 0) return;
+			if (subscriptions.size === 0) {
+				return;
+			}
 
 			// If the socket connection is reinitalised this function will be called multiple times. When that
 			// happens we need to re-initialise all underlying subscriptions on the new connection.
@@ -164,7 +169,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		},
 	});
 
-	const request: Transport<Rpc>["request"] = async (opts: { method: string; params: any[] }) => {
+	const request: Transport<Rpc>["request"] = async (opts) => {
 		return await new Promise<any>((resolve) => {
 			const body = Object.assign({ id: id++ }, opts);
 
@@ -178,7 +183,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		});
 	};
 
-	const subscribe: Transport<Rpc>["subscribe"] = async (param: string, handler: (messsage: any) => void) => {
+	const subscribe: Transport<Rpc>["subscribe"] = async (param, handler) => {
 		const handlers = params.get(param);
 
 		if (handlers === undefined) {
@@ -273,7 +278,7 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 			headers.set("Authorization", `Bearer ${opts.signingKey}`);
 		}
 
-		const res = await fetch(url, { headers, body, method: "POST" }).catch((cause) => {
+		const res = await fetch(url, { headers, body, method: "POST", signal: AbortSignal.timeout(30 * 1000) }).catch((cause) => {
 			throw new Error(ClientConnectionError, { cause });
 		});
 

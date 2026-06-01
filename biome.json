@@ -33,7 +33,7 @@
 	},
 	"formatter": {
 		"enabled": true,
-		"lineWidth": 160,
+		"lineWidth": 140,
 		"indentStyle": "tab"
 	},
 	"javascript": {

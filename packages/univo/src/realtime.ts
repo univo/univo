@@ -325,6 +325,8 @@ function realtime(opts: RealtimeOptions) {
 
 		const poll = async () => {
 			try {
+				log.debug("Polling for finalized height...");
+
 				// This uses a natural retry method. If the request fails we never update the finalized height. If successful
 				// we will update it and safely remove all finalized blocks processed from the next request
 
