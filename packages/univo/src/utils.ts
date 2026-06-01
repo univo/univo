@@ -40,7 +40,12 @@ export function createLogger(opts: { quiet: boolean; prefix?: string }) {
 				return;
 			}
 
-			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN" || process.env.LOG_LEVEL === "ERROR") {
+			if (
+				process.env.LOG_LEVEL === "DEBUG" ||
+				process.env.LOG_LEVEL === "INFO" ||
+				process.env.LOG_LEVEL === "WARN" ||
+				process.env.LOG_LEVEL === "ERROR"
+			) {
 				console.log(`${opts.prefix} ERROR`, ...any);
 			}
 		},
