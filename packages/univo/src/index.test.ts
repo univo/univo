@@ -1643,7 +1643,17 @@ test.concurrent("private_writeEventsAndGetKeys indexes only the events requested
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["event1"], block: block0 }],
+		params: [
+			{
+				events: ["event1"],
+				head: {
+					chain: "0x1",
+					hash: block0.eth_getBlockByNumber.hash,
+					number: block0.eth_getBlockByNumber.number,
+					parentHash: block0.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1679,7 +1689,17 @@ test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns 
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block0 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block0.eth_getBlockByNumber.hash,
+					number: block0.eth_getBlockByNumber.number,
+					parentHash: block0.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1708,7 +1728,17 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1743,7 +1773,17 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1783,7 +1823,17 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1823,7 +1873,17 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1863,7 +1923,17 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1905,7 +1975,17 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1947,7 +2027,17 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -1990,7 +2080,17 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2034,7 +2134,17 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2078,7 +2188,17 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2124,7 +2244,17 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2160,7 +2290,17 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2269,7 +2409,17 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2327,7 +2477,17 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2366,7 +2526,17 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2430,7 +2600,17 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2481,7 +2661,17 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2596,7 +2786,17 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2660,7 +2860,17 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2705,7 +2915,17 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2773,7 +2993,17 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([
@@ -2825,7 +3055,17 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 
 	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
-		params: [{ events: ["test"], block: block22994233 }],
+		params: [
+			{
+				events: ["test"],
+				head: {
+					chain: "0x1",
+					hash: block22994233.eth_getBlockByNumber.hash,
+					number: block22994233.eth_getBlockByNumber.number,
+					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
 	});
 
 	expect(response.results).toStrictEqual([

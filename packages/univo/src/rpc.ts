@@ -92,10 +92,10 @@ type IndexerRpc = {
 		private_writeEvents: (params: { events: string[]; blocks: Block[] }) => Promise<{ failures: Result[] }>;
 
 		/**
-		 * Accepts a raw block directly from the chain and writes events to storage
-		 * @returns A list of the block keys that were accessed as events are written to storage
+		 * Accepts a block head and writes events to storage
+		 * @returns A list of results and block keys that were accessed as those events are written to storage
 		 */
-		private_writeEventsAndGetKeys: (params: { events: string[]; block: Block }) => Promise<{ results: Result[]; keys: string[] }>;
+		private_writeEventsAndGetKeys: (params: { events: string[]; head: Head }) => Promise<{ results: Result[]; keys: string[] }>;
 	};
 
 	subscribe: Record<string, never>;

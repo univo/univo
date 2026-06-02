@@ -1070,11 +1070,27 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	const private_writeEventsAndGetKeys: IndexerRpc["request"]["private_writeEventsAndGetKeys"] = async (params) => {
-		if (all_events.length === 0) return { results: [], keys: [] };
-		if (params.events.length === 0) return { results: [], keys: [] };
+		if (all_events.length === 0) {
+			return { results: [], keys: [] };
+		}
 
+		if (params.events.length === 0) {
+			return { results: [], keys: [] };
+		}
+
+		// Filter for relevant events
 		const relevant_events = all_events.filter((event) => params.events.includes(event.id));
-		if (relevant_events.length === 0) return { results: [], keys: [] };
+
+		if (relevant_events.length === 0) {
+			return { results: [], keys: [] };
+		}
+
+		// Load the requested block
+		const block = await getBlock(params.head);
+
+		if (block === null) {
+			throw new Error(GetBlockError);
+		}
 
 		const keys = new Set<string>();
 		const results: Record<string, Result> = {};
@@ -1104,7 +1120,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			};
 		}
 
-		const proxy = new Proxy(params.block, createProxyHandler("")) as Block;
+		const proxy = new Proxy(block, createProxyHandler("")) as Block;
 
 		await Promise.all(
 			relevant_events.map(async (event) => {
