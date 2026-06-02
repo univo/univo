@@ -1089,7 +1089,20 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const block = await getBlock(params.head);
 
 		if (block === null) {
-			throw new Error(GetBlockError);
+			return {
+				keys: [],
+
+				results: relevant_events.map<Result>((event) => {
+					return {
+						event_id: event.id,
+						status: "block_error",
+						chain: params.head.chain,
+						block_hash: params.head.hash,
+						block_number: params.head.number,
+						created_at: Date.now(),
+					};
+				}),
+			};
 		}
 
 		const keys = new Set<string>();
