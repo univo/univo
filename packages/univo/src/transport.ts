@@ -6,7 +6,7 @@ import type { Rpc } from "./rpc";
 import { createException } from "./exceptions";
 import { compress, createLogger, raise } from "./utils";
 
-type Protocol = "http" | "wss";
+type Protocol = "http" | "wss" | "local";
 
 type Transport<R extends Rpc, P extends Protocol = Protocol> = {
 	/**
@@ -15,7 +15,7 @@ type Transport<R extends Rpc, P extends Protocol = Protocol> = {
 	protocol: P;
 
 	/**
-	 * Performs a JSON RPC request
+	 * Performs an RPC request
 	 * @returns The RPC response
 	 */
 	request: <M extends keyof R["request"]>(opts: {
@@ -29,6 +29,30 @@ type Transport<R extends Rpc, P extends Protocol = Protocol> = {
 	 */
 	subscribe: <M extends keyof R["subscribe"]>(param: M, handler: (message: R["subscribe"][M]) => void) => Promise<() => Promise<void>>;
 };
+
+/**
+ * LOCAL -----------------------------------------------------------------------------------------------------------------------------------
+ */
+
+const UnknownMethodError = createException("The requested RPC method does not exist on the provided implementation");
+
+function local<R extends Rpc>(rpc: R): Transport<R, "local"> {
+	const request: Transport<Rpc>["request"] = async (opts) => {
+		const method = rpc.request[opts.method];
+
+		if (method === undefined) {
+			throw new Error(UnknownMethodError);
+		}
+
+		return await method(...opts.params);
+	};
+
+	const subscribe: Transport<Rpc>["subscribe"] = async () => {
+		throw new Error("Unable to `subscribe` on `local` transport");
+	};
+
+	return { protocol: "local", request, subscribe };
+}
 
 /**
  * WSS -----------------------------------------------------------------------------------------------------------------------------------
@@ -324,5 +348,5 @@ const ClientUnauthorizedError = createException("Attempted to execute a private 
  * Exports -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-export { http, wss };
 export type { Transport };
+export { http, local, wss };

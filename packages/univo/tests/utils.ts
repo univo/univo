@@ -1,38 +1,8 @@
-import { Hono } from "hono";
 import { join } from "node:path";
 import { promises as fs } from "node:fs";
-import { serve as start } from "@hono/node-server";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
-import type { Indexer } from "../src";
-import { http } from "../src/transport";
-import { IndexerRpc } from "../src/rpc";
-import { hexToNumber, iife, raise, retry } from "../src/utils";
-
-export const test_indexer = iife(() => {
-	const app = new Hono();
-	const cache = new Map<string, Indexer<any>>();
-
-	app.all("/:key", async (context) => {
-		const key = context.req.param("key");
-		const indexer = cache.get(key);
-		if (indexer === undefined) throw new Error("Unknown indexer");
-		return await indexer.fetch(context.req.raw);
-	});
-
-	start({ fetch: app.fetch, port: 7483 });
-
-	return <TBlock>(indexer: Indexer<TBlock>) => {
-		const id = crypto.randomUUID();
-		const url = `http://localhost:7483/${id}`;
-		cache.set(id, indexer);
-
-		// Signing key should be "test" for all test indexers
-		const { request } = http<IndexerRpc>(url, { signingKey: "test" });
-
-		return { url, request };
-	};
-});
+import { hexToNumber, retry } from "../src/utils";
 
 export function test_promiseWithResolvers() {
 	let resolve: (value: any) => void;
@@ -100,7 +70,10 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 
 async function rpc(opts: { id: number; method: string; params: any[] }) {
 	const url = process.env.TEST_ETHEREUM_RPC_URL;
-	if (!url) throw new Error("Please set a process.env.TEST_ETHEREUM_RPC_URL");
+
+	if (!url) {
+		throw new Error("Please set a process.env.TEST_ETHEREUM_RPC_URL");
+	}
 
 	const res = await fetch(url, {
 		method: "POST",
@@ -108,8 +81,13 @@ async function rpc(opts: { id: number; method: string; params: any[] }) {
 		body: JSON.stringify({ jsonrpc: "2.0", ...opts }),
 	});
 
-	if (!res.ok) throw new Error("Failed to get rpc response");
-	const json: any = await res.json().catch((cause) => raise("Unable to parse rpc response to json", { cause }));
+	if (!res.ok) {
+		throw new Error("Failed to get rpc response");
+	}
+
+	const json: any = await res.json().catch((cause) => {
+		throw new Error("Unable to parse rpc response to json", { cause });
+	});
 
 	return json.result;
 }
