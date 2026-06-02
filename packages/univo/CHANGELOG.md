@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.2.12
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.11...v0.2.12)
+
+### 🚀 Enhancements
+
+- **transport:** Add local transport for RPC ([#36](https://github.com/univo/univo/pull/36))
+- **keys:** Use provided RPC methods for public_writeEventsAndGetKeys ([#37](https://github.com/univo/univo/pull/37))
+
+### 🏡 Chore
+
+- **examples:** Pin univo version for examples ([#35](https://github.com/univo/univo/pull/35))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.11
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.10...v0.2.11)

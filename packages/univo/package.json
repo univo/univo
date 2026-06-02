@@ -2,7 +2,7 @@
 	"name": "univo",
 	"license": "MIT",
 	"type": "module",
-	"version": "0.2.11",
+	"version": "0.2.12",
 	"sideEffects": false,
 	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.ts",
