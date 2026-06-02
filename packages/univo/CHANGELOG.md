@@ -1,5 +1,18 @@
 # Changelog
 
+
+## v0.2.13
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.12...v0.2.13)
+
+### 🩹 Fixes
+
+- **errors:** Return error results instead of throwing in `private_writeEventsAndGetKeys` ([#39](https://github.com/univo/univo/pull/39))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.12
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.11...v0.2.12)
