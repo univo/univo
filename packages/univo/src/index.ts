@@ -197,9 +197,10 @@ type Metadata = {
 type Result = {
 	status: string;
 	event_id: string;
+	hash: `0x${string}`;
 	chain: `0x${string}`;
-	block_hash: `0x${string}`;
-	block_number: `0x${string}`;
+	number: `0x${string}`;
+	parentHash: `0x${string}`;
 	created_at: number;
 };
 
@@ -1013,8 +1014,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 							status,
 							event_id: event.id,
 							chain: block.eth_chainId,
-							block_hash: block.eth_getBlockByNumber.hash,
-							block_number: block.eth_getBlockByNumber.number,
+							hash: block.eth_getBlockByNumber.hash,
+							number: block.eth_getBlockByNumber.number,
+							parentHash: block.eth_getBlockByNumber.parentHash,
 							created_at: Date.now(),
 						};
 					}
@@ -1047,8 +1049,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 							status,
 							event_id: event.id,
 							chain: block.eth_chainId,
-							block_hash: block.eth_getBlockByNumber.hash,
-							block_number: block.eth_getBlockByNumber.number,
+							hash: block.eth_getBlockByNumber.hash,
+							number: block.eth_getBlockByNumber.number,
+							parentHash: block.eth_getBlockByNumber.parentHash,
 							created_at: Date.now(),
 						};
 					}
@@ -1097,8 +1100,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						event_id: event.id,
 						status: "block_error",
 						chain: params.head.chain,
-						block_hash: params.head.hash,
-						block_number: params.head.number,
+						hash: params.head.hash,
+						number: params.head.number,
+						parentHash: params.head.parentHash,
 						created_at: Date.now(),
 					};
 				}),
@@ -1161,8 +1165,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						status: "handler_error",
 						event_id: event.id,
 						chain: proxy.eth_chainId,
-						block_hash: proxy.eth_getBlockByNumber.hash,
-						block_number: proxy.eth_getBlockByNumber.number,
+						hash: proxy.eth_getBlockByNumber.hash,
+						number: proxy.eth_getBlockByNumber.number,
+						parentHash: proxy.eth_getBlockByNumber.parentHash,
 						created_at: Date.now(),
 					};
 
@@ -1174,8 +1179,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						status: "ok",
 						event_id: event.id,
 						chain: proxy.eth_chainId,
-						block_hash: proxy.eth_getBlockByNumber.hash,
-						block_number: proxy.eth_getBlockByNumber.number,
+						hash: proxy.eth_getBlockByNumber.hash,
+						number: proxy.eth_getBlockByNumber.number,
+						parentHash: proxy.eth_getBlockByNumber.parentHash,
 						created_at: Date.now(),
 					};
 
@@ -1196,8 +1202,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						status: "upsert_error",
 						event_id: event.id,
 						chain: proxy.eth_chainId,
-						block_hash: proxy.eth_getBlockByNumber.hash,
-						block_number: proxy.eth_getBlockByNumber.number,
+						hash: proxy.eth_getBlockByNumber.hash,
+						number: proxy.eth_getBlockByNumber.number,
+						parentHash: proxy.eth_getBlockByNumber.parentHash,
 						created_at: Date.now(),
 					};
 
@@ -1208,8 +1215,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					status: "ok",
 					event_id: event.id,
 					chain: proxy.eth_chainId,
-					block_hash: proxy.eth_getBlockByNumber.hash,
-					block_number: proxy.eth_getBlockByNumber.number,
+					hash: proxy.eth_getBlockByNumber.hash,
+					number: proxy.eth_getBlockByNumber.number,
+					parentHash: proxy.eth_getBlockByNumber.parentHash,
 					created_at: Date.now(),
 				};
 			}),
