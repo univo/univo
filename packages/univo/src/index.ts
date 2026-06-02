@@ -186,7 +186,7 @@ type Head = {
 	hash: `0x${string}`;
 	chain: `0x${string}`;
 	number: `0x${string}`;
-	parentHash: `0x${string}`;
+	parent_hash: `0x${string}`;
 };
 
 type Metadata = {
@@ -200,7 +200,7 @@ type Result = {
 	hash: `0x${string}`;
 	chain: `0x${string}`;
 	number: `0x${string}`;
-	parentHash: `0x${string}`;
+	parent_hash: `0x${string}`;
 	created_at: number;
 };
 
@@ -634,7 +634,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error("Internal error. Expected chain to be defined after checking heads length");
 		}
 
-		// Verify that the heads received are contigouous and sequential i.e. all hash and parentHash
+		// Verify that the heads received are contigouous and sequential i.e. all hash and parent hash
 		// relationships match with an incrementing block number with each head
 
 		const [firstHead, ...remainingHeads] = heads;
@@ -650,7 +650,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				throw new Error("Found invalid block number in received heads, aborting...");
 			}
 
-			if (!isHexEqual(head.parentHash, previousHead.hash)) {
+			if (!isHexEqual(head.parent_hash, previousHead.hash)) {
 				throw new Error("Found invalid block hash in received heads, aborting...");
 			}
 
@@ -1016,7 +1016,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 							chain: block.eth_chainId,
 							hash: block.eth_getBlockByNumber.hash,
 							number: block.eth_getBlockByNumber.number,
-							parentHash: block.eth_getBlockByNumber.parentHash,
+							parent_hash: block.eth_getBlockByNumber.parentHash,
 							created_at: Date.now(),
 						};
 					}
@@ -1051,7 +1051,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 							chain: block.eth_chainId,
 							hash: block.eth_getBlockByNumber.hash,
 							number: block.eth_getBlockByNumber.number,
-							parentHash: block.eth_getBlockByNumber.parentHash,
+							parent_hash: block.eth_getBlockByNumber.parentHash,
 							created_at: Date.now(),
 						};
 					}
@@ -1102,7 +1102,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						chain: params.head.chain,
 						hash: params.head.hash,
 						number: params.head.number,
-						parentHash: params.head.parentHash,
+						parent_hash: params.head.parent_hash,
 						created_at: Date.now(),
 					};
 				}),
@@ -1167,7 +1167,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						chain: proxy.eth_chainId,
 						hash: proxy.eth_getBlockByNumber.hash,
 						number: proxy.eth_getBlockByNumber.number,
-						parentHash: proxy.eth_getBlockByNumber.parentHash,
+						parent_hash: proxy.eth_getBlockByNumber.parentHash,
 						created_at: Date.now(),
 					};
 
@@ -1181,7 +1181,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						chain: proxy.eth_chainId,
 						hash: proxy.eth_getBlockByNumber.hash,
 						number: proxy.eth_getBlockByNumber.number,
-						parentHash: proxy.eth_getBlockByNumber.parentHash,
+						parent_hash: proxy.eth_getBlockByNumber.parentHash,
 						created_at: Date.now(),
 					};
 
@@ -1204,7 +1204,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						chain: proxy.eth_chainId,
 						hash: proxy.eth_getBlockByNumber.hash,
 						number: proxy.eth_getBlockByNumber.number,
-						parentHash: proxy.eth_getBlockByNumber.parentHash,
+						parent_hash: proxy.eth_getBlockByNumber.parentHash,
 						created_at: Date.now(),
 					};
 
@@ -1217,7 +1217,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					chain: proxy.eth_chainId,
 					hash: proxy.eth_getBlockByNumber.hash,
 					number: proxy.eth_getBlockByNumber.number,
-					parentHash: proxy.eth_getBlockByNumber.parentHash,
+					parent_hash: proxy.eth_getBlockByNumber.parentHash,
 					created_at: Date.now(),
 				};
 			}),

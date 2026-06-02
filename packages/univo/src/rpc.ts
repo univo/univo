@@ -1,5 +1,5 @@
-import { Flatten } from "./utils";
-import { Block, Filter, Head, Metadata, Result } from ".";
+import type { Flatten } from "./utils";
+import type { Block, Filter, Head, Metadata, Result } from ".";
 
 type Rpc = {
 	/**
@@ -17,6 +17,12 @@ type Rpc = {
  * Node -----------------------------------------------------------------------------------------------------------------------------------
  */
 
+type NodeBlock = {
+	hash: `0x${string}`;
+	number: `0x${string}`;
+	parentHash: `0x${string}`;
+};
+
 type NodeRpc = {
 	request: {
 		/**
@@ -28,23 +34,17 @@ type NodeRpc = {
 		 * Accepts a block tag and boolean for including receipts
 		 * @returns A block with optional receipts
 		 */
-		eth_getBlockByNumber: (
-			number: string,
-			receipts: boolean,
-		) => Promise<{ hash: `0x${string}`; number: `0x${string}`; parentHash: `0x${string}` }>;
+		eth_getBlockByNumber: (number: string, receipts: boolean) => Promise<NodeBlock>;
 
 		/**
 		 * Accepts a block hash and boolean for including receipts
 		 * @returns A block with optional receipts
 		 */
-		eth_getBlockByHash: (
-			hash: `0x${string}`,
-			receipts: boolean,
-		) => Promise<{ hash: `0x${string}`; number: `0x${string}`; parentHash: `0x${string}` }>;
+		eth_getBlockByHash: (hash: `0x${string}`, receipts: boolean) => Promise<NodeBlock>;
 	};
 
 	subscribe: {
-		newHeads: Head;
+		newHeads: NodeBlock;
 	};
 };
 
