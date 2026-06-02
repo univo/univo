@@ -17,12 +17,6 @@ type Rpc = {
  * Node -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-type NodeBlock = {
-	hash: `0x${string}`;
-	number: `0x${string}`;
-	parentHash: `0x${string}`;
-};
-
 type NodeRpc = {
 	request: {
 		/**
@@ -46,6 +40,12 @@ type NodeRpc = {
 	subscribe: {
 		newHeads: NodeBlock;
 	};
+};
+
+type NodeBlock = {
+	hash: `0x${string}`;
+	number: `0x${string}`;
+	parentHash: `0x${string}`;
 };
 
 /**
