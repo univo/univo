@@ -1,5 +1,6 @@
 import type { Storage } from "unstorage";
 
+import { local } from "./transport";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
@@ -1209,35 +1210,23 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { results: results_array, keys: filtered_keys };
 	};
 
-	const rpc: IndexerRpc["request"] = {
-		public_getFinalizedHeight,
-		public_writeFinalizedHeads,
-		public_writeUnfinalizedHeads,
-		public_deleteReorganisedHead,
+	const rpc: IndexerRpc = {
+		request: {
+			public_getFinalizedHeight,
+			public_writeFinalizedHeads,
+			public_writeUnfinalizedHeads,
+			public_deleteReorganisedHead,
 
-		private_getEvents,
-		private_getMetadata,
-		private_writeEvents,
-		private_writeEventsAndGetKeys,
+			private_getEvents,
+			private_getMetadata,
+			private_writeEvents,
+			private_writeEventsAndGetKeys,
+		},
+
+		subscribe: {},
 	};
 
-	// Indexer implementation
-
-	const event: Indexer<TBlock>["event"] = (event) => {
-		if (!/^[A-Za-z0-9_-]+$/.test(event.id)) {
-			throw new Error(`Invalid event id \`${event.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
-		}
-
-		all_events.push(event);
-
-		const group = events_grouped_by_storage_map.get(event.storage) ?? [];
-		group.push(event);
-		events_grouped_by_storage_map.set(event.storage, group);
-
-		return event;
-	};
-
-	const UnknownMethodError = createException("The requested method does not exist");
+	const transport = local(rpc);
 
 	const handler: Indexer<TBlock>["fetch"] = async (req) => {
 		// Parse request body
@@ -1313,10 +1302,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Perform RPC
 		try {
-			if (rpc[json.method as keyof IndexerRpc["request"]] === undefined) throw new Error(UnknownMethodError);
-
-			// @ts-expect-error types too complicated
-			const result = await rpc[json.method](...json.params);
+			const result = await transport.request({ method: json.method, params: json.params });
 
 			return Response.json({ jsonrpc: "2.0", id: json.id, result });
 		} catch (error) {
@@ -1343,7 +1329,27 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 	};
 
-	return { fetch: handler, event };
+	const event: Indexer<TBlock>["event"] = (event) => {
+		if (!/^[A-Za-z0-9_-]+$/.test(event.id)) {
+			throw new Error(`Invalid event id \`${event.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
+		}
+
+		all_events.push(event);
+
+		const group = events_grouped_by_storage_map.get(event.storage) ?? [];
+		group.push(event);
+		events_grouped_by_storage_map.set(event.storage, group);
+
+		return event;
+	};
+
+	const indexer = {
+		...rpc,
+		event,
+		fetch: handler,
+	};
+
+	return indexer;
 }
 
 /**

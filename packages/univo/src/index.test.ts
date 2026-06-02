@@ -3,8 +3,9 @@ import { createStorage } from "unstorage";
 
 import { indexer } from ".";
 import type { Event } from ".";
+import { local } from "./transport";
 import { hexToNumber, numberToHex } from "./utils";
-import { test_Block, test_getBlock, test_indexer } from "../tests/utils";
+import { test_Block, test_getBlock } from "../tests/utils";
 
 test.concurrent("correctly infers the event type", () => {
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
@@ -68,7 +69,7 @@ test.concurrent("public_writeUnfinalizedHeads upserts events", async () => {
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	await test_indexer(univo).request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -118,7 +119,7 @@ test.concurrent("public_writeUnfinalizedHeads retries upsert errors", async () =
 		},
 	});
 
-	await test_indexer(univo).request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -176,7 +177,7 @@ test.concurrent("public_writeUnfinalizedHeads deduplicates events with the same 
 		handler: (block) => [`event2-${block.eth_getBlockByNumber.hash}`],
 	});
 
-	await test_indexer(univo).request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -233,7 +234,7 @@ test.concurrent("public_writeUnfinalizedHeads tolerates partial block-load failu
 		},
 	});
 
-	await test_indexer(univo).request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -289,7 +290,7 @@ test.concurrent("public_writeUnfinalizedHeads ignores finalized heads", async ()
 		},
 	});
 
-	await test_indexer(univo).request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -355,9 +356,7 @@ test.concurrent("public_deleteReorganisedHead deletes events from reorganised bl
 		},
 	});
 
-	const client = test_indexer(univo);
-
-	await client.request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -371,7 +370,7 @@ test.concurrent("public_deleteReorganisedHead deletes events from reorganised bl
 		],
 	});
 
-	await client.request({
+	await local(univo).request({
 		method: "public_deleteReorganisedHead",
 		params: [
 			{
@@ -408,7 +407,7 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 		},
 	});
 
-	await test_indexer(univo).request({
+	await local(univo).request({
 		method: "public_deleteReorganisedHead",
 		params: [
 			{
@@ -466,9 +465,7 @@ test.concurrent("public_writeFinalizedHeads writes finalized heads", async () =>
 		},
 	});
 
-	const client = test_indexer(univo);
-
-	await client.request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -482,7 +479,7 @@ test.concurrent("public_writeFinalizedHeads writes finalized heads", async () =>
 		],
 	});
 
-	await client.request({
+	await local(univo).request({
 		method: "public_writeFinalizedHeads",
 		params: [
 			[
@@ -565,9 +562,7 @@ test.concurrent("public_writeFinalizedHeads removes reorganised events", async (
 		},
 	});
 
-	const client = test_indexer(univo);
-
-	await client.request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -581,7 +576,7 @@ test.concurrent("public_writeFinalizedHeads removes reorganised events", async (
 		],
 	});
 
-	await client.request({
+	await local(univo).request({
 		method: "public_writeFinalizedHeads",
 		params: [
 			[
@@ -603,7 +598,7 @@ test.concurrent("public_writeFinalizedHeads throws when receiving heads from dif
 	const univo = indexer({ quiet: true, signingKey: "test", getBlock: test_getBlock, metadataStorage: createStorage() });
 
 	await expect(
-		test_indexer(univo).request({
+		local(univo).request({
 			method: "public_writeFinalizedHeads",
 			params: [
 				[
@@ -642,9 +637,7 @@ test.concurrent("public_writeFinalizedHeads throws when receiving an unknown hea
 		},
 	});
 
-	const client = test_indexer(univo);
-
-	await client.request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -659,7 +652,7 @@ test.concurrent("public_writeFinalizedHeads throws when receiving an unknown hea
 	});
 
 	await expect(
-		client.request({
+		local(univo).request({
 			method: "public_writeFinalizedHeads",
 			params: [
 				[
@@ -696,7 +689,7 @@ test.concurrent("public_writeFinalizedHeads throws if it receives a head greater
 	});
 
 	await expect(
-		test_indexer(univo).request({
+		local(univo).request({
 			method: "public_writeFinalizedHeads",
 			params: [
 				[
@@ -751,9 +744,7 @@ test.concurrent("public_writeFinalizedHeads deletes finalized metadata blocks af
 		storage: { upsert: async () => {} },
 	});
 
-	const client = test_indexer(univo);
-
-	await client.request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -769,7 +760,7 @@ test.concurrent("public_writeFinalizedHeads deletes finalized metadata blocks af
 
 	expect(await metadataStorage.getKeys("/blocks/v1/0x1")).not.toStrictEqual([]);
 
-	await client.request({
+	await local(univo).request({
 		method: "public_writeFinalizedHeads",
 		params: [
 			[
@@ -803,9 +794,7 @@ test.concurrent("public_writeFinalizedHeads rejects wrong parent linkage between
 		},
 	});
 
-	const client = test_indexer(univo);
-
-	await client.request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -826,7 +815,7 @@ test.concurrent("public_writeFinalizedHeads rejects wrong parent linkage between
 	});
 
 	await expect(
-		client.request({
+		local(univo).request({
 			method: "public_writeFinalizedHeads",
 			params: [
 				[
@@ -893,9 +882,7 @@ test.concurrent("public_writeFinalizedHeads is idempotent when called twice with
 		},
 	});
 
-	const client = test_indexer(univo);
-
-	await client.request({
+	await local(univo).request({
 		method: "public_writeUnfinalizedHeads",
 		params: [
 			[
@@ -909,7 +896,7 @@ test.concurrent("public_writeFinalizedHeads is idempotent when called twice with
 		],
 	});
 
-	await client.request({
+	await local(univo).request({
 		method: "public_writeFinalizedHeads",
 		params: [
 			[
@@ -923,7 +910,7 @@ test.concurrent("public_writeFinalizedHeads is idempotent when called twice with
 		],
 	});
 
-	await client.request({
+	await local(univo).request({
 		method: "public_writeFinalizedHeads",
 		params: [
 			[
@@ -969,7 +956,7 @@ test.concurrent("private_writeEvents indexes only the events requested", async (
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1013,7 +1000,7 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1042,7 +1029,7 @@ test.concurrent("private_writeEvents records events", async () => {
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1075,7 +1062,7 @@ test.concurrent("private_writeEvents ignores events not explicitly requested", a
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1108,7 +1095,7 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1148,7 +1135,7 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1207,7 +1194,7 @@ test.concurrent("private_writeEvents retries upsert errors", async () => {
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1267,7 +1254,7 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1318,7 +1305,7 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 		storage: { upsert: async () => {} },
 	});
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1382,7 +1369,7 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 		storage: { upsert: async () => {} },
 	});
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1444,7 +1431,7 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 		},
 	});
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1509,7 +1496,7 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 		},
 	});
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1564,7 +1551,7 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 		handler: (block) => [block.eth_getBlockByNumber.difficulty],
 	});
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1612,7 +1599,7 @@ test.concurrent("private_writeEvents never upserts if handler returns empty even
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
 			{
@@ -1654,7 +1641,7 @@ test.concurrent("private_writeEventsAndGetKeys indexes only the events requested
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["event1"], block: block0 }],
 	});
@@ -1690,7 +1677,7 @@ test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns 
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block0 }],
 	});
@@ -1719,7 +1706,7 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -1754,7 +1741,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -1794,7 +1781,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -1834,7 +1821,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -1874,7 +1861,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -1916,7 +1903,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -1958,7 +1945,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2001,7 +1988,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2045,7 +2032,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2089,7 +2076,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2135,7 +2122,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2171,7 +2158,7 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2280,7 +2267,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2338,7 +2325,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2377,7 +2364,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2441,7 +2428,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2492,7 +2479,7 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2607,7 +2594,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2671,7 +2658,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2716,7 +2703,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2784,7 +2771,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
@@ -2836,7 +2823,7 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const response = await test_indexer(univo).request({
+	const response = await local(univo).request({
 		method: "private_writeEventsAndGetKeys",
 		params: [{ events: ["test"], block: block22994233 }],
 	});
