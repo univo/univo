@@ -93,7 +93,7 @@ type IndexerRpc = {
 
 		/**
 		 * Accepts a block head and writes events to storage
-		 * @returns A list of results and block keys that were accessed as those events are written to storage
+		 * @returns A list of results and block keys that were accessed as those events were written to storage
 		 */
 		private_writeEventsAndGetKeys: (params: { events: string[]; head: Head }) => Promise<{ results: Result[]; keys: string[] }>;
 	};
