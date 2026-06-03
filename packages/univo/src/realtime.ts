@@ -11,7 +11,7 @@ const MAX_LENGTH = 10_000;
 type Head = {
 	hash: `0x${string}`;
 	number: `0x${string}`;
-	parentHash: `0x${string}`;
+	parent_hash: `0x${string}`;
 };
 
 type BlockchainOptions = {
@@ -116,15 +116,15 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 
 		// 4.
 		// Common case is that the new block is the next block in the chain
-		if (getHeadBlock().hash === newBlock.parentHash) {
+		if (getHeadBlock().hash === newBlock.parent_hash) {
 			return setHeadBlock(newBlock);
 		}
 
 		// 5.
 		// A re-org has taken place AND the new block _is_ the forked block itself
-		if (chain.some((block) => block.hash === newBlock.parentHash)) {
+		if (chain.some((block) => block.hash === newBlock.parent_hash)) {
 			// We recursively remove our head block until we reach the common ancestor between the remote and local chains
-			while (getHeadBlock().hash !== newBlock.parentHash) {
+			while (getHeadBlock().hash !== newBlock.parent_hash) {
 				removeHeadBlock();
 			}
 
@@ -138,7 +138,7 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		// our local chain (or learn that the re-org is longer than our local chain)
 
 		// This is our recursive base case
-		if (newBlock.parentHash === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+		if (newBlock.parent_hash === "0x0000000000000000000000000000000000000000000000000000000000000000") {
 			while (chain.length > 0) {
 				removeHeadBlock();
 			}
@@ -147,13 +147,13 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		}
 
 		// Load the parent remote block and reconcile
-		const parentBlock = await retry(() => opts.getBlockByHash(newBlock.parentHash), 5);
+		const parentBlock = await retry(() => opts.getBlockByHash(newBlock.parent_hash), 5);
 
 		if (parentBlock === null) {
-			throw new Error(`Failed to fetch parent block ${hexToNumber(newBlock.number)} ${newBlock.parentHash.slice(0, 16)}`);
+			throw new Error(`Failed to fetch parent block ${hexToNumber(newBlock.number)} ${newBlock.parent_hash.slice(0, 16)}`);
 		}
 
-		if (!isHexEqual(parentBlock.hash, newBlock.parentHash)) {
+		if (!isHexEqual(parentBlock.hash, newBlock.parent_hash)) {
 			throw new Error("Expected block hashes to match");
 		}
 
@@ -205,7 +205,7 @@ function realtime(opts: RealtimeOptions) {
 	const getBlockByHash = async (hash: `0x${string}`) => {
 		const block = await opts.node.request({ method: "eth_getBlockByHash", params: [hash, false] });
 
-		return { number: block.number, hash: block.hash, parentHash: block.parentHash };
+		return { number: block.number, hash: block.hash, parent_hash: block.parentHash };
 	};
 
 	const promise = iife(async () => {
@@ -269,18 +269,20 @@ function realtime(opts: RealtimeOptions) {
 			},
 		});
 
-		await latest.reconcile(latestBlock);
+		await latest.reconcile({
+			hash: latestBlock.hash,
+			number: latestBlock.number,
+			parent_hash: latestBlock.parentHash,
+		});
 
 		// Now we attach the subscribers for new blocks because we want the indexer to receive the tip of the chain immediately
 
 		await opts.node.subscribe("newHeads", async (head) => {
-			try {
-				await latest.reconcile(head);
-			} catch (error) {
+			await latest.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
 				if (error instanceof Error) {
 					log.error(`Failed to reconcile latest head: ${error.message}`);
 				}
-			}
+			});
 		});
 
 		log.debug("Subscribed latest chain to new heads");
@@ -300,8 +302,17 @@ function realtime(opts: RealtimeOptions) {
 			params: [numberToHex(initialIndexerHeight), false],
 		});
 
-		await indexer.reconcile(indexerBlock);
-		await indexer.reconcile(latestBlock);
+		await indexer.reconcile({
+			hash: indexerBlock.hash,
+			number: indexerBlock.number,
+			parent_hash: indexerBlock.parentHash,
+		});
+
+		await indexer.reconcile({
+			hash: latestBlock.hash,
+			number: latestBlock.number,
+			parent_hash: latestBlock.parentHash,
+		});
 
 		log.debug("Reconciled local indexer chain");
 
@@ -310,13 +321,11 @@ function realtime(opts: RealtimeOptions) {
 		// possible connecting the latest finalized block indexed versus new blocks finalized on chain
 
 		await opts.node.subscribe("newHeads", async (head) => {
-			try {
-				await indexer.reconcile(head);
-			} catch (error) {
+			await indexer.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
 				if (error instanceof Error) {
 					log.debug(`Failed to reconcile latest indexer head: ${error.message}`);
 				}
-			}
+			});
 		});
 
 		log.debug("Subscribed indexer chain to new heads");

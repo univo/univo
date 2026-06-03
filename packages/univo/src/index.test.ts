@@ -77,7 +77,7 @@ test.concurrent("public_writeUnfinalizedHeads upserts events", async () => {
 					chain: "0x1",
 					hash: block10.eth_getBlockByNumber.hash,
 					number: block10.eth_getBlockByNumber.number,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -127,7 +127,7 @@ test.concurrent("public_writeUnfinalizedHeads retries upsert errors", async () =
 					chain: "0x1",
 					hash: block10.eth_getBlockByNumber.hash,
 					number: block10.eth_getBlockByNumber.number,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -185,7 +185,7 @@ test.concurrent("public_writeUnfinalizedHeads deduplicates events with the same 
 					chain: "0x1",
 					hash: block10.eth_getBlockByNumber.hash,
 					number: block10.eth_getBlockByNumber.number,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -242,13 +242,13 @@ test.concurrent("public_writeUnfinalizedHeads tolerates partial block-load failu
 					chain: "0x1",
 					hash: block10.eth_getBlockByNumber.hash,
 					number: block10.eth_getBlockByNumber.number,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 				{
 					chain: "0x1",
 					hash: block11.eth_getBlockByNumber.hash,
 					number: block11.eth_getBlockByNumber.number,
-					parentHash: block11.eth_getBlockByNumber.parentHash,
+					parent_hash: block11.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -298,7 +298,7 @@ test.concurrent("public_writeUnfinalizedHeads ignores finalized heads", async ()
 					chain: block0.eth_chainId,
 					hash: block0.eth_getBlockByNumber.hash,
 					number: block0.eth_getBlockByNumber.number,
-					parentHash: block0.eth_getBlockByNumber.parentHash,
+					parent_hash: block0.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -364,7 +364,7 @@ test.concurrent("public_deleteReorganisedHead deletes events from reorganised bl
 					chain: "0x1",
 					hash: reorganised.eth_getBlockByNumber.hash,
 					number: reorganised.eth_getBlockByNumber.number,
-					parentHash: reorganised.eth_getBlockByNumber.parentHash,
+					parent_hash: reorganised.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -377,7 +377,7 @@ test.concurrent("public_deleteReorganisedHead deletes events from reorganised bl
 				chain: "0x1",
 				hash: reorganised.eth_getBlockByNumber.hash,
 				number: reorganised.eth_getBlockByNumber.number,
-				parentHash: reorganised.eth_getBlockByNumber.parentHash,
+				parent_hash: reorganised.eth_getBlockByNumber.parentHash,
 			},
 		],
 	});
@@ -414,7 +414,7 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 				chain: "0x1",
 				hash: block10.eth_getBlockByNumber.hash,
 				number: block10.eth_getBlockByNumber.number,
-				parentHash: block10.eth_getBlockByNumber.parentHash,
+				parent_hash: block10.eth_getBlockByNumber.parentHash,
 			},
 		],
 	});
@@ -473,7 +473,7 @@ test.concurrent("public_writeFinalizedHeads writes finalized heads", async () =>
 					chain: block1.eth_chainId,
 					number: block1.eth_getBlockByNumber.number,
 					hash: block1.eth_getBlockByNumber.hash,
-					parentHash: block1.eth_getBlockByNumber.parentHash,
+					parent_hash: block1.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -487,7 +487,7 @@ test.concurrent("public_writeFinalizedHeads writes finalized heads", async () =>
 					chain: block1.eth_chainId,
 					number: block1.eth_getBlockByNumber.number,
 					hash: block1.eth_getBlockByNumber.hash,
-					parentHash: block1.eth_getBlockByNumber.parentHash,
+					parent_hash: block1.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -570,7 +570,7 @@ test.concurrent("public_writeFinalizedHeads removes reorganised events", async (
 					chain: "0x1",
 					hash: reorganised.eth_getBlockByNumber.hash,
 					number: reorganised.eth_getBlockByNumber.number,
-					parentHash: reorganised.eth_getBlockByNumber.parentHash,
+					parent_hash: reorganised.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -584,7 +584,7 @@ test.concurrent("public_writeFinalizedHeads removes reorganised events", async (
 					chain: "0x1",
 					hash: canonical.eth_getBlockByNumber.hash,
 					number: canonical.eth_getBlockByNumber.number,
-					parentHash: canonical.eth_getBlockByNumber.parentHash,
+					parent_hash: canonical.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -606,13 +606,13 @@ test.concurrent("public_writeFinalizedHeads throws when receiving heads from dif
 						chain: "0x1",
 						number: "0xa",
 						hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-						parentHash: "0x997e47bf4cac509c627753c06385ac866641ec6f883734ff7944411000dc576e",
+						parent_hash: "0x997e47bf4cac509c627753c06385ac866641ec6f883734ff7944411000dc576e",
 					},
 					{
 						chain: "0x2",
 						number: "0xb",
 						hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
-						parentHash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
+						parent_hash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
 					},
 				],
 			],
@@ -645,7 +645,7 @@ test.concurrent("public_writeFinalizedHeads throws when receiving an unknown hea
 					chain: block10.eth_chainId,
 					number: block10.eth_getBlockByNumber.number,
 					hash: block10.eth_getBlockByNumber.hash,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -660,7 +660,7 @@ test.concurrent("public_writeFinalizedHeads throws when receiving an unknown hea
 						chain: block10.eth_chainId,
 						number: block10.eth_getBlockByNumber.number,
 						hash: "0x1111111111111111111111111111111111111111111111111111111111111111",
-						parentHash: block10.eth_getBlockByNumber.parentHash,
+						parent_hash: block10.eth_getBlockByNumber.parentHash,
 					},
 				],
 			],
@@ -697,7 +697,7 @@ test.concurrent("public_writeFinalizedHeads throws if it receives a head greater
 						chain: block11.eth_chainId,
 						number: block11.eth_getBlockByNumber.number,
 						hash: block11.eth_getBlockByNumber.hash,
-						parentHash: block11.eth_getBlockByNumber.parentHash,
+						parent_hash: block11.eth_getBlockByNumber.parentHash,
 					},
 				],
 			],
@@ -752,7 +752,7 @@ test.concurrent("public_writeFinalizedHeads deletes finalized metadata blocks af
 					chain: block10.eth_chainId,
 					number: block10.eth_getBlockByNumber.number,
 					hash: block10.eth_getBlockByNumber.hash,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -768,7 +768,7 @@ test.concurrent("public_writeFinalizedHeads deletes finalized metadata blocks af
 					chain: block10.eth_chainId,
 					number: block10.eth_getBlockByNumber.number,
 					hash: block10.eth_getBlockByNumber.hash,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -802,13 +802,13 @@ test.concurrent("public_writeFinalizedHeads rejects wrong parent linkage between
 					chain: block10.eth_chainId,
 					number: block10.eth_getBlockByNumber.number,
 					hash: block10.eth_getBlockByNumber.hash,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 				{
 					chain: block11.eth_chainId,
 					number: block11.eth_getBlockByNumber.number,
 					hash: block11.eth_getBlockByNumber.hash,
-					parentHash: block11.eth_getBlockByNumber.parentHash,
+					parent_hash: block11.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -823,13 +823,13 @@ test.concurrent("public_writeFinalizedHeads rejects wrong parent linkage between
 						chain: block10.eth_chainId,
 						number: block10.eth_getBlockByNumber.number,
 						hash: block10.eth_getBlockByNumber.hash,
-						parentHash: block10.eth_getBlockByNumber.parentHash,
+						parent_hash: block10.eth_getBlockByNumber.parentHash,
 					},
 					{
 						chain: block11.eth_chainId,
 						number: block11.eth_getBlockByNumber.number,
 						hash: block11.eth_getBlockByNumber.hash,
-						parentHash: block10.eth_getBlockByNumber.parentHash,
+						parent_hash: block10.eth_getBlockByNumber.parentHash,
 					},
 				],
 			],
@@ -890,7 +890,7 @@ test.concurrent("public_writeFinalizedHeads is idempotent when called twice with
 					chain: block10.eth_chainId,
 					number: block10.eth_getBlockByNumber.number,
 					hash: block10.eth_getBlockByNumber.hash,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -904,7 +904,7 @@ test.concurrent("public_writeFinalizedHeads is idempotent when called twice with
 					chain: block10.eth_chainId,
 					number: block10.eth_getBlockByNumber.number,
 					hash: block10.eth_getBlockByNumber.hash,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -918,7 +918,7 @@ test.concurrent("public_writeFinalizedHeads is idempotent when called twice with
 					chain: block10.eth_chainId,
 					number: block10.eth_getBlockByNumber.number,
 					hash: block10.eth_getBlockByNumber.hash,
-					parentHash: block10.eth_getBlockByNumber.parentHash,
+					parent_hash: block10.eth_getBlockByNumber.parentHash,
 				},
 			],
 		],
@@ -1110,8 +1110,9 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 			status: "handler_error",
 			event_id: "test",
 			chain: expect.any(String),
-			block_hash: expect.any(String),
-			block_number: expect.any(String),
+			hash: expect.any(String),
+			number: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 	]);
@@ -1150,24 +1151,27 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 			status: "upsert_error",
 			event_id: "test",
 			chain: expect.any(String),
-			block_hash: expect.any(String),
-			block_number: expect.any(String),
+			hash: expect.any(String),
+			number: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 		{
 			status: "upsert_error",
 			event_id: "test",
 			chain: expect.any(String),
-			block_hash: expect.any(String),
-			block_number: expect.any(String),
+			hash: expect.any(String),
+			number: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 		{
 			status: "upsert_error",
 			event_id: "test",
 			chain: expect.any(String),
-			block_hash: expect.any(String),
-			block_number: expect.any(String),
+			hash: expect.any(String),
+			number: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 	]);
@@ -1209,24 +1213,27 @@ test.concurrent("private_writeEvents retries upsert errors", async () => {
 			status: "upsert_error",
 			event_id: "test",
 			chain: expect.any(String),
-			block_hash: expect.any(String),
-			block_number: expect.any(String),
+			hash: expect.any(String),
+			number: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 		{
 			status: "upsert_error",
 			event_id: "test",
 			chain: expect.any(String),
-			block_hash: expect.any(String),
-			block_number: expect.any(String),
+			hash: expect.any(String),
+			number: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 		{
 			status: "upsert_error",
 			event_id: "test",
 			chain: expect.any(String),
-			block_hash: expect.any(String),
-			block_number: expect.any(String),
+			hash: expect.any(String),
+			number: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 	]);
@@ -1269,24 +1276,27 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 			status: "handler_error",
 			event_id: "test",
 			chain: expect.any(String),
-			block_hash: expect.any(String),
-			block_number: expect.any(String),
+			hash: expect.any(String),
+			number: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 		{
 			status: "handler_error",
 			event_id: "test",
 			chain: expect.any(String),
-			block_hash: expect.any(String),
-			block_number: expect.any(String),
+			hash: expect.any(String),
+			number: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 		{
 			status: "handler_error",
 			event_id: "test",
 			chain: expect.any(String),
-			block_hash: expect.any(String),
-			block_number: expect.any(String),
+			hash: expect.any(String),
+			number: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 	]);
@@ -1305,6 +1315,9 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 		storage: { upsert: async () => {} },
 	});
 
+	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
+
 	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
@@ -1314,15 +1327,17 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 					{
 						eth_chainId: "0x1",
 						eth_getBlockByNumber: {
-							number: "0x1",
-							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+							hash: block1.eth_getBlockByNumber.hash,
+							number: block1.eth_getBlockByNumber.number,
+							parentHash: block1.eth_getBlockByNumber.parentHash,
 						},
 					},
 					{
 						eth_chainId: "0x1",
 						eth_getBlockByNumber: {
-							number: "0x2",
-							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+							hash: block2.eth_getBlockByNumber.hash,
+							number: block2.eth_getBlockByNumber.number,
+							parentHash: block2.eth_getBlockByNumber.parentHash,
 						},
 					},
 				] as any,
@@ -1335,16 +1350,18 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 			status: "incomplete_error",
 			event_id: "test",
 			chain: "0x1",
-			block_number: "0x1",
-			block_hash: expect.any(String),
+			number: "0x1",
+			hash: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 		{
 			status: "incomplete_error",
 			event_id: "test",
 			chain: "0x1",
-			block_number: "0x2",
-			block_hash: expect.any(String),
+			number: "0x2",
+			hash: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 	]);
@@ -1369,6 +1386,9 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 		storage: { upsert: async () => {} },
 	});
 
+	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
+
 	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
@@ -1378,15 +1398,17 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 					{
 						eth_chainId: "0x1",
 						eth_getBlockByNumber: {
-							number: "0x1",
-							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+							hash: block1.eth_getBlockByNumber.hash,
+							number: block1.eth_getBlockByNumber.number,
+							parentHash: block1.eth_getBlockByNumber.parentHash,
 						},
 					},
 					{
 						eth_chainId: "0x1",
 						eth_getBlockByNumber: {
-							number: "0x2",
-							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+							hash: block2.eth_getBlockByNumber.hash,
+							number: block2.eth_getBlockByNumber.number,
+							parentHash: block2.eth_getBlockByNumber.parentHash,
 						},
 					},
 				] as any,
@@ -1399,16 +1421,18 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 			status: "incomplete_error",
 			event_id: "test",
 			chain: "0x1",
-			block_number: "0x1",
-			block_hash: expect.any(String),
+			number: "0x1",
+			hash: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 		{
 			status: "incomplete_error",
 			event_id: "test",
 			chain: "0x1",
-			block_number: "0x2",
-			block_hash: expect.any(String),
+			number: "0x2",
+			hash: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 	]);
@@ -1431,6 +1455,9 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 		},
 	});
 
+	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
+
 	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
@@ -1440,15 +1467,17 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 					{
 						eth_chainId: "0x1",
 						eth_getBlockByNumber: {
-							number: "0x1",
-							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+							hash: block1.eth_getBlockByNumber.hash,
+							number: block1.eth_getBlockByNumber.number,
+							parentHash: block1.eth_getBlockByNumber.parentHash,
 						},
 					},
 					{
 						eth_chainId: "0x1",
 						eth_getBlockByNumber: {
-							number: "0x2",
-							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+							hash: block2.eth_getBlockByNumber.hash,
+							number: block2.eth_getBlockByNumber.number,
+							parentHash: block2.eth_getBlockByNumber.parentHash,
 						},
 					},
 				] as any,
@@ -1461,16 +1490,18 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 			status: "incomplete_error",
 			event_id: "test",
 			chain: "0x1",
-			block_number: "0x1",
-			block_hash: expect.any(String),
+			number: "0x1",
+			hash: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 		{
 			status: "incomplete_error",
 			event_id: "test",
 			chain: "0x1",
-			block_number: "0x2",
-			block_hash: expect.any(String),
+			number: "0x2",
+			hash: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 	]);
@@ -1496,6 +1527,9 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 		},
 	});
 
+	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
+
 	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
@@ -1505,15 +1539,17 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 					{
 						eth_chainId: "0x1",
 						eth_getBlockByNumber: {
-							number: "0x1",
-							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+							hash: block1.eth_getBlockByNumber.hash,
+							number: block1.eth_getBlockByNumber.number,
+							parentHash: block1.eth_getBlockByNumber.parentHash,
 						},
 					},
 					{
 						eth_chainId: "0x1",
 						eth_getBlockByNumber: {
-							number: "0x2",
-							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+							hash: block2.eth_getBlockByNumber.hash,
+							number: block2.eth_getBlockByNumber.number,
+							parentHash: block2.eth_getBlockByNumber.parentHash,
 						},
 					},
 				] as any,
@@ -1526,16 +1562,18 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 			status: "incomplete_error",
 			event_id: "test",
 			chain: "0x1",
-			block_number: "0x1",
-			block_hash: expect.any(String),
+			number: "0x1",
+			hash: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 		{
 			status: "incomplete_error",
 			event_id: "test",
 			chain: "0x1",
-			block_number: "0x2",
-			block_hash: expect.any(String),
+			number: "0x2",
+			hash: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
 		},
 	]);
@@ -1650,7 +1688,7 @@ test.concurrent("private_writeEventsAndGetKeys indexes only the events requested
 					chain: "0x1",
 					hash: block0.eth_getBlockByNumber.hash,
 					number: block0.eth_getBlockByNumber.number,
-					parentHash: block0.eth_getBlockByNumber.parentHash,
+					parent_hash: block0.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -1661,9 +1699,10 @@ test.concurrent("private_writeEventsAndGetKeys indexes only the events requested
 			status: "ok",
 			chain: "0x1",
 			event_id: "event1",
-			block_number: "0x0",
+			number: "0x0",
+			hash: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
-			block_hash: expect.any(String),
 		},
 	]);
 
@@ -1696,7 +1735,7 @@ test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns 
 					chain: "0x1",
 					hash: block0.eth_getBlockByNumber.hash,
 					number: block0.eth_getBlockByNumber.number,
-					parentHash: block0.eth_getBlockByNumber.parentHash,
+					parent_hash: block0.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -1707,9 +1746,10 @@ test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns 
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x0",
+			number: "0x0",
+			hash: expect.any(String),
+			parent_hash: expect.any(String),
 			created_at: expect.any(Number),
-			block_hash: expect.any(String),
 		},
 	]);
 });
@@ -1735,7 +1775,7 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -1746,9 +1786,10 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -1756,6 +1797,7 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 		"eth_chainId", //
 		"eth_getBlockByNumber.number",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -1780,7 +1822,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -1791,9 +1833,10 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -1802,6 +1845,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 		"eth_getBlockByNumber.number",
 		"eth_getBlockByNumber.baseFeePerGas",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -1830,7 +1874,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -1841,9 +1885,10 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -1852,6 +1897,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 		"eth_getBlockByNumber.number",
 		"eth_getBlockByNumber.transactions/from",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -1880,7 +1926,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -1891,9 +1937,10 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -1902,6 +1949,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 		"eth_getBlockByNumber.number",
 		"eth_getBlockByNumber.withdrawals/address",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -1930,7 +1978,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -1941,9 +1989,10 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -1952,6 +2001,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/from",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -1982,7 +2032,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -1993,9 +2043,10 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2004,6 +2055,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/logs/address",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2034,7 +2086,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2045,9 +2097,10 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2055,6 +2108,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 		"eth_chainId", //
 		"eth_getBlockByNumber.number",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2087,7 +2141,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2098,9 +2152,10 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2109,6 +2164,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 		"eth_getBlockByNumber.number",
 		"eth_getBlockByNumber.transactions/from",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2141,7 +2197,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2152,9 +2208,10 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2163,6 +2220,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 		"eth_getBlockByNumber.number",
 		"eth_getBlockByNumber.withdrawals/address",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2195,7 +2253,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2206,9 +2264,10 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2217,6 +2276,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/from",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2251,7 +2311,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2262,9 +2322,10 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2273,6 +2334,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 		"eth_getBlockByNumber.number",
 		"eth_getBlockReceipts/logs/address",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2297,7 +2359,7 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2308,9 +2370,10 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2416,7 +2479,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2427,9 +2490,10 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2460,6 +2524,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 		"eth_getBlockByNumber.transactions/blobVersionedHashes",
 		"eth_getBlockByNumber.transactions/maxFeePerBlobGas",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2484,7 +2549,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2495,9 +2560,10 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2509,6 +2575,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 		"eth_getBlockByNumber.withdrawals/address",
 		"eth_getBlockByNumber.withdrawals/amount",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2533,7 +2600,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2544,9 +2611,10 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2579,6 +2647,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 		"eth_getBlockReceipts/blobGasUsed",
 		"eth_getBlockReceipts/blobGasPrice",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2607,7 +2676,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2618,9 +2687,10 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2638,6 +2708,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 		"eth_getBlockReceipts/logs/logIndex",
 		"eth_getBlockReceipts/logs/removed",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2668,7 +2739,7 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2679,9 +2750,10 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2793,7 +2865,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2804,9 +2876,10 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2837,6 +2910,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 		"eth_getBlockByNumber.transactions/blobVersionedHashes",
 		"eth_getBlockByNumber.transactions/maxFeePerBlobGas",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2867,7 +2941,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2878,9 +2952,10 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2892,6 +2967,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 		"eth_getBlockByNumber.withdrawals/address",
 		"eth_getBlockByNumber.withdrawals/amount",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -2922,7 +2998,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -2933,9 +3009,10 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -2968,6 +3045,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 		"eth_getBlockReceipts/blobGasUsed",
 		"eth_getBlockReceipts/blobGasPrice",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -3000,7 +3078,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -3011,9 +3089,10 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -3031,6 +3110,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 		"eth_getBlockReceipts/logs/logIndex",
 		"eth_getBlockReceipts/logs/removed",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
 
@@ -3062,7 +3142,7 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 					chain: "0x1",
 					hash: block22994233.eth_getBlockByNumber.hash,
 					number: block22994233.eth_getBlockByNumber.number,
-					parentHash: block22994233.eth_getBlockByNumber.parentHash,
+					parent_hash: block22994233.eth_getBlockByNumber.parentHash,
 				},
 			},
 		],
@@ -3073,9 +3153,10 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 			status: "ok",
 			chain: "0x1",
 			event_id: "test",
-			block_number: "0x15edd39",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 			created_at: expect.any(Number),
-			block_hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
 		},
 	]);
 
@@ -3085,5 +3166,6 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 		"anotherPropertyThatDoesntExist",
 		"eth_getBlockByNumber.propertyThatIsCurrentlyUndefined",
 		"eth_getBlockByNumber.hash",
+		"eth_getBlockByNumber.parentHash",
 	]);
 });
