@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.2.14
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.13...v0.2.14)
+
+### 🩹 Fixes
+
+- **head:** Add parent hash to result type ([#41](https://github.com/univo/univo/pull/41))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
 
 ## v0.2.13
 
