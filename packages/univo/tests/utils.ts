@@ -1,5 +1,7 @@
 import { join } from "node:path";
 import { promises as fs } from "node:fs";
+import { Storage } from "@storagesdk/core";
+import { fs as adapter } from "@storagesdk/adapters/fs";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
 import { hexToNumber, retry } from "../src/utils";
@@ -99,4 +101,13 @@ async function saveToCache(cacheDir: string, cacheFile: string, blockData: any) 
 	} catch (error) {
 		//
 	}
+}
+
+export function test_metadataStorage() {
+	return new Storage({
+		adapter: adapter({
+			root: "./.storage",
+			folder: crypto.randomUUID(),
+		}),
+	});
 }

@@ -118,7 +118,12 @@ export async function compress(input: string): Promise<ArrayBuffer> {
 	return new Response(compressed).arrayBuffer();
 }
 
-export async function decompress(input: ArrayBuffer): Promise<string> {
+export async function decompress(input: ArrayBuffer | Blob): Promise<string> {
+	if (input instanceof Blob) {
+		const decompressed = input.stream().pipeThrough(new DecompressionStream("gzip"));
+		return new Response(decompressed).text();
+	}
+
 	const decompressed = new Blob([input]).stream().pipeThrough(new DecompressionStream("gzip"));
 	return new Response(decompressed).text();
 }
