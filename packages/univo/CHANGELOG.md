@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.15
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.14...v0.2.15)
+
+### 🚀 Enhancements
+
+- **storage:** Migrate metadata storage adapter ([#43](https://github.com/univo/univo/pull/43))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.14
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.13...v0.2.14)
