@@ -1,4 +1,5 @@
-import { StorageError, type Storage } from "@storagesdk/core";
+import { StorageError } from "@storagesdk/core";
+import type { Storage } from "@storagesdk/core";
 
 import { local } from "./transport";
 import type { IndexerRpc } from "./rpc";
