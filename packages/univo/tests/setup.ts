@@ -1,8 +1,7 @@
 import { config } from "dotenv";
 import { setupServer } from "msw/node";
 import { http, passthrough } from "msw";
-
-// Environment variables
+import { promises as fs } from "node:fs";
 
 config({ quiet: true });
 
@@ -18,12 +17,22 @@ declare global {
 	}
 }
 
-// Mock service worker
-
 export const server = setupServer(
 	http.all(process.env.TEST_ETHEREUM_RPC_URL, passthrough), //
 );
 
-beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
+beforeAll(() => {
+	server.listen({ onUnhandledRequest: "error" });
+});
+
+afterEach(() => {
+	server.resetHandlers();
+});
+
+afterAll(async () => {
+	// Close the mocking server
+	server.close();
+
+	// Clear the `.storage` directory which houses our metadata storage
+	await fs.rm("./.storage", { recursive: true, force: true });
+});

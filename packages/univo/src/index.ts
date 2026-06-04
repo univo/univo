@@ -1,10 +1,11 @@
-import type { Storage } from "unstorage";
+import { StorageError } from "@storagesdk/core";
+import type { Storage } from "@storagesdk/core";
 
 import { local } from "./transport";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException, getException } from "./exceptions";
-import { createLogger, decoder, decompress, hexToNumber, isHexEqual, normalizeHex, retry } from "./utils";
+import { compress, createLogger, decoder, decompress, hexToNumber, isHexEqual, normalizeHex, retry } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -274,62 +275,79 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const metadata = {
 		blocks: {
-			async list(head: { chain: `0x${string}`; number?: `0x${string}` }) {
-				let prefix = `/blocks/v1/${normalizeHex(head.chain)}`;
+			async getNextUnfinalizedBlock(chain: `0x${string}`) {
+				const prefix = `blocks/v1/${normalizeHex(chain)}`;
 
-				if (typeof head.number === "string") {
-					prefix += `/${normalizeHex(head.number, 16)}`;
+				const keys = await opts.metadataStorage.list({ prefix, limit: 1 });
+
+				const [key] = keys.items;
+
+				if (key === undefined) {
+					return null;
 				}
 
-				const keys = await opts.metadataStorage.getKeys(prefix);
+				const [_, __, ___, number, hash] = key.path.split("/") as [string, string, string, string, string, string];
 
-				return keys.map((key) => {
-					const [__, ___, chain, number, hash] = key.split(":") as [string, string, string, string, string, string];
-					return { chain, number, hash };
-				});
+				return { chain, number, hash };
 			},
-			async get(head: { chain: `0x${string}`; number?: `0x${string}`; hash?: `0x${string}` }) {
-				let prefix = `/blocks/v1/${head.chain.toLowerCase()}`;
+			async getBlocksByNumber(chain: `0x${string}`, number: `0x${string}`) {
+				const prefix = `blocks/v1/${normalizeHex(chain)}/${normalizeHex(number, 16)}`;
 
-				if (typeof head.number === "string") {
-					prefix += `/${normalizeHex(head.number, 16)}`;
+				const keys = await opts.metadataStorage.list({ prefix });
+
+				// TODO
+				// Technically we need to iterate over the cursors to ensure we read the full list, however in practice
+				// there won't exist more reorganised blocks than what any storage provider would return in a single call
+
+				if (keys.items.length === 0) {
+					return [];
 				}
 
-				if (typeof head.hash === "string") {
-					if (head.number === undefined) {
-						throw new Error("Requested block by hash without specifying a block number");
+				const blocks = await Promise.all(
+					keys.items.map(async (item) => {
+						const blob = await opts.metadataStorage.download(item.path, { as: "blob" });
+						const block = await decompress(blob);
+						const parsed = JSON.parse(block);
+						return parsed as TBlock;
+					}),
+				);
+
+				return blocks;
+			},
+			async getBlockByNumberAndHash(chain: `0x${string}`, number: `0x${string}`, hash: `0x${string}`) {
+				const prefix = `blocks/v1/${normalizeHex(chain)}/${normalizeHex(number, 16)}/${normalizeHex(hash)}`;
+
+				const blob = await opts.metadataStorage.download(prefix, { as: "blob" }).catch((error) => {
+					if (error instanceof StorageError) {
+						if (error.code === "NotFound") {
+							return null;
+						}
 					}
 
-					prefix += `/${head.hash.toLowerCase()}`;
+					throw error;
+				});
 
-					// When we have the full key we don't perform a prefix search and instead load the key directly
-					const block = await opts.metadataStorage.getItem<TBlock>(prefix);
-
-					if (block === null) {
-						return [];
-					}
-
-					return [block];
+				if (blob === null) {
+					return null;
 				}
 
-				// Otherwise we perform a prefixed search for the values
-				const keys = await opts.metadataStorage.getKeys(prefix);
-				const results = await opts.metadataStorage.getItems<TBlock>(keys);
-
-				return results.map((result) => result.value);
+				const block = await decompress(blob);
+				const parsed = JSON.parse(block);
+				return parsed as TBlock;
 			},
 			async upsert(blocks: TBlock[]) {
 				if (blocks.length === 0) {
 					return;
 				}
 
-				await opts.metadataStorage.setItems(
-					blocks.map((block) => {
+				await Promise.all(
+					blocks.map(async (block) => {
 						const chain = normalizeHex(block.eth_chainId);
 						const hash = normalizeHex(block.eth_getBlockByNumber.hash);
 						const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
-						const key = `/blocks/v1/${chain}/${number}/${hash}`;
-						return { key, value: block };
+						const prefix = `blocks/v1/${chain}/${number}/${hash}`;
+						const compressed = await compress(JSON.stringify(block));
+						await opts.metadataStorage.upload(prefix, compressed);
 					}),
 				);
 			},
@@ -343,7 +361,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						const chain = normalizeHex(block.eth_chainId);
 						const hash = normalizeHex(block.eth_getBlockByNumber.hash);
 						const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
-						await opts.metadataStorage.del(`/blocks/v1/${chain}/${number}/${hash}`);
+						const prefix = `blocks/v1/${chain}/${number}/${hash}`;
+						await opts.metadataStorage.delete(prefix);
 					}),
 				);
 			},
@@ -386,8 +405,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const GetBlockError = createException("Failed to load block from the provided `getBlock` function");
 
 	const public_getFinalizedHeight = async (chain: `0x${string}`) => {
-		const [[stored], finalizedBlock] = await Promise.all([
-			metadata.blocks.list({ chain }), //
+		const [stored, finalizedBlock] = await Promise.all([
+			metadata.blocks.getNextUnfinalizedBlock(chain), //
 			getBlock({ chain, number: "finalized" }),
 		]);
 
@@ -399,7 +418,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
-		if (stored === undefined) {
+		if (stored === null) {
 			return finalizedHeight;
 		}
 
@@ -541,12 +560,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// the canonical chain than this request should yield a block with a different block hash. This is our proof
 		// that this block is no longer included in the chain and that it's safe to delete data associated with it
 
-		const [canonical_block, [stored_block]] = await Promise.all([
+		const [canonical_block, stored_block] = await Promise.all([
 			getBlock({ chain: head.chain, number: head.number }),
-			metadata.blocks.get({ chain: head.chain, number: head.number, hash: head.hash }),
+			metadata.blocks.getBlockByNumberAndHash(head.chain, head.number, head.hash),
 		]);
 
-		if (stored_block === undefined) {
+		if (stored_block === null) {
 			return log.debug("Reorganised block never/already processed");
 		}
 
@@ -660,8 +679,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// Now we know the heads are valid by themselves, we need to assert their validity in the context of the
 		// metadata and external chain state. We load the current indexer height and the finalized block.
 
-		const [[unfinalizedMetadataBlock], finalizedBlock] = await Promise.all([
-			metadata.blocks.list({ chain }), //
+		const [unfinalizedMetadataBlock, finalizedBlock] = await Promise.all([
+			metadata.blocks.getNextUnfinalizedBlock(chain), //
 			getBlock({ chain, number: "finalized" }),
 		]);
 
@@ -689,7 +708,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// to return OK to the client and assume the indexer has finalized up to the highest head received. If
 		// we have zero unfinalized blocks to process we early return
 
-		if (unfinalizedMetadataBlock === undefined) {
+		if (unfinalizedMetadataBlock === null) {
 			return log.debug("No heads to finalize, returning...");
 		}
 
@@ -744,7 +763,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// what the finalized chain processes. So it's likely that this correctness function has no material impact on
 			// the data stored and is just verifies correctness when the chain finalizes
 
-			const processed = await metadata.blocks.get({ chain: head.chain, number: head.number });
+			const processed = await metadata.blocks.getBlocksByNumber(head.chain, head.number);
 
 			if (processed.length === 0) {
 				await writeFinalizedHead(head, null);

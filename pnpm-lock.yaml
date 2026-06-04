@@ -14,19 +14,22 @@ importers:
 
   examples/realtime:
     dependencies:
-      typescript:
-        specifier: ^5
-        version: 5.8.2
       univo:
-        specifier: latest
-        version: 0.1.13
+        specifier: 0.2.14
+        version: 0.2.14(unstorage@1.17.5)
     devDependencies:
-      '@types/bun':
-        specifier: latest
-        version: 1.3.10
+      typescript:
+        specifier: ^5.8.2
+        version: 5.8.2
 
   packages/univo:
     dependencies:
+      '@storagesdk/adapters':
+        specifier: '>=0.6.0'
+        version: 0.6.0(vitest@3.1.3(@types/node@20.11.27)(msw@2.10.2(@types/node@20.11.27)(typescript@5.8.2)))
+      '@storagesdk/core':
+        specifier: '>=0.4.2'
+        version: 0.4.2
       citty:
         specifier: ^0.1.6
         version: 0.1.6
@@ -39,9 +42,6 @@ importers:
       partysocket:
         specifier: ^1.1.3
         version: 1.1.3
-      unstorage:
-        specifier: '>=1'
-        version: 1.17.5
       ws:
         specifier: ^8.18.1
         version: 8.18.1
@@ -653,12 +653,52 @@ packages:
   '@scure/bip39@1.6.0':
     resolution: {integrity: sha512-+lF0BbLiJNwVlev4eKelw1WWLaiKXw7sSl8T6FvBlWkdX+94aGJ4o8XjUdlyhTCjd8c+B3KT3JfS8P0bLRNU6A==}
 
+  '@storagesdk/adapters@0.6.0':
+    resolution: {integrity: sha512-tunYBBYqHnm5do5+IZN+lkB76eUefajFnUYca879/ncyl2grJkdW6tgdHADA2bK46tseH2hPhqzsXV8JQFWMyQ==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@aws-sdk/client-s3': ^3.0.0
+      '@aws-sdk/lib-storage': ^3.0.0
+      '@aws-sdk/s3-presigned-post': ^3.0.0
+      '@aws-sdk/s3-request-presigner': ^3.0.0
+      '@azure/storage-blob': ^12.0.0
+      '@google-cloud/storage': ^7.0.0
+      '@octokit/rest': ^21.0.0
+      '@tigrisdata/storage': ^3.11.0
+      '@vercel/blob': ^2.3.0
+      vitest: ^4.0.0
+      webdav: ^5.10.0
+    peerDependenciesMeta:
+      '@aws-sdk/client-s3':
+        optional: true
+      '@aws-sdk/lib-storage':
+        optional: true
+      '@aws-sdk/s3-presigned-post':
+        optional: true
+      '@aws-sdk/s3-request-presigner':
+        optional: true
+      '@azure/storage-blob':
+        optional: true
+      '@google-cloud/storage':
+        optional: true
+      '@octokit/rest':
+        optional: true
+      '@tigrisdata/storage':
+        optional: true
+      '@vercel/blob':
+        optional: true
+      vitest:
+        optional: true
+      webdav:
+        optional: true
+
+  '@storagesdk/core@0.4.2':
+    resolution: {integrity: sha512-TASJvFpf4tHM52Sgg3AWMF1VsW6tiZAf6cG1PWktyqKWm+P4Iaz8cILEpD1VncvC4DzFYKeXRkq/xgaY3phKtg==}
+    engines: {node: '>=20'}
+
   '@trysound/sax@0.2.0':
     resolution: {integrity: sha512-L7z9BgrNEcYyUYtF+HaEfiS5ebkh9jXqbszz7pC0hRBPaatV0XjSD3+eHrpqFemQfgwiFF0QPIarnIihIDn7OA==}
     engines: {node: '>=10.13.0'}
-
-  '@types/bun@1.3.10':
-    resolution: {integrity: sha512-0+rlrUrOrTSskibryHbvQkDOWRJwJZqZlxrUs1u4oOoTln8+WIXBPmAuCF35SWB2z4Zl3E84Nl/D0P7803nigQ==}
 
   '@types/cookie@0.6.0':
     resolution: {integrity: sha512-4Kh9a6B2bQciAhf7FSuMRRkUWecJgJu9nPnx3yzpsfXX/c50REIqpHY4C82bXP90qrLtXtkDxTZosYO3UpOwlA==}
@@ -763,9 +803,6 @@ packages:
     resolution: {integrity: sha512-FDToo4Wo82hIdgc1CQ+NQD0hEhmpPjrZ3hiUgwgOG6IuTdlpr8jdjyG24P6cNP1yJpTLzS5OcGgSw0xmDU1/Tw==}
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
-
-  bun-types@1.3.10:
-    resolution: {integrity: sha512-tcpfCCl6XWo6nCVnpcVrxQ+9AYN1iqMIzgrSKYMB/fjLtV2eyAVEg7AxQJuCq/26R6HpKWykQXuSOq/21RYcbg==}
 
   bundle-name@4.1.0:
     resolution: {integrity: sha512-tjwM5exMg6BGRI+kNmTntNsvdZS1X8BFYS6tnJ2hdH0kVxM6/eVZ2xy+FqStSWvYmtfFMDLIxurorHwDKfDz5Q==}
@@ -1636,9 +1673,11 @@ packages:
     resolution: {integrity: sha512-CJ1QgKmNg3CwvAv/kOFmtnEN05f0D/cn9QntgNOQlQF9dgvVTHj3t+8JPdjqawCHk7V/KA+fbUqzZ9XWhcqPUg==}
     engines: {node: '>= 4.0.0'}
 
-  univo@0.1.13:
-    resolution: {integrity: sha512-xy6luj5Rfni+Qp7Sn7FMkrw+XQUuTQaieIcxHglo+RvZwHokwzTDpQMdOPiDZcjcCBzOn0GUyBCHFI1f688uAQ==}
+  univo@0.2.14:
+    resolution: {integrity: sha512-i8JwRTZCr2bO7+frg6Fn3CTXplUsrex/Q/jLPMYkT6abdzHVWwLluFOjZ+J2ZjJjHRKiygD+F/7r/77ABuO1AQ==}
     hasBin: true
+    peerDependencies:
+      unstorage: '>=1'
 
   unstorage@1.17.5:
     resolution: {integrity: sha512-0i3iqvRfx29hkNntHyQvJTpf5W9dQ9ZadSoRU8+xVlhVtT7jAX57fazYO9EHvcRCfBCyi5YRya7XCDOsbTgkPg==}
@@ -2221,11 +2260,15 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
 
-  '@trysound/sax@0.2.0': {}
-
-  '@types/bun@1.3.10':
+  '@storagesdk/adapters@0.6.0(vitest@3.1.3(@types/node@20.11.27)(msw@2.10.2(@types/node@20.11.27)(typescript@5.8.2)))':
     dependencies:
-      bun-types: 1.3.10
+      '@storagesdk/core': 0.4.2
+    optionalDependencies:
+      vitest: 3.1.3(@types/node@20.11.27)(msw@2.10.2(@types/node@20.11.27)(typescript@5.8.2))
+
+  '@storagesdk/core@0.4.2': {}
+
+  '@trysound/sax@0.2.0': {}
 
   '@types/cookie@0.6.0': {}
 
@@ -2329,10 +2372,6 @@ snapshots:
       electron-to-chromium: 1.5.150
       node-releases: 2.0.19
       update-browserslist-db: 1.1.3(browserslist@4.24.5)
-
-  bun-types@1.3.10:
-    dependencies:
-      '@types/node': 20.11.27
 
   bundle-name@4.1.0:
     dependencies:
@@ -3251,12 +3290,13 @@ snapshots:
 
   universalify@0.2.0: {}
 
-  univo@0.1.13:
+  univo@0.2.14(unstorage@1.17.5):
     dependencies:
       citty: 0.1.6
       dotenv: 17.2.2
       open: 10.2.0
       partysocket: 1.1.3
+      unstorage: 1.17.5
       ws: 8.18.3
     transitivePeerDependencies:
       - bufferutil
