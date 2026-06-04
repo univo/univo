@@ -318,7 +318,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				const blob = await opts.metadataStorage.download(prefix, { as: "blob" }).catch((error) => {
 					if (error instanceof StorageError) {
-						return null;
+						if (error.code === "NotFound") {
+							return null;
+						}
 					}
 
 					throw error;
