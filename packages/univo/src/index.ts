@@ -2,10 +2,11 @@ import { StorageError } from "@storagesdk/core";
 import type { Storage } from "@storagesdk/core";
 
 import { local } from "./transport";
+import { createServer } from "./server";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
-import { catchException, createException, getException } from "./exceptions";
-import { compress, createLogger, decoder, decompress, hexToNumber, isHexEqual, normalizeHex, retry } from "./utils";
+import { catchException, createException } from "./exceptions";
+import { compress, createLogger, decompress, hexToNumber, isHexEqual, normalizeHex, retry } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -1266,6 +1267,20 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { results: results_array, keys: filtered_keys };
 	};
 
+	const event: Indexer<TBlock>["event"] = (event) => {
+		if (!/^[A-Za-z0-9_-]+$/.test(event.id)) {
+			throw new Error(`Invalid event id \`${event.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
+		}
+
+		all_events.push(event);
+
+		const group = events_grouped_by_storage_map.get(event.storage) ?? [];
+		group.push(event);
+		events_grouped_by_storage_map.set(event.storage, group);
+
+		return event;
+	};
+
 	const rpc: IndexerRpc = {
 		request: {
 			public_getFinalizedHeight,
@@ -1282,127 +1297,16 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		subscribe: {},
 	};
 
-	const transport = local(rpc);
-
-	const handler: Indexer<TBlock>["fetch"] = async (req) => {
-		// Parse request body
-		let body_buffer: ArrayBuffer;
-
-		try {
-			body_buffer = await req.arrayBuffer();
-		} catch {
-			return Response.json(
-				{ jsonrpc: "2.0", id: null, error: { code: 0, message: "Invalid request body" } }, //
-				{ status: 400 },
-			);
-		}
-
-		// Determine authentication status
-		const authorization = req.headers.get("Authorization");
-		const authenticated = authorization === `Bearer ${opts.signingKey}`;
-
-		// Decode request body
-		let body_string: string;
-
-		if (req.headers.get("Content-Encoding") === "gzip") {
-			// Compressed requests should be authenticated before decompression. This prevents unauthenticated clients
-			// from sending ZIP bombs that force the server to spend CPU and memory before rejecting the request.
-
-			if (!authorization) {
-				return Response.json(
-					{ jsonrpc: "2.0", id: null, error: { code: 0, message: "No bearer token provided" } }, //
-					{ status: 400 },
-				);
-			}
-
-			if (!authenticated) {
-				return Response.json(
-					{ jsonrpc: "2.0", id: null, error: { code: 0, message: "Invalid bearer token" } }, //
-					{ status: 400 },
-				);
-			}
-
-			body_string = await decompress(body_buffer);
-		} else {
-			body_string = decoder.decode(body_buffer);
-		}
-
-		// Parse request as JSON
-		let json: any;
-
-		try {
-			json = JSON.parse(body_string);
-		} catch {
-			return Response.json(
-				{ jsonrpc: "2.0", id: null, error: { code: 0, message: "Malformed JSON request body" } }, //
-				{ status: 400 },
-			);
-		}
-
-		// Authorize request for any private methods
-		if (json.method.startsWith("private_")) {
-			if (!authorization) {
-				return Response.json(
-					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "No bearer token provided" } }, //
-					{ status: 400 },
-				);
-			}
-
-			if (authorization !== `Bearer ${opts.signingKey}`) {
-				return Response.json(
-					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "Invalid bearer token" } }, //
-					{ status: 400 },
-				);
-			}
-		}
-
-		// Perform RPC
-		try {
-			const result = await transport.request({ method: json.method, params: json.params });
-
-			return Response.json({ jsonrpc: "2.0", id: json.id, result });
-		} catch (error) {
-			const message = getException(error);
-
-			if (message) {
-				log.error(message);
-
-				return Response.json(
-					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message } }, //
-					{ status: 400 },
-				);
-			}
-
-			// Unknown exception
-			if (error instanceof Error) {
-				log.error(error.message);
-			}
-
-			return Response.json(
-				{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "Internal server error" } }, //
-				{ status: 500 },
-			);
-		}
-	};
-
-	const event: Indexer<TBlock>["event"] = (event) => {
-		if (!/^[A-Za-z0-9_-]+$/.test(event.id)) {
-			throw new Error(`Invalid event id \`${event.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
-		}
-
-		all_events.push(event);
-
-		const group = events_grouped_by_storage_map.get(event.storage) ?? [];
-		group.push(event);
-		events_grouped_by_storage_map.set(event.storage, group);
-
-		return event;
-	};
+	const server = createServer({
+		transport: local(rpc),
+		quiet: opts.quiet ?? false,
+		signingKey: opts.signingKey,
+	});
 
 	const indexer = {
 		...rpc,
 		event,
-		fetch: handler,
+		fetch: server.http,
 	};
 
 	return indexer;
