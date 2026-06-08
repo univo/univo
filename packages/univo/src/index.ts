@@ -1316,5 +1316,5 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
  * Exports -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-export { indexer, matchFilter };
+export { indexer };
 export type { Indexer, Event, Filter, Block, Head, Metadata, Result };
