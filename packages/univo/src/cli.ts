@@ -7,6 +7,7 @@ import { WebSocket } from "partysocket";
 import { defineCommand, runMain } from "citty";
 
 import { http } from "./transport";
+import type { IndexerRpc } from "./rpc";
 import { createLogger } from "./utils.js";
 import { name, version } from "../package.json";
 
@@ -26,21 +27,26 @@ const dev = defineCommand({
 	},
 	async run(ctx) {
 		try {
-			if (!ctx.args.url.startsWith("http://")) throw new Error("`url` must start with http://");
+			if (!ctx.args.url.startsWith("http://")) {
+				throw new Error("`url` must start with http://");
+			}
 
 			// Get signing key from environment variable
-			config();
+			config({ quiet: true });
+
 			const localSigningKey = process.env.UNIVO_SIGNING_KEY;
-			if (localSigningKey === undefined) throw new Error("Please provide a UNIVO_SIGNING_KEY environment variable");
+
+			if (localSigningKey === undefined) {
+				throw new Error("Please provide a UNIVO_SIGNING_KEY environment variable");
+			}
 
 			// Create a client
-			const client = http(ctx.args.url, { signingKey: localSigningKey });
+			const client = http<IndexerRpc>(ctx.args.url, { signingKey: localSigningKey });
 
 			// Validate client exists
-			const [events, metadata] = await Promise.all([
-				client.request({ method: "private_getEvents", params: [] }),
-				client.request({ method: "private_getMetadata", params: [] }),
-			]);
+			await client.request({ method: "private_getMetadata", params: [] }).catch(() => {
+				throw new Error(`Failed to connect to ${ctx.args.url}. Check that your server is running on the correct port.`);
+			});
 
 			// Generate a random tunnel id
 			const remoteSigningKey = crypto.randomUUID();
@@ -48,8 +54,6 @@ const dev = defineCommand({
 
 			const endpoint = {
 				url,
-				events,
-				metadata,
 				signing_key: remoteSigningKey,
 			};
 
@@ -59,20 +63,30 @@ const dev = defineCommand({
 
 			// Initialise ws connection to tunnel
 			const ws = new WebSocket(url, [], { WebSocket: WS });
-			ws.binaryType = "arraybuffer"; // No support for `binaryType`https://github.com/partykit/partykit/issues/774
-			ws.onerror = (event) => log.error(event.message);
-			ws.onopen = () => log.info(`Dev server started for ${ctx.args.url}`);
-			ws.onclose = () => log.info(`Dev server closed for ${ctx.args.url}`);
+
+			// No support for `binaryType` on Bun https://github.com/partykit/partykit/issues/774
+			ws.binaryType = "arraybuffer";
+
+			ws.onerror = (event) => {
+				log.error(event.message);
+			};
+
+			ws.onopen = () => {
+				log.info(`Dev server started for ${ctx.args.url}`);
+			};
+
+			ws.onclose = () => {
+				log.info(`Dev server closed for ${ctx.args.url}`);
+			};
 
 			ws.onmessage = async (event) => {
 				try {
-					const request = JSON.parse(event.data);
-					log.info(`Received request ${request.id}:${request.method}`);
-					const response = await client.request(request);
-					ws.send(JSON.stringify(response));
-				} catch (error) {
-					const response = { jsonrpc: "2.0", id: null, error: { code: 0, message: "Invalid request" } };
-					ws.send(JSON.stringify(response));
+					const json = JSON.parse(event.data);
+					log.debug(`Received request (${json.id}) for method '${json.method}'`);
+					const result = await client.request({ method: json.method, params: json.params });
+					ws.send(JSON.stringify({ jsonrpc: "2.0", id: json.id, result }));
+				} catch {
+					ws.send(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: 0, message: "Invalid request" } }));
 				}
 			};
 		} catch (error) {
