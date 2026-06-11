@@ -1092,6 +1092,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { failures: failures_array };
 	};
 
+	// Important to note this method doesn't return an exhaustive list of every key read. It is always possible for the user
+	// to write code that reads new keys for a specific block number. The only way to get an exhaustive list is to iterate
+	// over all blocks that match the defined filters.
+
 	const private_writeEventsAndGetKeys: IndexerRpc["request"]["private_writeEventsAndGetKeys"] = async (params) => {
 		if (all_events.length === 0) {
 			return { results: [], keys: [] };
