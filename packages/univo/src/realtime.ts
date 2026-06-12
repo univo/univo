@@ -6,8 +6,6 @@ import { createLogger, hexToNumber, iife, isHexEqual, mutex, numberToHex, retry 
  * Blockchain -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-const MAX_LENGTH = 10_000;
-
 type Head = {
 	hash: `0x${string}`;
 	number: `0x${string}`;
@@ -22,7 +20,19 @@ type BlockchainOptions = {
 };
 
 type Blockchain = {
+	/**
+	 * An ordered list of heads representing our local chain
+	 */
 	chain: Head[];
+
+	/**
+	 * Accepts a block from our local chain and removes all blocks less than the provided block
+	 */
+	prune(tail: Head): Promise<void>;
+
+	/**
+	 * Accepts a new remote block and reconciles it with our local chain
+	 */
 	reconcile(newBlock: Head): Promise<void>;
 };
 
@@ -31,19 +41,31 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 
 	const chain: Head[] = [];
 
+	function getHeadBlock() {
+		const block = chain[chain.length - 1];
+
+		if (block === undefined) {
+			throw new Error("Expected non-empty chain when retrieving latest block");
+		}
+
+		return block;
+	}
+
+	function getTailBlock() {
+		const block = chain[0];
+
+		if (block === undefined) {
+			throw new Error("Expected non-empty chain when retrieving oldest block");
+		}
+
+		return block;
+	}
+
 	function setHeadBlock(newBlock: Head) {
 		chain.push(newBlock);
 
 		if (opts.onBlockAdded) {
 			opts.onBlockAdded(newBlock);
-		}
-
-		if (chain.length > MAX_LENGTH) {
-			// TODO
-			// Remove blocks should be exposed to the consumer. If we have to recover from downtime that is larger than the maximum
-			// length allowed we will be unable to recover.
-
-			chain.shift();
 		}
 	}
 
@@ -59,24 +81,14 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		}
 	}
 
-	function getHeadBlock() {
-		const block = chain[chain.length - 1];
-
-		if (block === undefined) {
-			throw new Error("Expected non-empty chain when retrieving latest block");
+	async function prune(tail: Head) {
+		if (hexToNumber(tail.number) >= hexToNumber(getHeadBlock().number)) {
+			throw new Error("Cannot remove head block");
 		}
 
-		return block;
-	}
-
-	function getOldestBlock() {
-		const block = chain[0];
-
-		if (block === undefined) {
-			throw new Error("Expected non-empty chain when retrieving oldest block");
+		while (hexToNumber(tail.number) > hexToNumber(getTailBlock().number)) {
+			chain.shift();
 		}
-
-		return block;
 	}
 
 	async function reconcile(newBlock: Head) {
@@ -89,7 +101,7 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 
 		// 2.
 		// Block number older than our local chain
-		if (hexToNumber(newBlock.number) < hexToNumber(getOldestBlock().number)) {
+		if (hexToNumber(newBlock.number) < hexToNumber(getTailBlock().number)) {
 			log.info(`Received block ${hexToNumber(newBlock.number)} older than our local chain`);
 
 			// 1.
@@ -161,10 +173,9 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		return await reconcile(newBlock); // Finally we add this block
 	}
 
-	// TODO: Convert the mutex to use a queue
-
 	return {
 		chain,
+		prune: mutex(prune),
 		reconcile: mutex(reconcile),
 	};
 }
@@ -377,6 +388,21 @@ function realtime(opts: RealtimeOptions) {
 				indexerHeight = hexToNumber(finalizedBlock.number);
 
 				log.debug(`Updated indexer height to ${indexerHeight}`);
+
+				// After successfully processing all blocks less than the indexer height we can safely prune our local chains
+				// and remove all locally stored blocks less than the indexer finalized height
+
+				await indexer.prune({
+					number: finalizedBlock.number,
+					hash: finalizedBlock.hash,
+					parent_hash: finalizedBlock.parentHash,
+				});
+
+				await latest.prune({
+					number: finalizedBlock.number,
+					hash: finalizedBlock.hash,
+					parent_hash: finalizedBlock.parentHash,
+				});
 			} catch (error) {
 				if (error instanceof Error) {
 					log.error(`Failed to reconcile finalized head: ${error.message}`);
