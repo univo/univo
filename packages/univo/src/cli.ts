@@ -58,8 +58,10 @@ const dev = defineCommand({
 			};
 
 			// Open users browser to authenticate and create endpoint
-			const data = btoa(JSON.stringify(endpoint));
-			await open(`https://univo.app/dev/${data}`);
+			const encoder = new TextEncoder();
+			const data = encoder.encode(JSON.stringify(endpoint));
+			const encoded = data.toBase64({ alphabet: "base64url", omitPadding: true });
+			await open(`https://univo.app/dev/${encoded}`);
 
 			// Initialise ws connection to tunnel
 			const ws = new WebSocket(url, [], { WebSocket: WS });
