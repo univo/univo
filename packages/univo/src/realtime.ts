@@ -231,8 +231,6 @@ function realtime(opts: RealtimeOptions) {
 			opts.indexer.request({ method: "public_getFinalizedHeight", params: [chain] }),
 		]);
 
-		let pending: Head[] = [];
-
 		const latest = defineBlockchain({
 			getBlockByHash,
 			quiet: opts.quiet ?? false,
@@ -240,38 +238,22 @@ function realtime(opts: RealtimeOptions) {
 				try {
 					log.debug("Received unfinalized head");
 
-					// TODO
-					// The primary improvement to this retry method is that if the queue gets too large we might DDOS
-					// the endpoint by forcing it to load too many blocks at once. Moreover, this function doesn't run
-					// under any type of mutex so if the request takes longer than when we receive the next block we
-					// will spam requests. We need a strategy for queueing requests for new heads. It's okay to drop
-					// unfinalised heads if the queue gets too big. They will be retried on finalization
+					await retry(() => opts.indexer.request({ method: "public_writeUnfinalizedHead", params: [{ chain, ...head }] }), 2);
 
-					pending.push(head);
-
-					const heads = pending.map((head) => ({ chain, ...head }));
-
-					await opts.indexer.request({ method: "public_writeUnfinalizedHeads", params: [heads] });
-
-					log.debug(`Delivered ${heads.length} unfinalized head(s)`);
-
-					pending = pending.filter((head) => {
-						return !heads.some((_head) => {
-							return isHexEqual(head.hash, _head.hash);
-						});
-					});
+					log.debug("Delivered unfinalized head");
 				} catch (error) {
 					if (error instanceof Error) {
-						log.warn(`Failed to write heads: ${error.message}`);
+						log.warn(`Failed to write unfinalized head: ${error.message}`);
 					}
 				}
 			},
 			onBlockReorganised: async (head) => {
 				try {
-					// We use a simple retry here because reorganised blocks aren't common so this isn't likely to cause
-					// some type of thundering herd on the indexer server.
+					log.debug("Received reorganised head");
 
 					await retry(() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), 2);
+
+					log.debug("Delivered reorganised head");
 				} catch (error) {
 					if (error instanceof Error) {
 						log.warn(`Failed to write reorganised head: ${error.message}`);
