@@ -748,7 +748,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// we process all blocks in order.
 
 		if (hexToNumber(firstNewHead.number) !== indexerHeight + 1) {
-			throw new Error("Client advanced too far. Heads received are greater than the indexer height");
+			throw new Error(
+				`Client advanced too far (${hexToNumber(firstNewHead.number)}). Heads received are greater than the first new head ${indexerHeight + 1}`,
+			);
 		}
 
 		// After verifying the canonical finalized chain, we essentially have to determine the difference between the
