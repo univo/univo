@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.2.16
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.15...v0.2.16)
+
+### 🚀 Enhancements
+
+- **realtime:** Implement local chain pruning ([#48](https://github.com/univo/univo/pull/48))
+- **indexer:** Implement public_writeUnfinalizedHead ([#50](https://github.com/univo/univo/pull/50))
+
+### 🩹 Fixes
+
+- **cli:** Fix univo dev command ([#47](https://github.com/univo/univo/pull/47))
+- **cli:** Use url safe base64 for univo dev ([#49](https://github.com/univo/univo/pull/49))
+
+### 🏡 Chore
+
+- **server:** Refactor HTTP handler ([#45](https://github.com/univo/univo/pull/45))
+- **filter:** Remove matchFilter from public API ([#46](https://github.com/univo/univo/pull/46))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.15
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.14...v0.2.15)
