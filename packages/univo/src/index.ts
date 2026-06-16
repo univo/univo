@@ -405,7 +405,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const GetBlockError = createException("Failed to load block from the provided `getBlock` function");
 
-	const public_getFinalizedHeight = async (chain: `0x${string}`) => {
+	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
 		const [stored, finalizedBlock] = await Promise.all([
 			metadata.blocks.getNextUnfinalizedBlock(chain), //
 			getBlock({ chain, number: "finalized" }),
@@ -429,7 +429,99 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return Math.min(indexerHeight, finalizedHeight);
 	};
 
-	const public_writeUnfinalizedHeads = async (heads: Head[]) => {
+	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
+		log.debug("Received unfinalized head...");
+
+		const blocks_start = Date.now();
+
+		const [finalizedBlock, block] = await Promise.all([
+			getBlock({ chain: head.chain, number: "finalized" }),
+			getBlock({ chain: head.chain, number: head.number, hash: head.hash }),
+		]);
+
+		if (block === null) {
+			// A null response is actually a common case during chain reorganisations. Because we load by block number it
+			// is common for the client and server to be connected to different nodes. There is no guarantee that both
+			// those nodes see the same reorganisation so when we load the block on the server we get null
+
+			return;
+		}
+
+		if (finalizedBlock === null) {
+			log.debug("Failed to determine finalized height when processing unfinalized heads");
+
+			throw new Error(GetBlockError);
+		}
+
+		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+
+		if (hexToNumber(head.number) <= finalizedHeight) {
+			// We must ensure each block is actually unfinalised to prevent an attack vector where a client could submit
+			// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
+			// stall indexing. We filter them out here and continue operating on unfinalised heads
+
+			return;
+		}
+
+		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
+
+		// Before any blocks are processed they must be committed to the metadata storage. This ensures we have a record
+		// of the events that were upserted to storage. This is necessary to ensure that we can correctly discard any events
+		// from blocks that are later reorganised and no longer included in the canonical chain
+
+		const metadata_start = Date.now();
+
+		await metadata.blocks.upsert([block]);
+
+		log.debug(`Persisted block to metadata in ${Date.now() - metadata_start}ms`);
+
+		const events_start = Date.now();
+
+		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
+			const batch: any[] = [];
+
+			for (const event of grouped_events) {
+				try {
+					if (!event.filters.some((filter) => matchFilter(block, filter))) {
+						log.debug(`Block matches no filters for event ${event.id}`);
+						continue;
+					}
+
+					const events = event.handler(block);
+
+					for (const event of events) {
+						batch.push(event);
+					}
+				} catch (error) {
+					log.error(`Failed to run your 'handler' for event ${event.id}`);
+
+					throw error;
+				}
+			}
+
+			if (batch.length > 0) {
+				const start = Date.now();
+
+				await retry(() => storage.upsert(batch), 2).catch((error) => {
+					for (const event of grouped_events) {
+						log.error(`Failed to run your 'upsert' handler for event ${event.id}`);
+					}
+
+					throw error;
+				});
+
+				for (const event of grouped_events) {
+					log.debug(`Recorded ${batch.length} ${event.id} in ${Date.now() - start}ms`);
+				}
+			}
+		});
+
+		await Promise.all(promises);
+
+		log.debug(`Wrote head in ${Date.now() - events_start}ms`);
+	};
+
+	const public_writeUnfinalizedHeads: IndexerRpc["request"]["public_writeUnfinalizedHeads"] = async (heads) => {
 		if (heads.length === 0) {
 			return log.debug("No heads received, returning...");
 		}
@@ -554,7 +646,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		log.debug(`Wrote ${heads.length} heads in ${Date.now() - events_start}ms`);
 	};
 
-	const public_deleteReorganisedHead = async (head: Head) => {
+	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
 		log.debug(`Received reorganised head ${hexToNumber(head.number)}`);
 
 		// Loading blocks happens via the block number. If this block was truly reorganised and is no longer part of
@@ -628,7 +720,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// blocks). Returning an OK success response indicates to the client that the indexer has successfully
 	// finalized heads up to the largest head received
 
-	const public_writeFinalizedHeads = async (heads: Head[]) => {
+	const public_writeFinalizedHeads: IndexerRpc["request"]["public_writeFinalizedHeads"] = async (heads) => {
 		if (heads.length === 0) {
 			// No heads received actually holds for our invariants above so return OK
 			return log.debug("No heads received, returning...");
@@ -710,6 +802,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// we have zero unfinalized blocks to process we early return
 
 		if (unfinalizedMetadataBlock === null) {
+			// TODO
+			// This case needs to be handled differently, at the moment this ties the success of the finalized
+			// handler to the unfinalized handler. For example, if we fail to process blocks at the tip our
+			// finalized handler should continue operating.
+
 			return log.debug("No heads to finalize, returning...");
 		}
 
@@ -1291,6 +1388,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		request: {
 			public_getFinalizedHeight,
 			public_writeFinalizedHeads,
+			public_writeUnfinalizedHead,
 			public_writeUnfinalizedHeads,
 			public_deleteReorganisedHead,
 

@@ -66,6 +66,11 @@ type IndexerRpc = {
 		public_deleteReorganisedHead: (head: Head) => Promise<void>;
 
 		/**
+		 * Accepts an unfinalized head and writes all events to storage
+		 */
+		public_writeUnfinalizedHead: (head: Head) => Promise<void>;
+
+		/**
 		 * Accepts a list of the latest block heads and writes all events to storage
 		 */
 		public_writeUnfinalizedHeads: (heads: Head[]) => Promise<void>;
