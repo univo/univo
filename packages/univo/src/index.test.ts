@@ -48,7 +48,7 @@ test.concurrent("throws an error if an event with an invalid id is defined", () 
 	}).toThrowError;
 });
 
-test.concurrent("public_writeUnfinalizedHeads upserts events", async () => {
+test.concurrent("public_writeUnfinalizedHead upserts events", async () => {
 	const block9 = await test_getBlock({ chain: "0x1", number: numberToHex(9) });
 	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
 
@@ -79,23 +79,21 @@ test.concurrent("public_writeUnfinalizedHeads upserts events", async () => {
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: "0x1",
-					hash: block10.eth_getBlockByNumber.hash,
-					number: block10.eth_getBlockByNumber.number,
-					parent_hash: block10.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: "0x1",
+				hash: block10.eth_getBlockByNumber.hash,
+				number: block10.eth_getBlockByNumber.number,
+				parent_hash: block10.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
 	expect(upserted.length).toBe(1);
 });
 
-test.concurrent("public_writeUnfinalizedHeads retries upsert errors", async () => {
+test.concurrent("public_writeUnfinalizedHead retries upsert errors", async () => {
 	const block9 = await test_getBlock({ chain: "0x1", number: numberToHex(9) });
 	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
 
@@ -129,23 +127,21 @@ test.concurrent("public_writeUnfinalizedHeads retries upsert errors", async () =
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: "0x1",
-					hash: block10.eth_getBlockByNumber.hash,
-					number: block10.eth_getBlockByNumber.number,
-					parent_hash: block10.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: "0x1",
+				hash: block10.eth_getBlockByNumber.hash,
+				number: block10.eth_getBlockByNumber.number,
+				parent_hash: block10.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
 	expect(count).toEqual(2);
 });
 
-test.concurrent("public_writeUnfinalizedHeads deduplicates events with the same storage adapter", async () => {
+test.concurrent("public_writeUnfinalizedHead deduplicates events with the same storage adapter", async () => {
 	const block9 = await test_getBlock({ chain: "0x1", number: numberToHex(9) });
 	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
 
@@ -187,16 +183,14 @@ test.concurrent("public_writeUnfinalizedHeads deduplicates events with the same 
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: "0x1",
-					hash: block10.eth_getBlockByNumber.hash,
-					number: block10.eth_getBlockByNumber.number,
-					parent_hash: block10.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: "0x1",
+				hash: block10.eth_getBlockByNumber.hash,
+				number: block10.eth_getBlockByNumber.number,
+				parent_hash: block10.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
@@ -208,10 +202,11 @@ test.concurrent("public_writeUnfinalizedHeads deduplicates events with the same 
 	]);
 });
 
-test.concurrent("public_writeUnfinalizedHeads tolerates partial block-load failure", async () => {
+test.concurrent("public_writeUnfinalizedHead tolerates partial block-load failure", async () => {
 	const block9 = await test_getBlock({ chain: "0x1", number: numberToHex(9) });
 	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
-	const block11 = await test_getBlock({ chain: "0x1", number: numberToHex(11) });
+
+	let count = 0;
 
 	const univo = indexer({
 		quiet: true,
@@ -222,8 +217,9 @@ test.concurrent("public_writeUnfinalizedHeads tolerates partial block-load failu
 				return block9;
 			}
 
-			if (block.number === numberToHex(11)) {
-				throw new Error("Simulating failing to load block 11");
+			if (count === 0) {
+				count++;
+				throw new Error("Simulating block failure");
 			}
 
 			return block10;
@@ -244,29 +240,21 @@ test.concurrent("public_writeUnfinalizedHeads tolerates partial block-load failu
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: "0x1",
-					hash: block10.eth_getBlockByNumber.hash,
-					number: block10.eth_getBlockByNumber.number,
-					parent_hash: block10.eth_getBlockByNumber.parentHash,
-				},
-				{
-					chain: "0x1",
-					hash: block11.eth_getBlockByNumber.hash,
-					number: block11.eth_getBlockByNumber.number,
-					parent_hash: block11.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: "0x1",
+				hash: block10.eth_getBlockByNumber.hash,
+				number: block10.eth_getBlockByNumber.number,
+				parent_hash: block10.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
 	expect(upserted).toStrictEqual([block10.eth_getBlockByNumber.number]);
 });
 
-test.concurrent("public_writeUnfinalizedHeads ignores finalized heads", async () => {
+test.concurrent("public_writeUnfinalizedHead ignores finalized heads", async () => {
 	// 1. Chain is finalised at 10
 	// 2. Write finalized genesis block as unfinalized
 
@@ -300,16 +288,14 @@ test.concurrent("public_writeUnfinalizedHeads ignores finalized heads", async ()
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: block0.eth_chainId,
-					hash: block0.eth_getBlockByNumber.hash,
-					number: block0.eth_getBlockByNumber.number,
-					parent_hash: block0.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: block0.eth_chainId,
+				hash: block0.eth_getBlockByNumber.hash,
+				number: block0.eth_getBlockByNumber.number,
+				parent_hash: block0.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
@@ -366,16 +352,14 @@ test.concurrent("public_deleteReorganisedHead deletes events from reorganised bl
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: "0x1",
-					hash: reorganised.eth_getBlockByNumber.hash,
-					number: reorganised.eth_getBlockByNumber.number,
-					parent_hash: reorganised.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: "0x1",
+				hash: reorganised.eth_getBlockByNumber.hash,
+				number: reorganised.eth_getBlockByNumber.number,
+				parent_hash: reorganised.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
@@ -480,16 +464,14 @@ test.concurrent("public_writeFinalizedHeads writes finalized heads", async () =>
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: block1.eth_chainId,
-					number: block1.eth_getBlockByNumber.number,
-					hash: block1.eth_getBlockByNumber.hash,
-					parent_hash: block1.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: block1.eth_chainId,
+				number: block1.eth_getBlockByNumber.number,
+				hash: block1.eth_getBlockByNumber.hash,
+				parent_hash: block1.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
@@ -577,16 +559,14 @@ test.concurrent("public_writeFinalizedHeads removes reorganised events", async (
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: "0x1",
-					hash: reorganised.eth_getBlockByNumber.hash,
-					number: reorganised.eth_getBlockByNumber.number,
-					parent_hash: reorganised.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: "0x1",
+				hash: reorganised.eth_getBlockByNumber.hash,
+				number: reorganised.eth_getBlockByNumber.number,
+				parent_hash: reorganised.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
@@ -657,16 +637,14 @@ test.concurrent("public_writeFinalizedHeads throws when receiving an unknown hea
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: block10.eth_chainId,
-					number: block10.eth_getBlockByNumber.number,
-					hash: block10.eth_getBlockByNumber.hash,
-					parent_hash: block10.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: block10.eth_chainId,
+				number: block10.eth_getBlockByNumber.number,
+				hash: block10.eth_getBlockByNumber.hash,
+				parent_hash: block10.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
@@ -764,16 +742,14 @@ test.concurrent("public_writeFinalizedHeads deletes finalized metadata blocks af
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: block10.eth_chainId,
-					number: block10.eth_getBlockByNumber.number,
-					hash: block10.eth_getBlockByNumber.hash,
-					parent_hash: block10.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: block10.eth_chainId,
+				number: block10.eth_getBlockByNumber.number,
+				hash: block10.eth_getBlockByNumber.hash,
+				parent_hash: block10.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
@@ -814,22 +790,26 @@ test.concurrent("public_writeFinalizedHeads rejects wrong parent linkage between
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: block10.eth_chainId,
-					number: block10.eth_getBlockByNumber.number,
-					hash: block10.eth_getBlockByNumber.hash,
-					parent_hash: block10.eth_getBlockByNumber.parentHash,
-				},
-				{
-					chain: block11.eth_chainId,
-					number: block11.eth_getBlockByNumber.number,
-					hash: block11.eth_getBlockByNumber.hash,
-					parent_hash: block11.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: block10.eth_chainId,
+				number: block10.eth_getBlockByNumber.number,
+				hash: block10.eth_getBlockByNumber.hash,
+				parent_hash: block10.eth_getBlockByNumber.parentHash,
+			},
+		],
+	});
+
+	await local(univo).request({
+		method: "public_writeUnfinalizedHead",
+		params: [
+			{
+				chain: block11.eth_chainId,
+				number: block11.eth_getBlockByNumber.number,
+				hash: block11.eth_getBlockByNumber.hash,
+				parent_hash: block11.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
@@ -902,16 +882,14 @@ test.concurrent("public_writeFinalizedHeads is idempotent when called twice with
 	});
 
 	await local(univo).request({
-		method: "public_writeUnfinalizedHeads",
+		method: "public_writeUnfinalizedHead",
 		params: [
-			[
-				{
-					chain: block10.eth_chainId,
-					number: block10.eth_getBlockByNumber.number,
-					hash: block10.eth_getBlockByNumber.hash,
-					parent_hash: block10.eth_getBlockByNumber.parentHash,
-				},
-			],
+			{
+				chain: block10.eth_chainId,
+				number: block10.eth_getBlockByNumber.number,
+				hash: block10.eth_getBlockByNumber.hash,
+				parent_hash: block10.eth_getBlockByNumber.parentHash,
+			},
 		],
 	});
 
