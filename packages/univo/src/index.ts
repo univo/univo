@@ -859,7 +859,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// When a block finalizes we fully reprocess it. This means that we delete any reorganised blocks and we
 			// upsert the final canonical block again. In general this is pretty slow and expensive. In practice this is
 			// okay because this function doesn't need to be fast, and the goal of the system is that we use the two methods
-			// in public_writeUnfinalizedHeads and public_deleteReorganisedHead to ensure that the latest chain matches exactly
+			// in public_writeUnfinalizedHead and public_deleteReorganisedHead to ensure that the latest chain matches exactly
 			// what the finalized chain processes. So it's likely that this correctness function has no material impact on
 			// the data stored and is just verifies correctness when the chain finalizes
 
