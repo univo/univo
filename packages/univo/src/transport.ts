@@ -6,6 +6,8 @@ import type { Rpc } from "./rpc";
 import { createException } from "./exceptions";
 import { compress, createLogger, raise } from "./utils";
 
+const DEFAULT_TIMEOUT = 60 * 1000;
+
 type Protocol = "http" | "wss" | "local";
 
 type Transport<R extends Rpc, P extends Protocol = Protocol> = {
@@ -200,7 +202,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 			const timeout = setTimeout(() => {
 				requests.delete(body.id);
 				reject(new Error("wss request timed out after 30 seconds"));
-			}, 30 * 1000);
+			}, DEFAULT_TIMEOUT);
 
 			requests.set(body.id, (data) => {
 				clearTimeout(timeout);
@@ -313,7 +315,7 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 			headers.set("Authorization", `Bearer ${opts.signingKey}`);
 		}
 
-		const res = await fetch(url, { headers, body, method: "POST", signal: AbortSignal.timeout(30 * 1000) }).catch((cause) => {
+		const res = await fetch(url, { headers, body, method: "POST", signal: AbortSignal.timeout(DEFAULT_TIMEOUT) }).catch((cause) => {
 			throw new Error(ClientConnectionError, { cause });
 		});
 
