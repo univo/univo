@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.2.17
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.16...v0.2.17)
+
+### 🚀 Enhancements
+
+- **transport:** Increase default timeout ([#52](https://github.com/univo/univo/pull/52))
+- **realtime:** Simplify unfinalized head delivery ([#53](https://github.com/univo/univo/pull/53))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.16
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.15...v0.2.16)
