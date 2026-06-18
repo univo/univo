@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.2.18
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.17...v0.2.18)
+
+### 🚀 Enhancements
+
+- **indexer:** Improve reorg handling ([#55](https://github.com/univo/univo/pull/55))
+- **events:** Make storage delete required ([#57](https://github.com/univo/univo/pull/57))
+
+### 🩹 Fixes
+
+- **indexer:** Remove unused method public_writeUnfinalizedHeads ([#56](https://github.com/univo/univo/pull/56))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.17
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.16...v0.2.17)
