@@ -521,131 +521,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		log.debug(`Wrote head in ${Date.now() - events_start}ms`);
 	};
 
-	const public_writeUnfinalizedHeads: IndexerRpc["request"]["public_writeUnfinalizedHeads"] = async (heads) => {
-		if (heads.length === 0) {
-			return log.debug("No heads received, returning...");
-		}
-
-		// Verify that all heads received are from the same chain
-
-		let chain = undefined;
-
-		for (const head of heads) {
-			if (chain === undefined) {
-				chain = head.chain;
-			}
-
-			if (!isHexEqual(chain, head.chain)) {
-				throw new Error("Received heads from separate chains");
-			}
-		}
-
-		if (chain === undefined) {
-			throw new Error("Internal error. Expected chain to be defined after checking heads length");
-		}
-
-		log.debug(`Received ${heads.length} unfinalized heads...`);
-
-		const blocks_start = Date.now();
-
-		const [finalizedBlock, ...blocks_nullable] = await Promise.all([
-			getBlock({ chain, number: "finalized" }),
-
-			...heads.map(async (head) => {
-				return await getBlock({ chain, number: head.number, hash: head.hash });
-			}),
-		]);
-
-		if (finalizedBlock === null) {
-			log.debug("Failed to determine finalized height when processing unfinalized heads");
-
-			throw new Error(GetBlockError);
-		}
-
-		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
-
-		const blocks = blocks_nullable.flatMap((block) => {
-			// A null response is actually a common case during chain reorganisations. Because we load by block number it
-			// is common for the client and server to be connected to different nodes. There is no guarantee that both
-			// those nodes see the same reorganisation so when we load the block on the server we get null
-
-			if (block === null) {
-				return [];
-			}
-
-			// We must ensure each block is actually unfinalised to prevent an attack vector where a client could submit
-			// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
-			// stall indexing
-
-			if (hexToNumber(block.eth_getBlockByNumber.number) <= finalizedHeight) {
-				return [];
-			}
-
-			return block;
-		});
-
-		if (blocks.length === 0) {
-			return log.debug("All blocks failed to load, aborting early...");
-		}
-
-		log.debug(`Loaded ${blocks.length} block(s) in ${Date.now() - blocks_start}ms`);
-
-		// Before any blocks are processed they must be committed to the metadata storage. This ensures we have a record
-		// of the events that were upserted to storage. This is necessary to ensure that we can correctly discard any events
-		// from blocks that are later reorganised and no longer included in the canonical chain
-
-		await metadata.blocks.upsert(blocks);
-
-		log.debug(`Recorded ${blocks.length} block(s) to metadata storage`);
-
-		const events_start = Date.now();
-
-		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
-			const batch: any[] = [];
-
-			for (const block of blocks) {
-				for (const event of grouped_events) {
-					try {
-						if (!event.filters.some((filter) => matchFilter(block, filter))) {
-							log.debug(`Block matches no filters for event ${event.id}`);
-							continue;
-						}
-
-						const events = event.handler(block);
-
-						for (const event of events) {
-							batch.push(event);
-						}
-					} catch (error) {
-						log.error(`Failed to run your 'handler' for event ${event.id}`);
-
-						throw error;
-					}
-				}
-			}
-
-			if (batch.length > 0) {
-				const start = Date.now();
-
-				await retry(() => storage.upsert(batch), 2).catch((error) => {
-					for (const event of grouped_events) {
-						log.error(`Failed to run your 'upsert' handler for event ${event.id}`);
-					}
-
-					throw error;
-				});
-
-				for (const event of grouped_events) {
-					log.debug(`Recorded ${batch.length} ${event.id} in ${Date.now() - start}ms`);
-				}
-			}
-		});
-
-		await Promise.all(promises);
-
-		log.debug(`Wrote ${heads.length} heads in ${Date.now() - events_start}ms`);
-	};
-
 	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
 		log.debug(`Received reorganised head ${hexToNumber(head.number)}`);
 
@@ -1440,7 +1315,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			public_getFinalizedHeight,
 			public_writeFinalizedHeads,
 			public_writeUnfinalizedHead,
-			public_writeUnfinalizedHeads,
 			public_deleteReorganisedHead,
 
 			private_getEvents,
