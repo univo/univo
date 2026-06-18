@@ -649,8 +649,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
 		log.debug(`Received reorganised head ${hexToNumber(head.number)}`);
 
-		// Loading blocks happens via the block number. If this block was truly reorganised and is no longer part of
-		// the canonical chain than this request should yield a block with a different block hash. This is our proof
+		// We load blocks via their block number. If this block was truly reorganised and is no longer part of the
+		// canonical chain than this request should yield a block with a different block hash. This is our proof
 		// that this block is no longer included in the chain and that it's safe to delete data associated with it
 
 		const [canonical_block, stored_block] = await Promise.all([
@@ -674,7 +674,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// events with this block data. We use the block data to generate the same set of events that could have been
 		// upserted and provide them to each events delete function
 
-		const promises = all_events.map(async (event) => {
+		const deletes = all_events.map(async (event) => {
 			// TODO: If they update the indexer to remove the delete method it's possible that reorged events remain in storage
 
 			if (event.storage.delete === undefined) {
@@ -712,7 +712,58 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			});
 		});
 
-		await Promise.all(promises);
+		await Promise.all(deletes);
+
+		// When the events from a reorganised block have a distinct set of primary keys from the canonical block,
+		// it makes cleanup simple because we are operating on a distinct set of events. For example, if we used
+		// the block hash in PK identifier then there is no overlap. However, it is possible for an event to return
+		// a set of events that share the same PK identifier. For example, if we used only the block number. In
+		// the latter case it creates a timing issue, i.e. for our record to be correct we must ensure that we
+		// perform a delete of the reorganised events _before_ we perform an upsert of the canonical events.
+		// To solve this, we also write the canonical events _after_ deleting the reorganised events.
+
+		const upserts = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
+			const batch: any[] = [];
+
+			for (const event of grouped_events) {
+				try {
+					if (!event.filters.some((filter) => matchFilter(canonical_block, filter))) {
+						continue;
+					}
+
+					const events = event.handler(canonical_block);
+
+					for (const event of events) {
+						batch.push(event);
+					}
+				} catch (error) {
+					log.error(`Failed to run your 'handler' for event ${event.id}`);
+
+					throw error;
+				}
+			}
+
+			if (batch.length > 0) {
+				await retry(() => storage.upsert(batch), 2).catch((error) => {
+					for (const event of grouped_events) {
+						log.error(`Failed to run your 'upsert' handler for event ${event.id}`);
+					}
+
+					throw error;
+				});
+			}
+		});
+
+		await Promise.all(upserts);
+
+		// After the above deletion occurs it is impossible for a malicious client to call `public_writeUnfinalizedHead`
+		// with the reorganised block because it won't be retrievable from the chain. This guard guarantees that our
+		// record of events will leave the canonical set and not the reorganised set.
+
+		// We don't delete the reorganised block from metadata storage for exceptional cases where a massive chain
+		// bug occurs and it takes a long time to finalize. Like in a worst case scenario where the chain could be
+		// constantly switching between two chains from major clients. We wait till everything is sorted and the
+		// chain finalizes to cleanup and process everything
 	};
 
 	// The goal of this function is to accept a contigious list of heads that our indexer has not finalized,
