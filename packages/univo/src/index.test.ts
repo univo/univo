@@ -16,7 +16,7 @@ test.concurrent("correctly infers the event type", () => {
 
 	const event = univo.event({
 		id: "test",
-		storage: { async upsert() {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => {
 			return block.eth_getBlockReceipts.map((receipt) => {
@@ -42,7 +42,7 @@ test.concurrent("throws an error if an event with an invalid id is defined", () 
 		univo.event({
 			handler: () => [],
 			id: "invalidchars()$%^#&!*&@!#",
-			storage: { upsert: async () => {} },
+			storage: { upsert: async () => {}, delete: async () => {} },
 			filters: [{ chain: 1, fromBlock: 0 }],
 		});
 	}).toThrowError;
@@ -74,6 +74,7 @@ test.concurrent("public_writeUnfinalizedHead upserts events", async () => {
 			async upsert(events) {
 				upserted.push(...events);
 			},
+			async delete() {},
 		},
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
@@ -123,6 +124,7 @@ test.concurrent("public_writeUnfinalizedHead retries upsert errors", async () =>
 					throw new Error();
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -166,6 +168,7 @@ test.concurrent("public_writeUnfinalizedHead deduplicates events with the same s
 			count++;
 			batch = events;
 		},
+		async delete() {},
 	};
 
 	univo.event({
@@ -236,6 +239,7 @@ test.concurrent("public_writeUnfinalizedHead tolerates partial block-load failur
 			async upsert(events) {
 				upserted.push(...events);
 			},
+			async delete() {},
 		},
 	});
 
@@ -278,7 +282,7 @@ test.concurrent("public_writeUnfinalizedHead ignores finalized heads", async () 
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: () => {
 			upserted = true;
@@ -460,6 +464,7 @@ test.concurrent("public_writeFinalizedHeads writes finalized heads", async () =>
 			async upsert(events) {
 				upserted.push(...events);
 			},
+			async delete() {},
 		},
 	});
 
@@ -738,7 +743,7 @@ test.concurrent("public_writeFinalizedHeads deletes finalized metadata blocks af
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [block.eth_getBlockByNumber.hash],
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 	});
 
 	await local(univo).request({
@@ -878,6 +883,7 @@ test.concurrent("public_writeFinalizedHeads is idempotent when called twice with
 			async upsert(events) {
 				upserted.push(...events);
 			},
+			async delete() {},
 		},
 	});
 
@@ -942,6 +948,7 @@ test.concurrent("private_writeEvents indexes only the events requested", async (
 			async upsert(events) {
 				upserted.push(...events);
 			},
+			async delete() {},
 		},
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
@@ -952,7 +959,7 @@ test.concurrent("private_writeEvents indexes only the events requested", async (
 			event2HandlerCalled = true;
 			return [];
 		},
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
@@ -989,6 +996,7 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 			count++;
 			batch = events;
 		},
+		async delete() {},
 	};
 
 	univo.event({
@@ -1034,7 +1042,7 @@ test.concurrent("private_writeEvents records events", async () => {
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block)],
 	});
@@ -1064,7 +1072,7 @@ test.concurrent("private_writeEvents ignores events not explicitly requested", a
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
 		handler(block) {
 			if (hexToNumber(block.eth_getBlockByNumber.number) === 1) {
@@ -1102,7 +1110,7 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
 		handler(block) {
 			if (hexToNumber(block.eth_getBlockByNumber.number) === 1) {
@@ -1156,6 +1164,7 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 			async upsert() {
 				throw new Error("Test error message");
 			},
+			async delete() {},
 		},
 	});
 
@@ -1223,6 +1232,7 @@ test.concurrent("private_writeEvents retries upsert errors", async () => {
 				count++;
 				throw new Error("Test error message");
 			},
+			async delete() {},
 		},
 	});
 
@@ -1291,6 +1301,7 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 			async upsert() {
 				throw new Error("Test error message");
 			},
+			async delete() {},
 		},
 	});
 
@@ -1354,7 +1365,7 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 			// The following property exists on the type but isn't provided
 			return [block.eth_getBlockByNumber.difficulty];
 		},
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 	});
 
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
@@ -1430,7 +1441,7 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 				return [];
 			}
 		},
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 	});
 
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
@@ -1504,6 +1515,7 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 					block.eth_getBlockByNumber.difficulty;
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -1581,6 +1593,7 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 					//
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -1646,7 +1659,7 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [block.eth_getBlockByNumber.difficulty],
 	});
@@ -1697,6 +1710,7 @@ test.concurrent("private_writeEvents never upserts if handler returns empty even
 			async upsert() {
 				throw new Error("Test error message");
 			},
+			async delete() {},
 		},
 	});
 
@@ -1735,6 +1749,7 @@ test.concurrent("private_writeEventsAndGetKeys indexes only the events requested
 			async upsert(events) {
 				upserted.push(...events);
 			},
+			async delete() {},
 		},
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
@@ -1745,7 +1760,7 @@ test.concurrent("private_writeEventsAndGetKeys indexes only the events requested
 			event2HandlerCalled = true;
 			return [];
 		},
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
@@ -1798,6 +1813,7 @@ test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns 
 			async upsert() {
 				throw new Error("Test error message");
 			},
+			async delete() {},
 		},
 	});
 
@@ -1842,7 +1858,7 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 	univo.event({
 		id: "test",
 		handler: () => [],
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
@@ -1893,7 +1909,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [block.eth_getBlockByNumber.baseFeePerGas],
 	});
@@ -1946,7 +1962,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler(block) {
 			return block.eth_getBlockByNumber.transactions.map((transaction) => {
@@ -2003,7 +2019,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler(block) {
 			return (block.eth_getBlockByNumber.withdrawals || []).map((withdrawal) => {
@@ -2060,7 +2076,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler(block) {
 			return block.eth_getBlockReceipts.map((receipt) => {
@@ -2117,7 +2133,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler(block) {
 			return block.eth_getBlockReceipts.flatMap((receipt) => {
@@ -2184,6 +2200,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 					block.eth_getBlockByNumber.hash;
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -2244,6 +2261,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 					});
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -2305,6 +2323,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 					});
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -2366,6 +2385,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 					});
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -2429,6 +2449,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 					});
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -2480,7 +2501,7 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block)],
 	});
@@ -2605,7 +2626,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block.eth_getBlockByNumber.transactions)],
 	});
@@ -2680,7 +2701,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block.eth_getBlockByNumber.withdrawals)],
 	});
@@ -2736,7 +2757,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block.eth_getBlockReceipts)],
 	});
@@ -2813,7 +2834,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 
 	univo.event({
 		id: "test",
-		storage: { upsert: async () => {} },
+		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler(block) {
 			return block.eth_getBlockReceipts.map((receipt) => {
@@ -2887,6 +2908,7 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 					JSON.stringify(block);
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -3018,6 +3040,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 					JSON.stringify(block.eth_getBlockByNumber.transactions);
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -3099,6 +3122,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 					JSON.stringify(block.eth_getBlockByNumber.withdrawals);
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -3161,6 +3185,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 					JSON.stringify(block.eth_getBlockReceipts);
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -3246,6 +3271,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 					});
 				}
 			},
+			async delete() {},
 		},
 	});
 
@@ -3315,6 +3341,7 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 					(block.eth_getBlockByNumber as any).propertyThatIsCurrentlyUndefined;
 				}
 			},
+			async delete() {},
 		},
 	});
 
