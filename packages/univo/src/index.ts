@@ -176,7 +176,7 @@ type Event<TBlock, TEvent> = {
 		 * same batch of events created by that reorganised block. This ensures that any events that were previously
 		 * upserted into your storage system that are no longer part of the canonical chain are safely removed.
 		 */
-		delete?: (events: TEvent[]) => Promise<void>;
+		delete: (events: TEvent[]) => Promise<void>;
 	};
 };
 
@@ -550,12 +550,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// upserted and provide them to each events delete function
 
 		const deletes = all_events.map(async (event) => {
-			// TODO: If they update the indexer to remove the delete method it's possible that reorged events remain in storage
-
-			if (event.storage.delete === undefined) {
-				return;
-			}
-
 			// TODO
 			// We intentionally ignore filters and basically perform an optimistic delete on events that might
 			// have never been upserted. I make this choice because there is a time delay between upsert and delete,
@@ -882,12 +876,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// and provide them to each events delete function
 
 		const promises = all_events.map(async (event) => {
-			// If they update the indexer to remove the delete method it's possible that reorged events remain in storage
-
-			if (event.storage.delete === undefined) {
-				return;
-			}
-
 			// We intentionally ignore filters and basically perform an optimistic delete on events that might
 			// have never been upserted. I make this choice because there is a time delay between upsert and delete,
 			// it's possible for a new deployment to update the filters in this gap that would prevent the delete
