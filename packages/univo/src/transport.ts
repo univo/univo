@@ -10,7 +10,7 @@ import { compress, createLogger, mutex, raise } from "./utils";
  * CONFIG -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-const DEFAULT_TIMEOUT = 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 60 * 1000;
 
 /**
  * TYPES -----------------------------------------------------------------------------------------------------------------------------------
@@ -49,7 +49,7 @@ const UnknownMethodError = createException("The requested RPC method does not ex
 
 function local<R extends Rpc>(rpc: R): Transport<R, "local"> {
 	const request: Transport<Rpc>["request"] = async (opts) => {
-		const signal = opts.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT);
+		const signal = opts.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
 
 		if (signal.aborted) {
 			throw signal.reason;
@@ -226,7 +226,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 
 	const request: Transport<Rpc>["request"] = async (opts) => {
 		return await new Promise<any>((resolve, reject) => {
-			const signal = opts.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT);
+			const signal = opts.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
 
 			const body = {
 				id: id++,
@@ -355,7 +355,7 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 			headers.set("Authorization", `Bearer ${opts.signingKey}`);
 		}
 
-		const signal = options.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT);
+		const signal = options.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
 
 		const res = await fetch(url, { headers, body, method: "POST", signal }).catch((cause) => {
 			if (signal.aborted) {
