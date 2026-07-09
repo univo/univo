@@ -70,10 +70,17 @@ export function mutex(fn: (...args: any[]) => void | Promise<void>) {
 	let locked = false;
 
 	return async (...args: any[]) => {
-		if (locked) return;
+		if (locked) {
+			return;
+		}
+
 		locked = true;
-		await fn(...args);
-		locked = false;
+
+		try {
+			await fn(...args);
+		} finally {
+			locked = false;
+		}
 	};
 }
 
