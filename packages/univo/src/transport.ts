@@ -6,7 +6,15 @@ import type { Rpc } from "./rpc";
 import { createException } from "./exceptions";
 import { compress, createLogger, mutex, raise } from "./utils";
 
+/**
+ * CONFIG -----------------------------------------------------------------------------------------------------------------------------------
+ */
+
 const DEFAULT_TIMEOUT = 60 * 1000;
+
+/**
+ * TYPES -----------------------------------------------------------------------------------------------------------------------------------
+ */
 
 type Protocol = "http" | "wss" | "local";
 
