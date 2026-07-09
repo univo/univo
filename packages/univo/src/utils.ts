@@ -66,7 +66,7 @@ export function numberToHex(number: number) {
 	return `0x${number.toString(16)}` as `0x${string}`;
 }
 
-export function mutex(fn: (...args: any[]) => Promise<void>) {
+export function mutex(fn: (...args: any[]) => void | Promise<void>) {
 	let locked = false;
 
 	return async (...args: any[]) => {

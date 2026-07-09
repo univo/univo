@@ -119,7 +119,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 
 	const socket = createSocket(url as "wss://", {
 		async onError(cause) {
-			log.error(new Error("Socket error", { cause }));
+			log.error(`Socket error: ${cause.message}`);
 		},
 
 		async onOpen() {
@@ -150,6 +150,10 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 					subscriptions.set(id, { param, latest: Date.now() });
 				});
 			}
+		},
+
+		async onClose() {
+			log.debug("Socket closed");
 		},
 
 		async onMessage(event) {
@@ -254,34 +258,22 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		};
 	};
 
-	async function healthcheck() {
+	function healthcheck() {
 		try {
-			const params: string[] = [];
+			const failed = Object.values(subscriptions).some((subscription) => {
+				return Date.now() - subscription.latest > 60 * 1000;
+			});
 
-			for (const [id, subscription] of subscriptions) {
-				if (Date.now() - subscription.latest > 60 * 1000) {
-					log.warn(`Subscription ${id} for param ${subscription.param} failed health check. Reinitialising socket...`);
-
-					params.push(subscription.param);
-
-					await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
-						log.warn("Failed to cancel old susbcription");
-					});
-
-					subscriptions.delete(id);
-				}
+			if (!failed) {
+				return;
 			}
 
-			for (const param of params) {
-				const id = await request({ method: "eth_subscribe", params: [param] });
+			log.warn("Health check failed. Reinitialising socket...");
 
-				subscriptions.set(id, { param, latest: Date.now() });
-
-				log.debug(`Reinitialised new subscription ${id} for param ${param}`);
-			}
+			socket.reconnect();
 		} catch (error) {
 			if (error instanceof Error) {
-				log.debug(`Failed healthcheck with error: ${error.message}`);
+				log.debug(`Failed healthcheck: ${error.message}`);
 			}
 		}
 	}
