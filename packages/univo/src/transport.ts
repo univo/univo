@@ -22,6 +22,7 @@ type Transport<R extends Rpc, P extends Protocol = Protocol> = {
 	 */
 	request: <M extends keyof R["request"]>(opts: {
 		method: M;
+		signal?: AbortSignal;
 		params: Parameters<R["request"][M]>;
 	}) => Promise<Awaited<ReturnType<R["request"][M]>>>;
 
@@ -40,13 +41,29 @@ const UnknownMethodError = createException("The requested RPC method does not ex
 
 function local<R extends Rpc>(rpc: R): Transport<R, "local"> {
 	const request: Transport<Rpc>["request"] = async (opts) => {
+		const signal = opts.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT);
+
+		if (signal.aborted) {
+			throw signal.reason;
+		}
+
 		const method = rpc.request[opts.method];
 
 		if (method === undefined) {
 			throw new Error(UnknownMethodError);
 		}
 
-		return await method(...opts.params);
+		const result = method(...opts.params);
+
+		return await new Promise<any>((resolve, reject) => {
+			const abort = () => reject(signal.reason);
+
+			signal.addEventListener("abort", abort, { once: true });
+
+			Promise.resolve(result)
+				.then(resolve, reject)
+				.finally(() => signal.removeEventListener("abort", abort));
+		});
 	};
 
 	const subscribe: Transport<Rpc>["subscribe"] = async () => {
@@ -201,24 +218,39 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 
 	const request: Transport<Rpc>["request"] = async (opts) => {
 		return await new Promise<any>((resolve, reject) => {
-			const body = Object.assign({ id: id++ }, opts);
+			const signal = opts.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT);
 
-			const timeout = setTimeout(() => {
+			const body = {
+				id: id++,
+				method: opts.method,
+				params: opts.params,
+			};
+
+			function cleanup() {
 				requests.delete(body.id);
-				reject(new Error("wss request timed out after 30 seconds"));
-			}, DEFAULT_TIMEOUT);
+				signal.removeEventListener("abort", abort);
+			}
+
+			function abort() {
+				cleanup();
+				reject(signal.reason);
+			}
+
+			if (signal.aborted) {
+				return abort();
+			}
+
+			signal.addEventListener("abort", abort, { once: true });
 
 			requests.set(body.id, (data) => {
-				clearTimeout(timeout);
-				requests.delete(body.id);
+				cleanup();
 				resolve(data);
 			});
 
 			try {
 				socket.send(JSON.stringify(body));
 			} catch (cause) {
-				clearTimeout(timeout);
-				requests.delete(body.id);
+				cleanup();
 				reject(new Error(ClientConnectionError, { cause }));
 			}
 		});
@@ -315,7 +347,13 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 			headers.set("Authorization", `Bearer ${opts.signingKey}`);
 		}
 
-		const res = await fetch(url, { headers, body, method: "POST", signal: AbortSignal.timeout(DEFAULT_TIMEOUT) }).catch((cause) => {
+		const signal = options.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT);
+
+		const res = await fetch(url, { headers, body, method: "POST", signal }).catch((cause) => {
+			if (options.signal?.aborted) {
+				throw options.signal.reason;
+			}
+
 			throw new Error(ClientConnectionError, { cause });
 		});
 
