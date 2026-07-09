@@ -325,7 +325,7 @@ function realtime(opts: RealtimeOptions) {
 
 		let indexerHeight = initialIndexerHeight;
 
-		const poll = async () => {
+		async function poll() {
 			try {
 				log.debug("Polling for finalized height...");
 
@@ -393,12 +393,10 @@ function realtime(opts: RealtimeOptions) {
 				if (error instanceof Error) {
 					log.error(`Failed to reconcile finalized head: ${error.message}`);
 				}
-			} finally {
-				setTimeout(poll, POLLING_INTERVAL_MS);
 			}
-		};
+		}
 
-		await poll();
+		setInterval(mutex(poll), POLLING_INTERVAL_MS);
 
 		log.debug("Started polling finalized height");
 	});
