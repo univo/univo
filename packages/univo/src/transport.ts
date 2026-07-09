@@ -350,8 +350,8 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 		const signal = options.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT);
 
 		const res = await fetch(url, { headers, body, method: "POST", signal }).catch((cause) => {
-			if (options.signal?.aborted) {
-				throw options.signal.reason;
+			if (signal.aborted) {
+				throw signal.reason;
 			}
 
 			throw new Error(ClientConnectionError, { cause });
