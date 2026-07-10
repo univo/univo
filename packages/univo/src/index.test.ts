@@ -424,6 +424,13 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 	expect(deleted).toBe(false);
 });
 
+// Complexity with these tests exists at the moment because it balances the use of writeUnfinalizedHeads
+// and writeFinalizedHeads. The new changes allow these methods to operate independently of each other.
+
+// The purpose of the writeFinalizedHeads function is to accept a list of heads that connects the indexer
+// finalised height to the chain finalised height and process them sequentially. writeUnfinalizedHeads only
+// augments this by allowing the writeFinalizedHeads to skip over work that is already completed.
+
 test.concurrent("public_writeFinalizedHeads writes finalized heads", async () => {
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
@@ -494,7 +501,7 @@ test.concurrent("public_writeFinalizedHeads writes finalized heads", async () =>
 		],
 	});
 
-	expect(upserted).toStrictEqual([block1.eth_getBlockByNumber.hash, block1.eth_getBlockByNumber.hash]);
+	expect(upserted).toStrictEqual([block1.eth_getBlockByNumber.hash]);
 });
 
 test.concurrent("public_writeFinalizedHeads removes reorganised events", async () => {
