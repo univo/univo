@@ -6,7 +6,7 @@ import { createServer } from "./server";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import { catchException, createException } from "./exceptions";
-import { compress, createLogger, decompress, hexToNumber, isHexEqual, normalizeHex, retry } from "./utils";
+import { compress, createLogger, decompress, hexToNumber, isHexEqual, normalizeHex, numberToHex, retry } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -339,16 +339,16 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				);
 			},
 
-			async delete(blocks: TBlock[]) {
+			async delete(blocks: Omit<Head, "parent_hash">[]) {
 				if (blocks.length === 0) {
 					return;
 				}
 
 				await Promise.all(
 					blocks.map(async (block) => {
-						const chain = normalizeHex(block.eth_chainId);
-						const hash = normalizeHex(block.eth_getBlockByNumber.hash);
-						const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
+						const chain = normalizeHex(block.chain);
+						const hash = normalizeHex(block.hash);
+						const number = normalizeHex(block.number, 16);
 						const prefix = `blocks/v1/${chain}/${number}/${hash}`;
 						await opts.metadataStorage.delete(prefix);
 					}),
@@ -385,6 +385,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				const body = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
 
 				await opts.metadataStorage.upload(prefix, body);
+			},
+
+			async delete(commits: { chain: `0x${string}`; number: `0x${string}`; hash: `0x${string}` }[]) {
+				await Promise.all(
+					commits.map(async (commit) => {
+						const chain = normalizeHex(commit.chain);
+						const number = normalizeHex(commit.number, 16);
+						const hash = normalizeHex(commit.hash);
+						const prefix = `commits/v1/${chain}/${number}/${hash}`;
+						await opts.metadataStorage.delete(prefix);
+					}),
+				);
 			},
 		},
 
@@ -828,27 +840,19 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		if (indexerHeight === finalizedHeight) {
 			log.debug("No heads to finalize, returning...");
 
-			// TODO: Clean up
-
-			return;
+			return await cleanupFinalizedHeads(chain, numberToHex(finalizedHeight));
 		}
 
 		for (const head of newHeads) {
-			await processHead(head);
+			await processCanonicalHead(head);
 
-			// Update indexer height without blocking
-
-			metadata.heights.upsert(head.chain, head.number).catch((error) => {
-				if (error instanceof Error) {
-					log.warn(`Failed to upsert new indexer height: ${error.message}`);
-				}
-			});
+			await metadata.heights.upsert(head.chain, head.number);
 		}
 
-		// TODO: Clean up
+		await cleanupFinalizedHeads(chain, numberToHex(finalizedHeight));
 	};
 
-	async function processHead(head: Head) {
+	async function processCanonicalHead(head: Head) {
 		const [processed, commits] = await Promise.all([
 			metadata.blocks.list(head.chain, head.number), //
 			metadata.commits.list(head.chain, head.number),
@@ -983,6 +987,26 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		});
 
 		await Promise.all(promises);
+	}
+
+	async function cleanupFinalizedHeads(chain: `0x${string}`, finalised: `0x${string}`) {
+		const [_blocks, _commits] = await Promise.all([
+			metadata.blocks.list(chain), //
+			metadata.commits.list(chain),
+		]);
+
+		const blocks = _blocks.filter((block) => {
+			return hexToNumber(block.number) <= hexToNumber(finalised);
+		});
+
+		const commits = _commits.filter((commit) => {
+			return hexToNumber(commit.number) <= hexToNumber(finalised);
+		});
+
+		await Promise.all([
+			metadata.blocks.delete(blocks), //
+			metadata.commits.delete(commits),
+		]);
 	}
 
 	const private_getMetadata: IndexerRpc["request"]["private_getMetadata"] = async () => {
