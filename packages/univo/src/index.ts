@@ -281,8 +281,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// because of chain reorganisations
 
 		blocks: {
-			async list(chain: `0x${string}`) {
-				const prefix = `blocks/v1/${normalizeHex(chain)}`;
+			async list(chain: `0x${string}`, number?: `0x${string}`) {
+				let prefix = `blocks/v1/${normalizeHex(chain)}`;
+
+				if (typeof number === "string") {
+					prefix += `/${normalizeHex(number, 16)}`;
+				}
 
 				const keys = await opts.metadataStorage.list({ prefix, limit: 1 });
 
@@ -357,15 +361,19 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// handler that allows it to skip processing blocks that were successfully processed
 
 		commits: {
-			async list(chain: `0x${string}`) {
-				const prefix = `commits/v1/${normalizeHex(chain)}`;
+			async list(chain: `0x${string}`, number?: `0x${string}`) {
+				let prefix = `commits/v1/${normalizeHex(chain)}`;
+
+				if (typeof number === "string") {
+					prefix += `/${normalizeHex(number, 16)}`;
+				}
 
 				const keys = await opts.metadataStorage.list({ prefix });
 
 				const mapped = keys.items.map((key) => {
-					const [_, __, ___, number] = key.path.split("/") as [string, string, `0x${string}`, `0x${string}`];
+					const [_, __, ___, number, hash] = key.path.split("/") as [string, string, `0x${string}`, `0x${string}`, `0x${string}`];
 
-					return { chain, number };
+					return { chain, number, hash };
 				});
 
 				return mapped;
@@ -825,65 +833,70 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return;
 		}
 
-		const [blocks, commits] = await Promise.all([
-			metadata.blocks.list(chain), //
-			metadata.commits.list(chain),
-		]);
-
-		// There is always the possibility that the returned blocks and commits are less than the indexer height because
-		// the clean up process failed for whatever reason. That's why we must optimistically call it here.
-
-		// TODO
-		// The question is do we do this in a batched loop or block by block, the key constraint is memory. If the batch is too
-		// large that it causes persistent OOM then the chain won't be able to finalize. They'd have to deploy their indexer to
-		// a service with more memory. Batching would be so much faster and less costs.
-
 		for (const head of newHeads) {
-			// When a block finalizes we fully reprocess it. This means that we delete any reorganised blocks and we
-			// upsert the final canonical block again. In general this is pretty slow and expensive. In practice this is
-			// okay because this function doesn't need to be fast, and the goal of the system is that we use the two methods
-			// in public_writeUnfinalizedHead and public_deleteReorganisedHead to ensure that the latest chain matches exactly
-			// what the finalized chain processes. So it's likely that this correctness function has no material impact on
-			// the data stored and is just verifies correctness when the chain finalizes
+			await processHead(head);
 
-			if (processed.length === 0) {
-				await writeFinalizedHead(head, null);
+			// Update indexer height without blocking
 
-				continue; // There is no metadata to delete so we just continue
-			}
-
-			const reorganised = processed.filter((block) => {
-				return !isHexEqual(head.hash, block.eth_getBlockByNumber.hash);
+			metadata.heights.upsert(head.chain, head.number).catch((error) => {
+				if (error instanceof Error) {
+					log.warn(`Failed to upsert new indexer height: ${error.message}`);
+				}
 			});
-
-			if (reorganised.length > 0) {
-				await deleteReorganisedBlocks(reorganised);
-			}
-
-			// It's possible that we only processed reorganised blocks and never processed the canonical,
-			// that's why this block can result in a undefined value. In that case we just force the
-			// writeFinalizedHead fn to load the full block again
-
-			const block = processed.find((block) => {
-				return isHexEqual(head.hash, block.eth_getBlockByNumber.hash);
-			});
-
-			await writeFinalizedHead(head, block ?? null);
-
-			// Durably commit the batch by marking it as finalized without blocking
 		}
-
-		// If there are still more blocks to process we loop, otherwise there is no more work to do and we return
 
 		// TODO: Clean up
 	};
 
-	async function writeFinalizedHead(head: Head, block_nullable: TBlock | null) {
-		let block = block_nullable;
+	async function processHead(head: Head) {
+		const [processed, commits] = await Promise.all([
+			metadata.blocks.list(head.chain, head.number), //
+			metadata.commits.list(head.chain, head.number),
+		]);
 
-		if (block === null) {
-			block = await getBlock({ chain: head.chain, number: head.number, hash: head.hash });
+		const reorganised = processed.filter((block) => {
+			return !isHexEqual(head.hash, block.hash);
+		});
+
+		// We check for our common case fast-path
+
+		if (reorganised.length === 0 && processed.length === 1) {
+			const [block] = processed;
+
+			if (block === undefined) {
+				throw new Error("Internal error. Expected block to be defined");
+			}
+
+			if (!isHexEqual(head.hash, block.hash)) {
+				throw new Error("Internal error. Expected canonical block to be processed");
+			}
+
+			if (commits.some((commit) => isHexEqual(head.hash, commit.hash))) {
+				return; // This our common case fast-path
+			}
 		}
+
+		// Check if no blocks we processed at all
+
+		if (processed.length === 0) {
+			await writeFinalizedHead(head);
+
+			return;
+		}
+
+		// Finally, if reorganised and canonical blocks were processed we process everything again
+
+		await Promise.all(
+			reorganised.map(async (block) => {
+				await deleteReorganisedHead(block);
+			}),
+		);
+
+		await writeFinalizedHead(head);
+	}
+
+	async function writeFinalizedHead(head: Head) {
+		const block = await getBlock({ chain: head.chain, number: head.number, hash: head.hash });
 
 		if (block === null) {
 			throw new Error("Received unknown head that wasn't canonical");
@@ -931,14 +944,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await Promise.all(promises);
 	}
 
-	async function deleteReorganisedBlocks(blocks: TBlock[]) {
-		if (blocks.length === 0) {
-			return;
-		}
-
+	async function deleteReorganisedHead(head: Omit<Head, "parent_hash">) {
 		// We know the block is not included in the canonical chain and we know that our storage system upserted
 		// events with this block data. We use the block data to generate the same set of events that we upserted
 		// and provide them to each events delete function
+
+		const block = await getBlock(head);
 
 		const promises = all_events.map(async (event) => {
 			// We intentionally ignore filters and basically perform an optimistic delete on events that might
@@ -949,12 +960,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const batch: any[] = [];
 
 			try {
-				for (const block of blocks) {
-					const events = event.handler(block);
+				const events = event.handler(block);
 
-					for (const event of events) {
-						batch.push(event);
-					}
+				for (const event of events) {
+					batch.push(event);
 				}
 			} catch (error) {
 				log.error(`Failed to run your 'handler' for event ${event.id}`);
