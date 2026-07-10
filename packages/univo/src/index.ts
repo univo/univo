@@ -995,12 +995,16 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			metadata.commits.list(chain),
 		]);
 
+		// Key difference here is that we must always ensure the latest commit remains in storage,
+		// however we can remove all blocks up to and including the finalised height because they
+		// have already been successfully processed
+
 		const blocks = _blocks.filter((block) => {
 			return hexToNumber(block.number) <= hexToNumber(finalised);
 		});
 
 		const commits = _commits.filter((commit) => {
-			return hexToNumber(commit.number) <= hexToNumber(finalised);
+			return hexToNumber(commit.number) < hexToNumber(finalised);
 		});
 
 		await Promise.all([
