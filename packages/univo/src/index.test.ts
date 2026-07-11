@@ -431,6 +431,8 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 // finalised height to the chain finalised height and process them sequentially. writeUnfinalizedHeads only
 // augments this by allowing the writeFinalizedHeads to skip over work that is already completed.
 
+// The first set of tests should not use writeUnfinalizedHeads, the second set should
+
 test.concurrent("public_writeFinalizedHeads writes finalized heads", async () => {
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
