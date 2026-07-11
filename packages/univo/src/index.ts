@@ -906,7 +906,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		if (processed.length === 1) {
 			if (commits.some((commit) => isHexEqual(head.hash, commit.hash) && isHexEqual(head.parent_hash, commit.parent_hash))) {
-				return; // This our common case fast-path
+				return;
 			}
 		}
 
