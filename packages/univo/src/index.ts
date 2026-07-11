@@ -880,6 +880,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	async function processCanonicalHead(head: Head) {
+		// There is one edge case here. There's actually no guarantee this head is canonical. It's
+		// possible for a malicious client to submit the reorganised head. If they do that, and our
+		// indexer only processed the unfinalized reorganised head (and not the canonical head) it
+		// will be incorrectly processed and finalized. This edge case misses our chain check above
+		// because as long as they update the parent hash of the next block in the chain to the
+		// reorganised block it is still considered a valid chain (note that block will throw errors
+		// because it's invalid on the next iteration of this loop). In practice, this won't happen
+		// because it requires only one honest node to submit the canonical head after the chain
+		// reorganisation to cause this function to realise a reorganisation occurred at that block
+		// number and process everything again
+
 		const [processed, commits] = await Promise.all([
 			metadata.blocks.list(head.chain, head.number), //
 			metadata.commits.list(head.chain, head.number),
@@ -916,6 +927,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	async function writeFinalizedHead(head: Head) {
+		// We can either load the block from the chain or load from storage here? Not sure what
+		// is more appropriate it requires more testing in production
+
 		const block = await getBlock({ chain: head.chain, number: head.number, hash: head.hash });
 
 		if (block === null) {
