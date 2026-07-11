@@ -291,16 +291,27 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				const keys = await opts.metadataStorage.list({ prefix, limit: 1 });
 
 				const mapped = keys.items.map((key) => {
-					const [_, __, ___, number, hash] = key.path.split("/") as [string, string, `0x${string}`, `0x${string}`, `0x${string}`];
+					const [_, __, ___, number, hash, parent_hash] = key.path.split("/") as [
+						string,
+						string,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+					];
 
-					return { chain, number, hash };
+					return { chain, number, hash, parent_hash };
 				});
 
 				return mapped;
 			},
 
-			async get(chain: `0x${string}`, number: `0x${string}`, hash: `0x${string}`) {
-				const prefix = `blocks/v1/${normalizeHex(chain)}/${normalizeHex(number, 16)}/${normalizeHex(hash)}`;
+			async get(head: Head) {
+				const chain = normalizeHex(head.chain);
+				const number = normalizeHex(head.number, 16);
+				const hash = normalizeHex(head.hash);
+				const parentHash = normalizeHex(head.parent_hash);
+				const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
 
 				const blob = await opts.metadataStorage.download(prefix, { as: "blob" }).catch((error) => {
 					if (error instanceof StorageError) {
@@ -330,16 +341,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				await Promise.all(
 					blocks.map(async (block) => {
 						const chain = normalizeHex(block.eth_chainId);
-						const hash = normalizeHex(block.eth_getBlockByNumber.hash);
 						const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
-						const prefix = `blocks/v1/${chain}/${number}/${hash}`;
+						const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+						const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
+						const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
 						const compressed = await compress(JSON.stringify(block));
 						await opts.metadataStorage.upload(prefix, compressed);
 					}),
 				);
 			},
 
-			async delete(blocks: Omit<Head, "parent_hash">[]) {
+			async delete(blocks: Head[]) {
 				if (blocks.length === 0) {
 					return;
 				}
@@ -347,9 +359,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				await Promise.all(
 					blocks.map(async (block) => {
 						const chain = normalizeHex(block.chain);
-						const hash = normalizeHex(block.hash);
 						const number = normalizeHex(block.number, 16);
-						const prefix = `blocks/v1/${chain}/${number}/${hash}`;
+						const hash = normalizeHex(block.hash);
+						const parentHash = normalizeHex(block.parent_hash);
+						const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
 						await opts.metadataStorage.delete(prefix);
 					}),
 				);
@@ -371,29 +384,41 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				const keys = await opts.metadataStorage.list({ prefix });
 
 				const mapped = keys.items.map((key) => {
-					const [_, __, ___, number, hash] = key.path.split("/") as [string, string, `0x${string}`, `0x${string}`, `0x${string}`];
+					const [_, __, ___, number, hash, parent_hash] = key.path.split("/") as [
+						string,
+						string,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+					];
 
-					return { chain, number, hash };
+					return { chain, number, hash, parent_hash };
 				});
 
 				return mapped;
 			},
 
-			async upsert(chain: `0x${string}`, number: `0x${string}`, hash: `0x${string}`) {
-				const prefix = `commits/v1/${normalizeHex(chain)}/${normalizeHex(number, 16)}/${normalizeHex(hash)}`;
+			async upsert(head: Head) {
+				const chain = normalizeHex(head.chain);
+				const number = normalizeHex(head.number, 16);
+				const hash = normalizeHex(head.hash);
+				const parentHash = normalizeHex(head.parent_hash);
+				const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
 
 				const body = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
 
 				await opts.metadataStorage.upload(prefix, body);
 			},
 
-			async delete(commits: { chain: `0x${string}`; number: `0x${string}`; hash: `0x${string}` }[]) {
+			async delete(commits: Head[]) {
 				await Promise.all(
 					commits.map(async (commit) => {
 						const chain = normalizeHex(commit.chain);
 						const number = normalizeHex(commit.number, 16);
 						const hash = normalizeHex(commit.hash);
-						const prefix = `commits/v1/${chain}/${number}/${hash}`;
+						const parentHash = normalizeHex(commit.parent_hash);
+						const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
 						await opts.metadataStorage.delete(prefix);
 					}),
 				);
@@ -605,7 +630,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// finalized handler to ensure correctness (slow) but in the common case we don't need to perform
 		// any extra work (fast)
 
-		await metadata.commits.upsert(head.chain, head.number, head.hash);
+		await metadata.commits.upsert(head);
 	};
 
 	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
@@ -615,9 +640,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// canonical chain than this request should yield a block with a different block hash. This is our proof
 		// that this block is no longer included in the chain and that it's safe to delete data associated with it
 
-		const [canonical_block, stored_block] = await Promise.all([
+		const [stored_block, canonical_block] = await Promise.all([
+			metadata.blocks.get(head), //
 			getBlock({ chain: head.chain, number: head.number }),
-			metadata.blocks.get(head.chain, head.number, head.hash),
 		]);
 
 		if (stored_block === null) {
@@ -723,8 +748,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	// The goal of this function is to accept a contigious chain of heads that connect our indexer finalized height
-	// to the chain finalized height. We process each head sequentially, updating our indexer height as we iterate.
-	// Returning an OK response indicates to the client that the indexer height is equal to chain height.
+	// to the chain finalized height. The indexer height is the last known point of canonical chain state, therefore
+	// we are connecting two canonical points on the chain and can be confident that all heads received are canonical.
+	// We process each head sequentially, updating our indexer height as we iterate. Returning an OK response indicates
+	// to the client that the indexer height is equal to chain height AND.
 
 	const public_writeFinalizedHeads: IndexerRpc["request"]["public_writeFinalizedHeads"] = async (heads) => {
 		if (heads.length === 0) {
@@ -858,11 +885,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			metadata.commits.list(head.chain, head.number),
 		]);
 
+		// Check if no blocks we processed at all
+
+		if (processed.length === 0) {
+			return await writeFinalizedHead(head);
+		}
+
+		// We check for our common case fast-path
+
 		const reorganised = processed.filter((block) => {
 			return !isHexEqual(head.hash, block.hash);
 		});
-
-		// We check for our common case fast-path
 
 		if (reorganised.length === 0 && processed.length === 1) {
 			const [block] = processed;
@@ -871,21 +904,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				throw new Error("Internal error. Expected block to be defined");
 			}
 
-			if (!isHexEqual(head.hash, block.hash)) {
+			if (!isHexEqual(head.hash, block.hash) || !isHexEqual(head.parent_hash, block.parent_hash)) {
 				throw new Error("Internal error. Expected canonical block to be processed");
 			}
 
-			if (commits.some((commit) => isHexEqual(head.hash, commit.hash))) {
+			if (commits.some((commit) => isHexEqual(head.hash, commit.hash) && isHexEqual(head.parent_hash, block.parent_hash))) {
 				return; // This our common case fast-path
 			}
-		}
-
-		// Check if no blocks we processed at all
-
-		if (processed.length === 0) {
-			await writeFinalizedHead(head);
-
-			return;
 		}
 
 		// Finally, if reorganised and canonical blocks were processed we process everything again
@@ -948,7 +973,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await Promise.all(promises);
 	}
 
-	async function deleteReorganisedHead(head: Omit<Head, "parent_hash">) {
+	async function deleteReorganisedHead(head: Head) {
 		// We know the block is not included in the canonical chain and we know that our storage system upserted
 		// events with this block data. We use the block data to generate the same set of events that we upserted
 		// and provide them to each events delete function
