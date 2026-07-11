@@ -893,11 +893,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// We check for our common case fast-path
 
-		const reorganised = processed.filter((block) => {
-			return !isHexEqual(head.hash, block.hash);
-		});
-
-		if (reorganised.length === 0 && processed.length === 1) {
+		if (processed.length === 1) {
 			if (commits.some((commit) => isHexEqual(head.hash, commit.hash) && isHexEqual(head.parent_hash, commit.parent_hash))) {
 				return; // This our common case fast-path
 			}
@@ -905,6 +901,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Finally, if some number of reorganised and canonical blocks were processed we must process everything
 		// again because we cannot determine any ordering for how those blocks were processed
+
+		const reorganised = processed.filter((block) => {
+			return !isHexEqual(head.hash, block.hash);
+		});
 
 		await Promise.all(
 			reorganised.map(async (block) => {
