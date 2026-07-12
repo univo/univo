@@ -896,12 +896,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			metadata.commits.list(head.chain, head.number),
 		]);
 
-		// Check if no blocks we processed at all
-
-		if (processed.length === 0) {
-			return await writeFinalizedHead(head);
-		}
-
 		// We check for our common case fast-path
 
 		if (processed.length === 1) {
