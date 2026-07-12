@@ -904,7 +904,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			}
 		}
 
-		// Finally, if some number of reorganised and canonical blocks were processed we must process everything
+		// Otherwise, if some number of reorganised and canonical blocks were processed we must process everything
 		// again because we cannot determine any ordering for how those blocks were processed
 
 		const reorganised = processed.filter((block) => {
