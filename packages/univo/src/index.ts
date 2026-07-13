@@ -288,7 +288,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					prefix += `/${normalizeHex(number, 16)}`;
 				}
 
-				const keys = await opts.metadataStorage.list({ prefix, limit: 1 });
+				const keys = await opts.metadataStorage.list({ prefix });
 
 				const mapped = keys.items.map((key) => {
 					const [_, __, ___, number, hash, parent_hash] = key.path.split("/") as [
@@ -977,7 +977,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// events with this block data. We use the block data to generate the same set of events that we upserted
 		// and provide them to each events delete function
 
-		const block = await getBlock(head);
+		const block = await metadata.blocks.get(head);
+
+		// The reorganised block only exists in metadata so must load it from there
+
+		if (block === null) {
+			throw new Error("Expected reorganised block to exist in metadata");
+		}
 
 		const promises = all_events.map(async (event) => {
 			// We intentionally ignore filters and basically perform an optimistic delete on events that might
