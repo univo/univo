@@ -545,11 +545,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		if (hexToNumber(head.number) <= finalizedHeight) {
 			// TODO:
 			// This attack vector is no longer possible in the new finalization mechanism?
-			// Or we could load the finalised height from the metadata table?
+			// Or we could load the finalized height from the metadata table?
 
-			// We must ensure each block is actually unfinalised to prevent an attack vector where a client could submit
+			// We must ensure each block is actually unfinalized to prevent an attack vector where a client could submit
 			// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
-			// stall indexing. We filter them out here and continue operating on unfinalised heads
+			// stall indexing. We filter them out here and continue operating on unfinalized heads
 
 			return;
 		}
@@ -816,7 +816,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		// This is a rare case that only happens the first time an indexer is started and we haven't stored
-		// a height for this given chain yet. As an optimisation we upsert the chain finalised height and
+		// a height for this given chain yet. As an optimisation we upsert the chain finalized height and
 		// manually push it to the finalized heights
 
 		if (heights.length === 0) {
@@ -825,42 +825,25 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			heights.push({ chain, number: finalizedBlock.eth_getBlockByNumber.number });
 		}
 
-		// We need to verify that the first head received is one greater than the indexer. However, we allow
-		// clients to send older heads than this. This is because it's a reasonable expectation for a client to
-		// have a stale understanding of the indexer height so we just filter those out instead of throwing
-
-		// There will exist at least one height in the array so this cannot result in -Infinity
-
 		const indexerHeight = Math.max(...heights.map((height) => hexToNumber(height.number)));
-
-		const newHeads = heads.filter((head) => {
-			return hexToNumber(head.number) > indexerHeight;
-		});
-
-		const [firstNewHead] = newHeads;
-
-		if (firstNewHead === undefined || hexToNumber(firstNewHead.number) !== indexerHeight + 1) {
-			throw new Error("Client advanced too far. Heads received are greater than the first new head");
-		}
-
-		// Verify that the latest head received is equal to the chain finalized block. If not we throw an error
-		// because clients should never try finalise heads greater than the chain finalized height. A common
-		// error here is when the node connected to the client finalises but the node connected to the indexer
-		// still hasn't seen that finalised height. This means the client has optimistically sent heads that
-		// we haven't seen finalised. The client should automatically retry the request after a period of time
-		// when both nodes will agree on the finalized height and we can continue
-
-		const lastNewHead = newHeads[newHeads.length - 1];
 
 		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
-		if (lastNewHead === undefined || hexToNumber(lastNewHead.number) !== finalizedHeight) {
-			throw new Error("Client has stalled. Chain has finalised greater than the heads received");
+		// Verify that the latest head received is equal to the chain finalized block. If not we throw an error
+		// because clients should never try finalize heads greater than the chain finalized height. A common
+		// error here is when the node connected to the client finalizes but the node connected to the indexer
+		// still hasn't seen that finalized height. This means the client has optimistically sent heads that
+		// we haven't seen finalized. The client should automatically retry the request after a period of time
+		// when both nodes will agree on the finalized height and we can continue
+
+		const lastHead = heads[heads.length - 1];
+
+		if (lastHead === undefined || hexToNumber(lastHead.number) !== finalizedHeight) {
+			throw new Error("Client has stalled. Chain has finalized greater than the heads received");
 		}
 
-		// Now that we have fully verified that the received heads connect the indexer height to the chain
-		// finalized height, we need to perform all the work required to get our indexer height equal to
-		// the chain height before returning OK to the client
+		// We are now confident that the received heads end at the chain finalized height. We now check if
+		// there is work that we need to do to finalize our indexer.
 
 		log.debug(`Indexer height ${indexerHeight}, finalized height ${finalizedHeight}`);
 
@@ -868,6 +851,28 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			log.debug("No heads to finalize, returning...");
 
 			return await cleanupFinalizedHeads(chain, numberToHex(finalizedHeight));
+		}
+
+		// We know know there is work to do and we need to seqentially process heads from the indexer height
+		// until the chain height. We must first verify that we have received enough heads to make this
+		// connection. It's possible for clients to have a stale understanding of the indexer height so we
+		// just filter those heads out instead of throwing
+
+		const newHeads = heads.filter((head) => {
+			return hexToNumber(head.number) > indexerHeight;
+		});
+
+		const [firstNewHead] = newHeads;
+
+		if (firstNewHead === undefined) {
+			// We know that the last head received is equal to the chain height which must be greater
+			// than or equal to the indexer height, so we should never have an undefined head here
+
+			throw new Error("Internal error. Expected at least one head greater than the indexer height.");
+		}
+
+		if (hexToNumber(firstNewHead.number) !== indexerHeight + 1) {
+			throw new Error("Client advanced too far. Heads received are greater than the first new head");
 		}
 
 		for (const head of newHeads) {
@@ -1019,22 +1024,22 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await Promise.all(promises);
 	}
 
-	async function cleanupFinalizedHeads(chain: `0x${string}`, finalised: `0x${string}`) {
+	async function cleanupFinalizedHeads(chain: `0x${string}`, finalized: `0x${string}`) {
 		const [_blocks, _commits] = await Promise.all([
 			metadata.blocks.list(chain), //
 			metadata.commits.list(chain),
 		]);
 
 		// Key difference here is that we must always ensure the latest commit remains in storage,
-		// however we can remove all blocks up to and including the finalised height because they
+		// however we can remove all blocks up to and including the finalized height because they
 		// have already been successfully processed
 
 		const blocks = _blocks.filter((block) => {
-			return hexToNumber(block.number) <= hexToNumber(finalised);
+			return hexToNumber(block.number) <= hexToNumber(finalized);
 		});
 
 		const commits = _commits.filter((commit) => {
-			return hexToNumber(commit.number) < hexToNumber(finalised);
+			return hexToNumber(commit.number) < hexToNumber(finalized);
 		});
 
 		await Promise.all([
