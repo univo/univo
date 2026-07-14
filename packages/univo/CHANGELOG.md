@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.19...v0.2.20
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.19...v0.2.20)
+
+### 🩹 Fixes
+
+- **realtime:** Fix infinite abort signal ([#65](https://github.com/univo/univo/pull/65))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.18...v0.2.19
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.18...v0.2.19)
