@@ -169,6 +169,7 @@ type Event<TBlock, TEvent> = {
 		 * multiple times it only produces a single set of events in your storage system.
 		 */
 		upsert: (events: TEvent[]) => Promise<void>;
+
 		/**
 		 * Deletes a batch of events from your storage system.
 		 *
@@ -177,6 +178,24 @@ type Event<TBlock, TEvent> = {
 		 * upserted into your storage system that are no longer part of the canonical chain are safely removed.
 		 */
 		delete: (events: TEvent[]) => Promise<void>;
+	};
+};
+
+/**
+ * Actions -----------------------------------------------------------------------------------------------------------------------------------
+ */
+
+type Action<TBlock, TEvent> = {
+	/**
+	 * A human-readable identifier for the action.
+	 */
+	id: string;
+
+	event: Event<TBlock, TEvent>;
+
+	handler: {
+		latest?: (event: TEvent) => Promise<void> | void;
+		finalized?: (event: TEvent) => Promise<void> | void;
 	};
 };
 
@@ -258,8 +277,21 @@ type IndexerOptions<TBlock> = {
 };
 
 type Indexer<TBlock> = {
+	/**
+	 * A web standard HTTP request handler. This is the entrypoint to your indexer and allows it to be deployed
+	 * and receive requests and process responses.
+	 */
 	fetch: (req: Request) => Promise<Response>;
+
+	/**
+	 * Define on-chain events you want to record in your off-chain storage system
+	 */
 	event: <TEvent>(event: Event<TBlock, TEvent>) => Event<TBlock, TEvent>;
+
+	/**
+	 * Perform fire-and-forget effects in response to on-chain events
+	 */
+	action: <TEvent>(action: Action<TBlock, TEvent>) => Action<TBlock, TEvent>;
 };
 
 function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
@@ -270,6 +302,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const all_events: Event<any, any>[] = [];
 	const events_grouped_by_storage_map = new Map<Event<any, any>["storage"], Event<any, any>[]>();
+
+	// Actions
+
+	const all_actions: Action<any, any>[] = [];
 
 	// Metadata storage interface. Functionally this is responsible for storing all state related to ensuring
 	// the correct processing of the indexer.
@@ -568,7 +604,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const events_start = Date.now();
 
-		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
+		const events = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
 			const batch: any[] = [];
 
 			for (const event of grouped_events) {
@@ -607,7 +643,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			}
 		});
 
-		await Promise.all(promises);
+		await Promise.all(events);
 
 		log.debug(`Wrote events in ${Date.now() - events_start}ms`);
 
@@ -631,6 +667,30 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// any extra work (fast)
 
 		await metadata.commits.upsert(head);
+
+		// Finally, we perform any actions listening for those events. Any actions performed when a block is
+		// first received run under a best-effort invocation. To provide any better guarantee is practically
+		// impossible because block finalization happens within a time constraint. In practice, applications
+		// use this handler to notify users that certain actions were acknowledged. It is usually okay for
+		// this notification to fail (very rare), it is more important that the event for that action is
+		// recorded in storage. If an application needs to guarantee this handler is run, they should execute
+		// the same logic in the finalized handler which does provide at-least-once processing semantics.
+
+		const actions = all_actions.flatMap((action) => {
+			if (typeof action.handler.latest === "undefined") {
+				return [];
+			}
+
+			return action.event.handler(block).map(async (event) => {
+				await retry(() => action.handler.latest!(event), 2).catch((error) => {
+					log.error(`Failed to execute 'latest' action ${action.id}`);
+
+					throw error;
+				});
+			});
+		});
+
+		await Promise.allSettled(actions);
 	};
 
 	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
@@ -876,7 +936,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		for (const head of newHeads) {
-			await processCanonicalHead(head);
+			await Promise.all([
+				processEventsForCanonicalHead(head),
+				processActionsForCanonicalHead(head), //
+			]);
 
 			await metadata.heights.upsert(head.chain, head.number);
 		}
@@ -884,7 +947,34 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await cleanupFinalizedHeads(chain, numberToHex(finalizedHeight));
 	};
 
-	async function processCanonicalHead(head: Head) {
+	async function processActionsForCanonicalHead(head: Head) {
+		// We must receive an OK response from every finalized handler for this block in order
+		// to advance. This ensures at-least-once delivery to the finalized handler.
+
+		if (all_actions.every((action) => typeof action.handler.finalized === "undefined")) {
+			return; // Optimisation if the indexer has defined no finalized action handlers
+		}
+
+		const block = await getBlock({ chain: head.chain, number: head.number, hash: head.hash });
+
+		const promises = all_actions.flatMap((action) => {
+			if (typeof action.handler.finalized === "undefined") {
+				return [];
+			}
+
+			return action.event.handler(block).map(async (event) => {
+				await retry(() => action.handler.finalized!(event), 2).catch((error) => {
+					log.error(`Failed to execute 'finalized' action ${action.id}`);
+
+					throw error;
+				});
+			});
+		});
+
+		await Promise.all(promises);
+	}
+
+	async function processEventsForCanonicalHead(head: Head) {
 		// There is one edge case here. There's actually no guarantee this head is canonical. It's
 		// possible for a malicious client to submit the reorganised head. If they do that, and our
 		// indexer only processed the unfinalized reorganised head (and not the canonical head) it
@@ -1435,6 +1525,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return event;
 	};
 
+	const action: Indexer<TBlock>["action"] = (action) => {
+		all_actions.push(action);
+
+		return action;
+	};
+
 	const rpc: IndexerRpc = {
 		request: {
 			public_getFinalizedHeight,
@@ -1457,9 +1553,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		signingKey: opts.signingKey,
 	});
 
-	const indexer = {
+	const indexer: Indexer<TBlock> & IndexerRpc = {
 		...rpc,
 		event,
+		action,
 		fetch: server.http,
 	};
 

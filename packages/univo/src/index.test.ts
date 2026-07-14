@@ -48,6 +48,79 @@ test.concurrent("throws an error if an event with an invalid id is defined", () 
 	}).toThrowError;
 });
 
+test.concurrent("public_writeUnfinalizedHead calls actions", async () => {
+	const chainFinalizedHeight = 0;
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: test_metadataStorage(),
+		getBlock: async ({ chain, number }) => {
+			if (number === "finalized") {
+				return test_getBlock({ chain, number: numberToHex(chainFinalizedHeight) });
+			}
+
+			return test_getBlock({ chain, number });
+		},
+	});
+
+	const event = univo.event({
+		id: "event",
+
+		filters: [{ chain: 1, fromBlock: 0 }],
+
+		handler: (block) => {
+			return [block.eth_getBlockByNumber.hash];
+		},
+
+		storage: {
+			upsert: async () => {
+				//
+			},
+
+			delete: async () => {
+				//
+			},
+		},
+	});
+
+	let latest = false;
+	let finalized = false;
+
+	univo.action({
+		event,
+
+		id: "action",
+
+		handler: {
+			latest: async () => {
+				latest = true;
+			},
+
+			finalized: async () => {
+				finalized = true;
+			},
+		},
+	});
+
+	const block = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+
+	await local(univo).request({
+		method: "public_writeUnfinalizedHead",
+		params: [
+			{
+				chain: block.eth_chainId,
+				hash: block.eth_getBlockByNumber.hash,
+				number: block.eth_getBlockByNumber.number,
+				parent_hash: block.eth_getBlockByNumber.parentHash,
+			},
+		],
+	});
+
+	expect(latest).toBe(true);
+	expect(finalized).toBe(false);
+});
+
 test.concurrent("public_writeUnfinalizedHead upserts events", async () => {
 	const block9 = await test_getBlock({ chain: "0x1", number: numberToHex(9) });
 	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
@@ -872,6 +945,101 @@ test.concurrent("public_writeFinalizedHeads throws when receiving heads from dif
 	});
 
 	await expect(promise).rejects.toThrow("Received heads from separate chains");
+});
+
+test.concurrent("public_writeFinalizedHeads calls actions", async () => {
+	let chainFinalizedHeight = 0;
+
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: test_metadataStorage(),
+		getBlock: async (block) => {
+			if (block.number === "finalized") {
+				return await test_getBlock({ chain: "0x1", number: numberToHex(chainFinalizedHeight) });
+			}
+
+			return await test_getBlock(block);
+		},
+	});
+
+	const event = univo.event({
+		id: "event",
+
+		filters: [{ chain: 1, fromBlock: 0 }],
+
+		handler: (block) => [hexToNumber(block.eth_getBlockByNumber.number)],
+
+		storage: {
+			async upsert() {
+				//
+			},
+
+			async delete() {
+				//
+			},
+		},
+	});
+
+	let latest = false;
+	let finalized = false;
+
+	univo.action({
+		id: "action",
+
+		event,
+
+		handler: {
+			latest: async () => {
+				latest = true;
+			},
+
+			finalized: async () => {
+				finalized = true;
+			},
+		},
+	});
+
+	// 1. Chain and indexer are finalised at 0
+
+	const initialIndexerFinalizedHeight = await local(univo).request({
+		method: "public_getFinalizedHeight",
+		params: ["0x1"],
+	});
+
+	expect(initialIndexerFinalizedHeight).toBe(0);
+
+	// 2. Chain finalizes at 10
+
+	chainFinalizedHeight = 10;
+
+	// 3. Finalize 10 new heads
+
+	const result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+	const newHeads = await Promise.all(
+		result.map(async (number) => {
+			const block = await test_getBlock({
+				chain: "0x1",
+				number: numberToHex(number),
+			});
+
+			return {
+				chain: block.eth_chainId,
+				hash: block.eth_getBlockByNumber.hash,
+				number: block.eth_getBlockByNumber.number,
+				parent_hash: block.eth_getBlockByNumber.parentHash,
+			};
+		}),
+	);
+
+	await local(univo).request({
+		method: "public_writeFinalizedHeads",
+		params: [newHeads],
+	});
+
+	expect(latest).toBe(false);
+	expect(finalized).toBe(true);
 });
 
 test.concurrent("private_writeEvents indexes only the events requested", async () => {

@@ -91,7 +91,7 @@ export function isHexEqual(a: `0x${string}`, b: `0x${string}`) {
 /**
  * Retries a function n number of times before giving up
  */
-export async function retry<T>(fn: () => Promise<T>, retries: number, __count = 1): Promise<T> {
+export async function retry<T>(fn: () => Promise<T> | T, retries: number, __count = 1): Promise<T> {
 	try {
 		return await fn();
 	} catch (error) {
