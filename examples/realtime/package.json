@@ -4,7 +4,7 @@
   "name": "realtime",
   "module": "index.ts",
   "dependencies": {
-    "univo": "0.2.18"
+    "univo": "0.2.19"
   },
   "devDependencies": {
     "typescript": "^5.8.2"
