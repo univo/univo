@@ -367,9 +367,11 @@ function realtime(opts: RealtimeOptions) {
 
 				log.debug(`Delivering ${newHeads.length} finalized head(s)...`);
 
+				const controller = new AbortController();
+
 				await opts.indexer.request({
 					params: [newHeads],
-					signal: new AbortSignal(),
+					signal: controller.signal,
 					method: "public_writeFinalizedHeads",
 				});
 
