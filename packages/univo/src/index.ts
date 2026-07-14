@@ -525,6 +525,15 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				await opts.metadataStorage.upload(prefix, body);
 			},
+
+			async delete(heights: { chain: `0x${string}`; number: `0x${string}` }[]) {
+				await Promise.all(
+					heights.map(async (height) => {
+						const prefix = `heights/v1/${normalizeHex(height.chain)}/${normalizeHex(height.number, 16)}`;
+						await opts.metadataStorage.delete(prefix);
+					}),
+				);
+			},
 		},
 	};
 
@@ -1150,26 +1159,32 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	async function cleanupFinalizedHeads(chain: `0x${string}`, finalized: `0x${string}`) {
-		const [_blocks, _commits] = await Promise.all([
+		const [_blocks, _commits, _heights] = await Promise.all([
 			metadata.blocks.list(chain), //
 			metadata.commits.list(chain),
+			metadata.heights.list(chain),
 		]);
-
-		// Key difference here is that we must always ensure the latest commit remains in storage,
-		// however we can remove all blocks up to and including the finalized height because they
-		// have already been successfully processed
 
 		const blocks = _blocks.filter((block) => {
 			return hexToNumber(block.number) <= hexToNumber(finalized);
 		});
 
 		const commits = _commits.filter((commit) => {
-			return hexToNumber(commit.number) < hexToNumber(finalized);
+			return hexToNumber(commit.number) <= hexToNumber(finalized);
+		});
+
+		// Key difference here is that we must always ensure the latest height remains in storage,
+		// however we can remove all blocks and commits up to and including the finalized height
+		// because they have already been successfully processed
+
+		const heights = _heights.filter((height) => {
+			return hexToNumber(height.number) < hexToNumber(finalized);
 		});
 
 		await Promise.all([
 			metadata.blocks.delete(blocks), //
 			metadata.commits.delete(commits),
+			metadata.heights.delete(heights),
 		]);
 	}
 
