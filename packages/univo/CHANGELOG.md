@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.20...v0.2.21
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.20...v0.2.21)
+
+### 🩹 Fixes
+
+- **realtime:** Fix AbortController ([#67](https://github.com/univo/univo/pull/67))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.19...v0.2.20
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.19...v0.2.20)
