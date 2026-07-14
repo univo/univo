@@ -238,6 +238,10 @@ function realtime(opts: RealtimeOptions) {
 				try {
 					log.debug("Received unfinalized head");
 
+					// TODO
+					// We should only retry failed network requests. If we fail to process events or actions they will be retried within
+					// the server. This mitigates a thundering herd of retries caused by a persistent failure to process events
+
 					await retry(() => opts.indexer.request({ method: "public_writeUnfinalizedHead", params: [{ chain, ...head }] }), 2);
 
 					log.debug("Delivered unfinalized head");
