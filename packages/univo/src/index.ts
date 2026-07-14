@@ -191,10 +191,45 @@ type Action<TBlock, TEvent> = {
 	 */
 	id: string;
 
+	/**
+	 * The on-chain event that should invoke this action.
+	 */
 	event: Event<TBlock, TEvent>;
 
+	/**
+	 * The action you want to execute when the event occurs on-chain.
+	 *
+	 * Actions are processed during realtime indexing only and are never invoked during historical
+	 * backfills. Common actions include payment notifications for confirming payments or customer
+	 * deposits, transaction monitoring for KYC/AML compliance tracking, DeFi protocol monitoring,
+	 * or wallet activity notifications or alerts.
+	 *
+	 * Actions may be invoked multiple times. It is important that your application code is
+	 * resilient to this by making use of an idempotency key - usually the id of the event passed
+	 * to your handler.
+	 *
+	 * In production, actions should perform lightweight processing only. Do not use them for
+	 * long-running tasks. Actions are extremely powerful when combined with a durable execution
+	 * framework like Temporal, Inngest, Trigger.dev, Cloudflare Workflows, or Restate.dev to
+	 * perform more advanced workflows that allow you to chain together multiple steps and
+	 * automatically handle retries.
+	 */
 	handler: {
+		/**
+		 * Executes your action when the event first occurs on-chain.
+		 *
+		 * Latest handlers operate with best-effort delivery. If your handler throws an error it will be
+		 * retried 2 and then ignored. If you need to guarantee that your latest handler is invoked
+		 * successfully you should run the same action code again from a finalized handler.
+		 */
 		latest?: (event: TEvent) => Promise<void> | void;
+
+		/**
+		 * Executes your action when the event finalizes on-chain.
+		 *
+		 * Finalized handlers operate with at-least-once delivery. We guarantee that the indexer
+		 * will not finalize a given block until it receives a successful response from your action.
+		 */
 		finalized?: (event: TEvent) => Promise<void> | void;
 	};
 };
@@ -284,12 +319,12 @@ type Indexer<TBlock> = {
 	fetch: (req: Request) => Promise<Response>;
 
 	/**
-	 * Define on-chain events you want to record in your off-chain storage system
+	 * Define on-chain events you want to record in your off-chain storage system.
 	 */
 	event: <TEvent>(event: Event<TBlock, TEvent>) => Event<TBlock, TEvent>;
 
 	/**
-	 * Perform fire-and-forget effects in response to on-chain events
+	 * Perform fire-and-forget effects in response to on-chain events.
 	 */
 	action: <TEvent>(action: Action<TBlock, TEvent>) => Action<TBlock, TEvent>;
 };
