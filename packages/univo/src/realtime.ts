@@ -369,8 +369,8 @@ function realtime(opts: RealtimeOptions) {
 
 				await opts.indexer.request({
 					params: [newHeads],
+					signal: new AbortSignal(),
 					method: "public_writeFinalizedHeads",
-					signal: AbortSignal.timeout(Number.POSITIVE_INFINITY),
 				});
 
 				log.debug(`Delivered ${newHeads.length} finalized head(s)`);
