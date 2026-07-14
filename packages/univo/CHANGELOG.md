@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.21...v0.2.22
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.21...v0.2.22)
+
+### 🩹 Fixes
+
+- **indexer:** Ensure height metadata is cleaned up ([#69](https://github.com/univo/univo/pull/69))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.20...v0.2.21
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.20...v0.2.21)
