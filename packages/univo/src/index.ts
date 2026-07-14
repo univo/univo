@@ -314,7 +314,7 @@ type IndexerOptions<TBlock> = {
 type Indexer<TBlock> = {
 	/**
 	 * A web standard HTTP request handler. This is the entrypoint to your indexer and allows it to be deployed
-	 * and receive requests and process responses.
+	 * to your framework of choice so that it can receive requests and process responses.
 	 */
 	fetch: (req: Request) => Promise<Response>;
 
