@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2.18...v0.2.19
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.18...v0.2.19)
+
+### 🚀 Enhancements
+
+- **indexer:** Increase timeout when finalizing heads ([#60](https://github.com/univo/univo/pull/60))
+- **actions:** Add support for actions ([#63](https://github.com/univo/univo/pull/63))
+
+### 🩹 Fixes
+
+- **wss:** Healthcheck fails to reinitialise socket transport ([#59](https://github.com/univo/univo/pull/59))
+- **realtime:** Use interval polling for finalization ([#61](https://github.com/univo/univo/pull/61))
+- **indexer:** Simplify finalization strategy ([#62](https://github.com/univo/univo/pull/62))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.18
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.17...v0.2.18)
