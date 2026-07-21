@@ -49,29 +49,13 @@ const UnknownMethodError = createException("The requested RPC method does not ex
 
 function local<R extends Rpc>(rpc: R): Transport<R, "local"> {
 	const request: Transport<Rpc>["request"] = async (opts) => {
-		const signal = opts.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
-
-		if (signal.aborted) {
-			throw signal.reason;
-		}
-
 		const method = rpc.request[opts.method];
 
 		if (method === undefined) {
 			throw new Error(UnknownMethodError);
 		}
 
-		const result = method(...opts.params);
-
-		return await new Promise<any>((resolve, reject) => {
-			const abort = () => reject(signal.reason);
-
-			signal.addEventListener("abort", abort, { once: true });
-
-			Promise.resolve(result)
-				.then(resolve, reject)
-				.finally(() => signal.removeEventListener("abort", abort));
-		});
+		return await method(...opts.params);
 	};
 
 	const subscribe: Transport<Rpc>["subscribe"] = async () => {

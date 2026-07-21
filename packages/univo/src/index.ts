@@ -933,12 +933,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
-		// Verify that the latest head received is equal to the chain finalized block. If not we throw an error
-		// because clients should never try finalize heads greater than the chain finalized height. A common
-		// error here is when the node connected to the client finalizes but the node connected to the indexer
-		// still hasn't seen that finalized height. This means the client has optimistically sent heads that
-		// we haven't seen finalized. The client should automatically retry the request after a period of time
-		// when both nodes will agree on the finalized height and we can continue
+		// Verify that the latest head received is equal to the chain finalized block. If we have not received
+		// enough heads we throw, if we have received heads greater than the chain finalized height we throw.
+
+		// A common error here occurs when the realtime client and indexer are connected to different nodes. The
+		// client will see from their node that the chain finalized at a new height, but the indexer may get a
+		// stale response from the ndoe it's connected to and not agree on that new height. This is easily solved
+		// by the client just immediately retrying the request until both nodes agree on the new finalized height.
 
 		const lastHead = heads[heads.length - 1];
 
@@ -946,21 +947,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error("Client has stalled. Chain has finalized greater than the heads received");
 		}
 
-		// We are now confident that the received heads end at the chain finalized height. We now check if
-		// there is work that we need to do to finalize our indexer.
-
 		log.debug(`Indexer height ${indexerHeight}, finalized height ${finalizedHeight}`);
 
-		if (indexerHeight === finalizedHeight) {
-			log.debug("No heads to finalize, returning...");
-
-			return await cleanupFinalizedHeads(chain, numberToHex(finalizedHeight));
-		}
-
-		// We know know there is work to do and we need to seqentially process heads from the indexer height
-		// until the chain height. We must first verify that we have received enough heads to make this
-		// connection. It's possible for clients to have a stale understanding of the indexer height so we
-		// just filter those heads out instead of throwing
+		// Finally, we verify that the heads received connect the chain back to our the block finalized in the last
+		// iteration. Essentially, we are connected canonical blocks that have finalized on chain. This is what allows
+		// us to trust the heads received from the client
 
 		const newHeads = heads.filter((head) => {
 			return hexToNumber(head.number) > indexerHeight;
@@ -968,15 +959,25 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const [firstNewHead] = newHeads;
 
-		if (firstNewHead === undefined) {
-			// We know that the last head received is equal to the chain height which must be greater
-			// than or equal to the indexer height, so we should never have an undefined head here
+		if (firstNewHead === undefined && indexerHeight === finalizedHeight) {
+			return log.debug("No heads to finalize, returning...");
+		}
 
-			throw new Error("Internal error. Expected at least one head greater than the indexer height.");
+		if (firstNewHead === undefined) {
+			throw new Error("Internal error. Expected at least one head greater than the indexer height and less than the finalized height.");
 		}
 
 		if (hexToNumber(firstNewHead.number) !== indexerHeight + 1) {
 			throw new Error("Client advanced too far. Heads received are greater than the first new head");
+		}
+
+		// We always optimistically perform clean up. This prevents our metadata layer getting into a state
+		// where it fails to make new progress because the amount of work to clean up is greater than what
+		// any single `list` call will return. We could perform recursive `list` calls to the metadata layer
+		// but that could create be unbounded so I want to avoid it
+
+		if (heights.length > 1) {
+			await cleanupFinalizedHeads(chain, numberToHex(indexerHeight));
 		}
 
 		for (const head of newHeads) {
@@ -1028,7 +1029,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// because it's invalid on the next iteration of this loop). In practice, this won't happen
 		// because it requires only one honest node to submit the canonical head after the chain
 		// reorganisation to cause this function to realise a reorganisation occurred at that block
-		// number and process everything again
+		// number and process everything again. Could optimistically check the next head to solve this?
 
 		const [processed, commits] = await Promise.all([
 			metadata.blocks.list(head.chain, head.number), //
