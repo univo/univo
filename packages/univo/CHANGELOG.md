@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.22...v0.2.23
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.22...v0.2.23)
+
+### 🩹 Fixes
+
+- **realtime:** Fix metadata garbage collection ([#71](https://github.com/univo/univo/pull/71))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.21...v0.2.22
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.21...v0.2.22)
