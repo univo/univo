@@ -190,7 +190,7 @@ type RealtimeOptions = {
 	/**
 	 * Silences all logs including errors.
 	 *
-	 * Logs are emitted based on the environment LOG_LEVEL. Set `quiet: true` to surpress all logs.
+	 * Logs are emitted based on the environment LOG_LEVEL. Set `quiet: true` to suppress all logs.
 	 * Available log options are `DEBUG`, `INFO`, `WARN`, and `ERROR`.
 	 */
 	quiet?: boolean;
@@ -205,9 +205,10 @@ type RealtimeOptions = {
 	/**
 	 * Connection to a univo indexer.
 	 *
-	 * Must use the `http` transport protocol from `univo/transport`
+	 * Must use the `http` or `local` transport protocol from `univo/transport`. If you want to deploy your
+	 * indexer and realtime client in a single monolithic deployment, you should use the `local` transport.
 	 */
-	indexer: Transport<IndexerRpc, "http">;
+	indexer: Transport<IndexerRpc, "http" | "local">;
 };
 
 function realtime(opts: RealtimeOptions) {
