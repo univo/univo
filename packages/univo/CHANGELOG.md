@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.23...v0.2.24
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.23...v0.2.24)
+
+### 🚀 Enhancements
+
+- **realtime:** Accept local transport on realtime client ([#73](https://github.com/univo/univo/pull/73))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.22...v0.2.23
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.22...v0.2.23)
