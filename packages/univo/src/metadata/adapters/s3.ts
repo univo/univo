@@ -117,9 +117,9 @@ function s3(opts: S3Options) {
 
 			const parsed = parser.parse(text) as {
 				ListBucketResult?: {
-					Contents?: { Key?: string } | { Key?: string }[];
 					IsTruncated?: string;
 					NextContinuationToken?: string;
+					Contents?: { Key?: string } | { Key?: string }[];
 				};
 			};
 
