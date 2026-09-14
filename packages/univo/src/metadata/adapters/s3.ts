@@ -63,6 +63,16 @@ function s3(opts: S3Options) {
 	return defineAdapter({
 		id: "s3",
 
+		async delete(path) {
+			const target = url(normalizePath(path));
+
+			const res = await client.fetch(target, { method: "DELETE" });
+
+			if (!res.ok || res.status < 200 || res.status >= 300) {
+				throw new Error(`S3 DELETE ${target.pathname} failed with ${res.status} ${res.statusText}`);
+			}
+		},
+
 		async get(path) {
 			const target = url(normalizePath(path));
 
@@ -141,16 +151,6 @@ function s3(opts: S3Options) {
 			}
 
 			return { keys, cursor: nextContinuationToken };
-		},
-
-		async delete(path) {
-			const target = url(normalizePath(path));
-
-			const res = await client.fetch(target, { method: "DELETE" });
-
-			if (!res.ok || res.status < 200 || res.status >= 300) {
-				throw new Error(`S3 DELETE ${target.pathname} failed with ${res.status} ${res.statusText}`);
-			}
 		},
 	});
 }
