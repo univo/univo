@@ -36,9 +36,8 @@ function s3(opts: S3Options) {
 
 	function url(path?: string): URL {
 		const target = new URL(endpoint);
-		const basePath = target.pathname.replace(/\/+$/, "");
 
-		let pathname = basePath;
+		let pathname = target.pathname.replace(/\/+$/, "");
 
 		target.hostname = `${opts.bucket}.${target.hostname}`;
 
