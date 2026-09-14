@@ -13,26 +13,18 @@ interface S3Options {
 	forcePathStyle?: boolean;
 }
 
-interface ListObjectsResult {
-	ListBucketResult?: {
-		Contents?: { Key?: string } | { Key?: string }[];
-		IsTruncated?: string;
-		NextContinuationToken?: string;
-	};
-}
-
 function s3(opts: S3Options) {
 	const client = new AwsClient({
 		retries: 0,
-		initRetryMs: 0,
 		service: "s3",
+		initRetryMs: 0,
 		region: opts.region,
 		accessKeyId: opts.accessKeyId,
 		secretAccessKey: opts.secretAccessKey,
 	});
 
-	const endpoint = new URL(opts.endpoint ?? `https://s3.${opts.region}.amazonaws.com`);
 	const parser = new XMLParser({ parseTagValue: false });
+	const endpoint = new URL(opts.endpoint ?? `https://s3.${opts.region}.amazonaws.com`);
 
 	function normalizePath(path: string): string {
 		const normalized = path.replace(/^\/+/, "");
@@ -47,8 +39,10 @@ function s3(opts: S3Options) {
 	function url(path?: string): URL {
 		const target = new URL(endpoint);
 		const basePath = target.pathname.replace(/\/+$/, "");
-		const pathStyle = opts.forcePathStyle ?? false;
+
 		let pathname = basePath;
+
+		const pathStyle = opts.forcePathStyle ?? false;
 
 		if (pathStyle) {
 			pathname += `/${encodeURIComponent(opts.bucket)}`;
@@ -71,30 +65,33 @@ function s3(opts: S3Options) {
 
 		async get(path) {
 			const target = url(normalizePath(path));
-			const response = await client.fetch(target, { method: "GET" });
 
-			if (response.status === 404) {
+			const res = await client.fetch(target, { method: "GET" });
+
+			if (res.status === 404) {
 				return null;
 			}
 
-			if (!response.ok) {
-				throw new Error(`S3 GET ${target.pathname} failed with ${response.status} ${response.statusText}`);
+			if (!res.ok || res.status < 200 || res.status >= 300) {
+				throw new Error(`S3 GET ${target.pathname} failed with ${res.status} ${res.statusText}`);
 			}
 
-			return response.arrayBuffer();
+			return res.arrayBuffer();
 		},
 
 		async put(path, body) {
 			const target = url(normalizePath(path));
-			const response = await client.fetch(target, { method: "PUT", body });
 
-			if (!response.ok) {
-				throw new Error(`S3 PUT ${target.pathname} failed with ${response.status} ${response.statusText}`);
+			const res = await client.fetch(target, { method: "PUT", body });
+
+			if (!res.ok || res.status < 200 || res.status >= 300) {
+				throw new Error(`S3 PUT ${target.pathname} failed with ${res.status} ${res.statusText}`);
 			}
 		},
 
 		async list(opts) {
 			const target = url();
+
 			target.searchParams.set("list-type", "2");
 			target.searchParams.set("encoding-type", "url");
 
@@ -110,13 +107,22 @@ function s3(opts: S3Options) {
 				target.searchParams.set("max-keys", String(opts.limit));
 			}
 
-			const response = await client.fetch(target, { method: "GET" });
+			const res = await client.fetch(target, { method: "GET" });
 
-			if (!response.ok) {
-				throw new Error(`S3 GET ${target.pathname} failed with ${response.status} ${response.statusText}`);
+			if (!res.ok || res.status < 200 || res.status >= 300) {
+				throw new Error(`S3 GET ${target.pathname} failed with ${res.status} ${res.statusText}`);
 			}
 
-			const parsed = parser.parse(await response.text()) as ListObjectsResult;
+			const text = await res.text();
+
+			const parsed = parser.parse(text) as {
+				ListBucketResult?: {
+					Contents?: { Key?: string } | { Key?: string }[];
+					IsTruncated?: string;
+					NextContinuationToken?: string;
+				};
+			};
+
 			const result = parsed.ListBucketResult;
 
 			if (result === undefined) {
@@ -136,10 +142,11 @@ function s3(opts: S3Options) {
 
 		async delete(path) {
 			const target = url(normalizePath(path));
-			const response = await client.fetch(target, { method: "DELETE" });
 
-			if (!response.ok) {
-				throw new Error(`S3 DELETE ${target.pathname} failed with ${response.status} ${response.statusText}`);
+			const res = await client.fetch(target, { method: "DELETE" });
+
+			if (!res.ok || res.status < 200 || res.status >= 300) {
+				throw new Error(`S3 DELETE ${target.pathname} failed with ${res.status} ${res.statusText}`);
 			}
 		},
 	});
