@@ -36,6 +36,16 @@ function s3(opts: S3Options) {
 	const endpoint = new URL(opts.endpoint ?? `https://s3.${region}.amazonaws.com`);
 	const parser = new XMLParser({ parseTagValue: false });
 
+	function normalizePath(path: string): string {
+		const normalized = path.replace(/^\/+/, "");
+
+		if (normalized.length === 0) {
+			throw new Error("Storage path must not be empty");
+		}
+
+		return normalized;
+	}
+
 	function url(path?: string): URL {
 		const target = new URL(endpoint);
 		const basePath = target.pathname.replace(/\/+$/, "");
@@ -75,7 +85,7 @@ function s3(opts: S3Options) {
 		id: "s3",
 
 		async get(path) {
-			const target = url(path);
+			const target = url(normalizePath(path));
 			const response = await client.fetch(target, { method: "GET" });
 
 			if (response.status === 404) {
@@ -90,7 +100,7 @@ function s3(opts: S3Options) {
 		},
 
 		async put(path, body) {
-			await request("PUT", url(path), body);
+			await request("PUT", url(normalizePath(path)), body);
 		},
 
 		async list(opts) {
@@ -99,7 +109,7 @@ function s3(opts: S3Options) {
 			target.searchParams.set("encoding-type", "url");
 
 			if (opts?.prefix !== undefined) {
-				target.searchParams.set("prefix", opts.prefix);
+				target.searchParams.set("prefix", opts.prefix.replace(/^\/+/, ""));
 			}
 
 			if (opts?.cursor !== undefined) {
@@ -129,7 +139,7 @@ function s3(opts: S3Options) {
 		},
 
 		async delete(path) {
-			await request("DELETE", url(path));
+			await request("DELETE", url(normalizePath(path)));
 		},
 	});
 }

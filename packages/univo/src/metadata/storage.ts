@@ -26,33 +26,8 @@ interface Storage {
 	delete: Adapter["delete"];
 }
 
-function normalizePath(path: string): string {
-	const normalized = path.replace(/^\/+/, "");
-
-	if (normalized.length === 0) {
-		throw new Error("Storage path must not be empty");
-	}
-
-	return normalized;
-}
-
-function normalizePrefix(prefix: string | undefined): string | undefined {
-	return prefix?.replace(/^\/+/, "");
-}
-
-function normalizeListOptions(opts: ListOptions | undefined): ListOptions | undefined {
-	if (opts?.prefix === undefined) return opts;
-	return { ...opts, prefix: normalizePrefix(opts.prefix) };
-}
-
 function defineAdapter(adapter: Adapter): Adapter {
-	return {
-		id: adapter.id,
-		put: async (path, body) => adapter.put(normalizePath(path), body),
-		get: async (path) => adapter.get(normalizePath(path)),
-		list: async (opts) => adapter.list(normalizeListOptions(opts)),
-		delete: async (path) => adapter.delete(normalizePath(path)),
-	};
+	return adapter;
 }
 
 function defineStorage({ adapter }: { adapter: Adapter }): Storage {
