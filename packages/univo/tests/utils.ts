@@ -104,5 +104,7 @@ async function saveToCache(cacheDir: string, cacheFile: string, blockData: any) 
 }
 
 export function test_metadataStorage() {
-	return defineStorage({ adapter: memory() });
+	return defineStorage({
+		adapter: memory(),
+	});
 }
