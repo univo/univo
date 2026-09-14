@@ -6,11 +6,9 @@ import { defineAdapter } from "../../metadata";
 interface S3Options {
 	bucket: string;
 	region: string;
+	endpoint?: string;
 	accessKeyId: string;
 	secretAccessKey: string;
-
-	endpoint?: string;
-	forcePathStyle?: boolean;
 }
 
 function s3(opts: S3Options) {
@@ -42,13 +40,7 @@ function s3(opts: S3Options) {
 
 		let pathname = basePath;
 
-		const pathStyle = opts.forcePathStyle ?? false;
-
-		if (pathStyle) {
-			pathname += `/${encodeURIComponent(opts.bucket)}`;
-		} else {
-			target.hostname = `${opts.bucket}.${target.hostname}`;
-		}
+		target.hostname = `${opts.bucket}.${target.hostname}`;
 
 		if (path !== undefined) {
 			const encodedPath = path.split("/").map(encodeURIComponent).join("/");

@@ -3,11 +3,10 @@ import type { Adapter } from "../../metadata";
 
 interface R2Options {
 	bucket: string;
+	endpoint?: string;
 	accountId: string;
 	accessKeyId: string;
 	secretAccessKey: string;
-
-	endpoint?: string;
 }
 
 function r2(opts: R2Options): Adapter {
