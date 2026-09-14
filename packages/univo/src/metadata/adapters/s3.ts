@@ -93,17 +93,21 @@ function s3(opts: S3Options) {
 			await request("PUT", url(path), body);
 		},
 
-		async list(prefix, opts) {
+		async list(opts) {
 			const target = url();
 			target.searchParams.set("list-type", "2");
 			target.searchParams.set("encoding-type", "url");
 
-			if (prefix !== undefined) {
-				target.searchParams.set("prefix", prefix);
+			if (opts?.prefix !== undefined) {
+				target.searchParams.set("prefix", opts.prefix);
 			}
 
 			if (opts?.cursor !== undefined) {
 				target.searchParams.set("continuation-token", opts.cursor);
+			}
+
+			if (opts?.limit !== undefined) {
+				target.searchParams.set("max-keys", String(opts.limit));
 			}
 
 			const parsed = parser.parse(await (await request("GET", target)).text()) as ListObjectsResult;

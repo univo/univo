@@ -15,9 +15,14 @@ function memory() {
 			return objects.get(path)?.slice(0) ?? null;
 		},
 
-		async list(prefix = "") {
-			const keys = [...objects.keys()].filter((path) => path.startsWith(prefix)).sort();
-			return { keys, cursor: undefined };
+		async list(opts) {
+			const offset = Number(opts?.cursor ?? 0);
+			const matching = [...objects.keys()].filter((path) => path.startsWith(opts?.prefix ?? "")).sort();
+			const keys = matching.slice(offset, opts?.limit === undefined ? undefined : offset + opts.limit);
+			const nextOffset = offset + keys.length;
+			const cursor = nextOffset < matching.length ? String(nextOffset) : undefined;
+
+			return { keys, cursor };
 		},
 
 		async delete(path) {

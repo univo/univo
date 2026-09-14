@@ -6,14 +6,16 @@ interface ListResult {
 }
 
 interface ListOptions {
+	prefix?: string;
 	cursor?: string;
+	limit?: number;
 }
 
 interface Adapter {
 	readonly id: string;
 	put: (path: string, body: StorageBody) => Promise<void>;
 	get: (path: string) => Promise<ArrayBuffer | null>;
-	list: (prefix?: string, opts?: ListOptions) => Promise<ListResult>;
+	list: (opts?: ListOptions) => Promise<ListResult>;
 	delete: (path: string) => Promise<void>;
 }
 
@@ -38,12 +40,17 @@ function normalizePrefix(prefix: string | undefined): string | undefined {
 	return prefix?.replace(/^\/+/, "");
 }
 
+function normalizeListOptions(opts: ListOptions | undefined): ListOptions | undefined {
+	if (opts?.prefix === undefined) return opts;
+	return { ...opts, prefix: normalizePrefix(opts.prefix) };
+}
+
 function defineAdapter(adapter: Adapter): Adapter {
 	return {
 		id: adapter.id,
 		put: async (path, body) => adapter.put(normalizePath(path), body),
 		get: async (path) => adapter.get(normalizePath(path)),
-		list: async (prefix, opts) => adapter.list(normalizePrefix(prefix), opts),
+		list: async (opts) => adapter.list(normalizeListOptions(opts)),
 		delete: async (path) => adapter.delete(normalizePath(path)),
 	};
 }
@@ -52,7 +59,7 @@ function defineStorage({ adapter }: { adapter: Adapter }): Storage {
 	return {
 		put: (path, body) => adapter.put(path, body),
 		get: (path) => adapter.get(path),
-		list: (prefix, opts) => adapter.list(prefix, opts),
+		list: (opts) => adapter.list(opts),
 		delete: (path) => adapter.delete(path),
 	};
 }
