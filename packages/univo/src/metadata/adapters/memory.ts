@@ -17,7 +17,7 @@ function memory() {
 
 		async list(prefix = "") {
 			const keys = [...objects.keys()].filter((path) => path.startsWith(prefix)).sort();
-			return { keys, continuationToken: undefined };
+			return { keys, cursor: undefined };
 		},
 
 		async delete(path) {

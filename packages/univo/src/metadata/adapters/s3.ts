@@ -93,7 +93,7 @@ function s3(opts: S3Options) {
 			await request("PUT", url(path), body);
 		},
 
-		async list(prefix, continuationToken) {
+		async list(prefix, opts) {
 			const target = url();
 			target.searchParams.set("list-type", "2");
 			target.searchParams.set("encoding-type", "url");
@@ -102,8 +102,8 @@ function s3(opts: S3Options) {
 				target.searchParams.set("prefix", prefix);
 			}
 
-			if (continuationToken !== undefined) {
-				target.searchParams.set("continuation-token", continuationToken);
+			if (opts?.cursor !== undefined) {
+				target.searchParams.set("continuation-token", opts.cursor);
 			}
 
 			const parsed = parser.parse(await (await request("GET", target)).text()) as ListObjectsResult;
@@ -121,7 +121,7 @@ function s3(opts: S3Options) {
 				throw new Error("S3 list response is truncated but has no continuation token");
 			}
 
-			return { keys, continuationToken: nextContinuationToken };
+			return { keys, cursor: nextContinuationToken };
 		},
 
 		async delete(path) {
