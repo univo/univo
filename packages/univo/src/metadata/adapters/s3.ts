@@ -1,7 +1,7 @@
 import { AwsClient } from "aws4fetch";
 import { XMLParser } from "fast-xml-parser";
 
-import { defineAdapter } from "../../metadata";
+import { defineAdapter, PreconditionFailedError } from "../../metadata";
 
 interface S3Options {
 	bucket: string;
@@ -89,14 +89,36 @@ function s3(opts: S3Options) {
 			};
 		},
 
-		async put(path, body) {
-			const target = url(normalizePath(path));
+		async put(path, body, opts) {
+			const normalizedPath = normalizePath(path);
+			const target = url(normalizedPath);
+			const headers = new Headers();
 
-			const res = await client.fetch(target, { method: "PUT", body });
+			if (opts?.ifMatch !== undefined) {
+				headers.set("if-match", opts.ifMatch);
+			}
+
+			if (opts?.ifNoneMatch !== undefined) {
+				headers.set("if-none-match", opts.ifNoneMatch);
+			}
+
+			const res = await client.fetch(target, { method: "PUT", body, headers });
+
+			if (res.status === 412) {
+				throw new PreconditionFailedError(normalizedPath);
+			}
 
 			if (!res.ok || res.status < 200 || res.status >= 300) {
 				throw new Error(`S3 PUT ${target.pathname} failed with ${res.status} ${res.statusText}`);
 			}
+
+			const etag = res.headers.get("etag");
+
+			if (etag === null) {
+				throw new Error(`S3 PUT ${target.pathname} response is missing an ETag header`);
+			}
+
+			return { etag };
 		},
 
 		async list(opts) {

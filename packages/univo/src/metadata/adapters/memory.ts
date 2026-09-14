@@ -1,4 +1,4 @@
-import { defineAdapter } from "../../metadata";
+import { defineAdapter, PreconditionFailedError } from "../../metadata";
 
 function memory() {
 	let etag = 0;
@@ -18,10 +18,23 @@ function memory() {
 	return defineAdapter({
 		id: "memory",
 
-		async put(path, body) {
+		async put(path, body, opts) {
 			const key = normalizePath(path);
+			const current = objects.get(key);
+
+			if (opts?.ifMatch !== undefined && current?.etag !== opts.ifMatch) {
+				throw new PreconditionFailedError(key);
+			}
+
+			if (opts?.ifNoneMatch === "*" && current !== undefined) {
+				throw new PreconditionFailedError(key);
+			}
+
 			const bytes = typeof body === "string" ? new TextEncoder().encode(body).buffer : body;
-			objects.set(key, { body: bytes.slice(0), etag: String(etag++) });
+			const nextEtag = String(etag++);
+			objects.set(key, { body: bytes.slice(0), etag: nextEtag });
+
+			return { etag: nextEtag };
 		},
 
 		async get(path) {
