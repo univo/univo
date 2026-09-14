@@ -2,7 +2,7 @@ interface Adapter {
 	readonly id: string;
 	delete: (path: string) => Promise<void>;
 	put: (path: string, body: string | ArrayBuffer) => Promise<void>;
-	get: (path: string) => Promise<{ body: ArrayBuffer; etag: string | undefined } | null>;
+	get: (path: string) => Promise<{ body: ArrayBuffer; etag: string } | null>;
 	list: (opts?: { prefix?: string; cursor?: string; limit?: number }) => Promise<{ keys: string[]; cursor: string | undefined }>;
 }
 

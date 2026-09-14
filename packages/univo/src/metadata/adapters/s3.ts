@@ -86,9 +86,15 @@ function s3(opts: S3Options) {
 				throw new Error(`S3 GET ${target.pathname} failed with ${res.status} ${res.statusText}`);
 			}
 
+			const etag = res.headers.get("etag");
+
+			if (etag === null) {
+				throw new Error(`S3 GET ${target.pathname} response is missing an ETag header`);
+			}
+
 			return {
 				body: await res.arrayBuffer(),
-				etag: res.headers.get("etag") ?? undefined,
+				etag,
 			};
 		},
 

@@ -1,7 +1,9 @@
 import { defineAdapter } from "../../metadata";
 
 function memory() {
-	const objects = new Map<string, ArrayBuffer>();
+	let etag = 0;
+
+	const objects = new Map<string, { body: ArrayBuffer; etag: string }>();
 
 	function normalizePath(path: string): string {
 		const normalized = path.replace(/^\/+/, "");
@@ -19,12 +21,12 @@ function memory() {
 		async put(path, body) {
 			const key = normalizePath(path);
 			const bytes = typeof body === "string" ? new TextEncoder().encode(body).buffer : body;
-			objects.set(key, bytes.slice(0));
+			objects.set(key, { body: bytes.slice(0), etag: String(etag++) });
 		},
 
 		async get(path) {
-			const body = objects.get(normalizePath(path));
-			return body === undefined ? null : { body: body.slice(0), etag: undefined };
+			const object = objects.get(normalizePath(path));
+			return object === undefined ? null : { body: object.body.slice(0), etag: object.etag };
 		},
 
 		async list(opts) {
