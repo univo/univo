@@ -28,4 +28,4 @@ function defineAdapter(adapter: Adapter): Adapter {
 }
 
 export type { Adapter };
-export { AdapterError, defineAdapter };
+export { defineAdapter, AdapterError };
