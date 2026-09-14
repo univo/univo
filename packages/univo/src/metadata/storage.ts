@@ -1,21 +1,8 @@
-type StorageBody = string | ArrayBuffer;
-
-interface ListResult {
-	keys: string[];
-	cursor: string | undefined;
-}
-
-interface ListOptions {
-	prefix?: string;
-	cursor?: string;
-	limit?: number;
-}
-
 interface Adapter {
 	readonly id: string;
-	put: (path: string, body: StorageBody) => Promise<void>;
+	put: (path: string, body: string | ArrayBuffer) => Promise<void>;
 	get: (path: string) => Promise<ArrayBuffer | null>;
-	list: (opts?: ListOptions) => Promise<ListResult>;
+	list: (opts?: { prefix?: string; cursor?: string; limit?: number }) => Promise<{ keys: string[]; cursor: string | undefined }>;
 	delete: (path: string) => Promise<void>;
 }
 
@@ -40,4 +27,4 @@ function defineStorage({ adapter }: { adapter: Adapter }): Storage {
 }
 
 export { defineStorage, defineAdapter };
-export type { Adapter, ListOptions, ListResult, Storage, StorageBody };
+export type { Adapter, Storage };

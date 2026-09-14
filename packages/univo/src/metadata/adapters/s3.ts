@@ -2,7 +2,6 @@ import { AwsClient } from "aws4fetch";
 import { XMLParser } from "fast-xml-parser";
 
 import { defineAdapter } from "../storage";
-import type { StorageBody } from "../storage";
 
 interface S3Options {
 	bucket: string;
@@ -68,7 +67,7 @@ function s3(opts: S3Options) {
 		return target;
 	}
 
-	async function request(method: string, target: URL, body?: StorageBody): Promise<Response> {
+	async function request(method: string, target: URL, body?: string | ArrayBuffer): Promise<Response> {
 		const response = await client.fetch(target, {
 			method,
 			...(body === undefined ? {} : { body }),
