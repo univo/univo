@@ -1,7 +1,12 @@
-class PreconditionFailedError extends Error {
-	constructor(path: string) {
-		super(`Storage precondition failed for path "${path}"`);
-		this.name = "PreconditionFailedError";
+type AdapterErrorTag = "PreconditionFailed";
+
+class AdapterError<Tag extends AdapterErrorTag = AdapterErrorTag> extends Error {
+	readonly tag: Tag;
+
+	constructor(tag: Tag, message: string) {
+		super(message);
+		this.name = "AdapterError";
+		this.tag = tag;
 	}
 }
 
@@ -23,4 +28,4 @@ function defineAdapter(adapter: Adapter): Adapter {
 }
 
 export type { Adapter };
-export { defineAdapter, PreconditionFailedError };
+export { AdapterError, defineAdapter };

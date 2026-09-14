@@ -1,4 +1,4 @@
-import { defineAdapter, PreconditionFailedError } from "../../metadata";
+import { AdapterError, defineAdapter } from "../adapter";
 
 function memory() {
 	let etag = 0;
@@ -23,11 +23,11 @@ function memory() {
 			const current = objects.get(key);
 
 			if (opts?.ifMatch !== undefined && current?.etag !== opts.ifMatch) {
-				throw new PreconditionFailedError(key);
+				throw new AdapterError("PreconditionFailed", `Storage precondition failed for path "${key}"`);
 			}
 
 			if (opts?.ifNoneMatch === "*" && current !== undefined) {
-				throw new PreconditionFailedError(key);
+				throw new AdapterError("PreconditionFailed", `Storage precondition failed for path "${key}"`);
 			}
 
 			const bytes = typeof body === "string" ? new TextEncoder().encode(body).buffer : body;

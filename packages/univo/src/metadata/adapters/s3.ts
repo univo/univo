@@ -1,7 +1,7 @@
 import { AwsClient } from "aws4fetch";
 import { XMLParser } from "fast-xml-parser";
 
-import { defineAdapter, PreconditionFailedError } from "../../metadata";
+import { AdapterError, defineAdapter } from "../adapter";
 
 interface S3Options {
 	bucket: string;
@@ -105,7 +105,7 @@ function s3(opts: S3Options) {
 			const res = await client.fetch(target, { method: "PUT", body, headers });
 
 			if (res.status === 412) {
-				throw new PreconditionFailedError(normalizedPath);
+				throw new AdapterError("PreconditionFailed", `Storage precondition failed for path "${normalizedPath}"`);
 			}
 
 			if (!res.ok || res.status < 200 || res.status >= 300) {
