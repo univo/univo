@@ -31,8 +31,8 @@
 			"import": "./dist/metadata.mjs"
 		},
 		"./metadata/adapters": {
-			"types": "./dist/metadata/adapter.d.ts",
-			"import": "./dist/metadata/adapter.mjs"
+			"types": "./dist/metadata/adapters.d.ts",
+			"import": "./dist/metadata/adapters.mjs"
 		},
 		"./metadata/s3": {
 			"types": "./dist/metadata/adapters/s3.d.ts",

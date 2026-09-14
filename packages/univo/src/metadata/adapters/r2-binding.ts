@@ -1,6 +1,6 @@
 import type { R2Bucket } from "@cloudflare/workers-types";
 
-import { AdapterError, defineAdapter } from "../adapter";
+import { AdapterError, defineAdapter } from "../adapters";
 
 interface R2Options {
 	binding: R2Bucket;

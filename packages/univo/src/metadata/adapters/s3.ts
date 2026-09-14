@@ -1,7 +1,7 @@
 import { AwsClient } from "aws4fetch";
 import { XMLParser } from "fast-xml-parser";
 
-import { AdapterError, defineAdapter } from "../adapter";
+import { AdapterError, defineAdapter } from "../adapters";
 
 interface S3Options {
 	bucket: string;

@@ -1,4 +1,4 @@
-import { Adapter } from "./metadata/adapter";
+import { Adapter } from "./metadata/adapters";
 
 interface Storage {
 	adapter: Adapter;

@@ -1,4 +1,4 @@
-import { AdapterError, defineAdapter } from "../adapter";
+import { AdapterError, defineAdapter } from "../adapters";
 
 function memory() {
 	let etag = 0;
