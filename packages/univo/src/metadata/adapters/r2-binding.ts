@@ -20,7 +20,7 @@ function r2(opts: R2Options) {
 	}
 
 	return defineAdapter({
-		id: "r2",
+		id: "r2-binding",
 
 		async delete(path) {
 			await binding.delete(normalizePath(path));
