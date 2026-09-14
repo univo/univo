@@ -6,6 +6,8 @@ interface R2Options {
 	accountId: string;
 	accessKeyId: string;
 	secretAccessKey: string;
+
+	endpoint?: string;
 }
 
 function r2(opts: R2Options): Adapter {
@@ -14,7 +16,7 @@ function r2(opts: R2Options): Adapter {
 		bucket: opts.bucket,
 		accessKeyId: opts.accessKeyId,
 		secretAccessKey: opts.secretAccessKey,
-		endpoint: `https://${opts.accountId}.r2.cloudflarestorage.com`,
+		endpoint: opts.endpoint ?? `https://${opts.accountId}.r2.cloudflarestorage.com`,
 	});
 
 	return { ...adapter, id: "r2" };
