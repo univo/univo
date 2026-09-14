@@ -1,4 +1,4 @@
-import { defineAdapter } from "../storage";
+import { defineAdapter } from "../../metadata";
 
 function memory() {
 	const objects = new Map<string, ArrayBuffer>();

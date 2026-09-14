@@ -2,8 +2,8 @@ import { join } from "node:path";
 import { promises as fs } from "node:fs";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
+import { defineStorage } from "../src/metadata";
 import { hexToNumber, retry } from "../src/utils";
-import { defineStorage } from "../src/metadata/storage";
 import { memory } from "../src/metadata/adapters/memory";
 
 export function test_promiseWithResolvers() {

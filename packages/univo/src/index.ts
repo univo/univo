@@ -2,7 +2,7 @@ import { local } from "./transport";
 import { createServer } from "./server";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
-import type { Storage } from "./metadata/storage";
+import type { Storage } from "./metadata";
 import { catchException, createException } from "./exceptions";
 import { compress, createLogger, decompress, hexToNumber, isHexEqual, normalizeHex, numberToHex, retry } from "./utils";
 

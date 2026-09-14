@@ -1,5 +1,5 @@
 import { s3 } from "./s3";
-import type { Adapter } from "../storage";
+import type { Adapter } from "../../metadata";
 
 interface R2Options {
 	bucket: string;
