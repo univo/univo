@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 
 import { indexer } from ".";
-import type { Event, Head } from ".";
 import { local } from "./transport";
+import type { Event, Head } from ".";
 import { hexToNumber, numberToHex } from "./utils";
 import { test_Block, test_getBlock, test_metadataStorage } from "../tests/utils";
 

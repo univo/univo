@@ -1,7 +1,6 @@
 import { config } from "dotenv";
 import { setupServer } from "msw/node";
 import { http, passthrough } from "msw";
-import { promises as fs } from "node:fs";
 
 config({ quiet: true });
 
@@ -29,10 +28,6 @@ afterEach(() => {
 	server.resetHandlers();
 });
 
-afterAll(async () => {
-	// Close the mocking server
+afterAll(() => {
 	server.close();
-
-	// Clear the `.storage` directory which houses our metadata storage
-	await fs.rm("./.storage", { recursive: true, force: true });
 });

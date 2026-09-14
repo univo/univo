@@ -25,6 +25,30 @@
 		"./realtime": {
 			"types": "./dist/realtime.d.ts",
 			"import": "./dist/realtime.mjs"
+		},
+		"./metadata": {
+			"types": "./dist/metadata.d.ts",
+			"import": "./dist/metadata.mjs"
+		},
+		"./metadata/adapters": {
+			"types": "./dist/metadata/adapters.d.ts",
+			"import": "./dist/metadata/adapters.mjs"
+		},
+		"./metadata/s3": {
+			"types": "./dist/metadata/adapters/s3.d.ts",
+			"import": "./dist/metadata/adapters/s3.mjs"
+		},
+		"./metadata/r2": {
+			"types": "./dist/metadata/adapters/r2.d.ts",
+			"import": "./dist/metadata/adapters/r2.mjs"
+		},
+		"./metadata/r2-binding": {
+			"types": "./dist/metadata/adapters/r2-binding.d.ts",
+			"import": "./dist/metadata/adapters/r2-binding.mjs"
+		},
+		"./metadata/memory": {
+			"types": "./dist/metadata/adapters/memory.d.ts",
+			"import": "./dist/metadata/adapters/memory.mjs"
 		}
 	},
 	"files": [
@@ -36,13 +60,16 @@
 		"univo": "NODE_ENV=production LOG_LEVEL=DEBUG jiti ./src/cli"
 	},
 	"dependencies": {
+		"aws4fetch": "1.0.20",
 		"citty": "^0.1.6",
 		"dotenv": "^17.2.2",
+		"fast-xml-parser": "5.11.1",
 		"open": "^10.2.0",
 		"partysocket": "^1.1.3",
 		"ws": "^8.18.1"
 	},
 	"devDependencies": {
+		"@cloudflare/workers-types": "5.20260914.1",
 		"@types/node": "^20.11.27",
 		"@types/ws": "^8.18.1",
 		"changelogen": "^0.6.1",
@@ -54,7 +81,11 @@
 		"vitest": "^3.1.3"
 	},
 	"peerDependencies": {
-		"@storagesdk/core": ">=0.4.2",
-		"@storagesdk/adapters": ">=0.6.0"
+		"@cloudflare/workers-types": "*"
+	},
+	"peerDependenciesMeta": {
+		"@cloudflare/workers-types": {
+			"optional": true
+		}
 	}
 }
