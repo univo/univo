@@ -76,7 +76,10 @@ function s3(opts: S3Options) {
 				throw new Error(`S3 GET ${target.pathname} failed with ${res.status} ${res.statusText}`);
 			}
 
-			return res.arrayBuffer();
+			return {
+				body: await res.arrayBuffer(),
+				etag: res.headers.get("etag") ?? undefined,
+			};
 		},
 
 		async put(path, body) {

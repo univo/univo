@@ -380,13 +380,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				const parentHash = normalizeHex(head.parent_hash);
 				const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
 
-				const blob = await opts.metadataStorage.adapter.get(prefix);
+				const object = await opts.metadataStorage.adapter.get(prefix);
 
-				if (blob === null) {
+				if (object === null) {
 					return null;
 				}
 
-				const block = await decompress(blob);
+				const block = await decompress(object.body);
 				const parsed = JSON.parse(block);
 
 				return parsed as TBlock;

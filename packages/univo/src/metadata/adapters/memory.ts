@@ -23,7 +23,8 @@ function memory() {
 		},
 
 		async get(path) {
-			return objects.get(normalizePath(path))?.slice(0) ?? null;
+			const body = objects.get(normalizePath(path));
+			return body === undefined ? null : { body: body.slice(0), etag: undefined };
 		},
 
 		async list(opts) {
