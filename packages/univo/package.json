@@ -25,6 +25,18 @@
 		"./realtime": {
 			"types": "./dist/realtime.d.ts",
 			"import": "./dist/realtime.mjs"
+		},
+		"./metadata": {
+			"types": "./dist/metadata.d.ts",
+			"import": "./dist/metadata.mjs"
+		},
+		"./metadata/s3": {
+			"types": "./dist/metadata/adapters/s3.d.ts",
+			"import": "./dist/metadata/adapters/s3.mjs"
+		},
+		"./metadata/r2": {
+			"types": "./dist/metadata/adapters/r2.d.ts",
+			"import": "./dist/metadata/adapters/r2.mjs"
 		}
 	},
 	"files": [
