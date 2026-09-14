@@ -1,10 +1,15 @@
 type StorageBody = string | ArrayBuffer;
 
+interface ListResult {
+	keys: string[];
+	continuationToken: string | undefined;
+}
+
 interface Adapter {
 	readonly id: string;
 	put: (path: string, body: StorageBody) => Promise<void>;
 	get: (path: string) => Promise<ArrayBuffer | null>;
-	list: (prefix?: string) => Promise<string[]>;
+	list: (prefix?: string, continuationToken?: string) => Promise<ListResult>;
 	delete: (path: string) => Promise<void>;
 }
 
@@ -34,7 +39,7 @@ function defineAdapter(adapter: Adapter): Adapter {
 		id: adapter.id,
 		put: async (path, body) => adapter.put(normalizePath(path), body),
 		get: async (path) => adapter.get(normalizePath(path)),
-		list: async (prefix) => adapter.list(normalizePrefix(prefix)),
+		list: async (prefix, continuationToken) => adapter.list(normalizePrefix(prefix), continuationToken),
 		delete: async (path) => adapter.delete(normalizePath(path)),
 	};
 }
@@ -43,10 +48,10 @@ function defineStorage({ adapter }: { adapter: Adapter }): Storage {
 	return {
 		put: (path, body) => adapter.put(path, body),
 		get: (path) => adapter.get(path),
-		list: (prefix) => adapter.list(prefix),
+		list: (prefix, continuationToken) => adapter.list(prefix, continuationToken),
 		delete: (path) => adapter.delete(path),
 	};
 }
 
 export { defineStorage, defineAdapter };
-export type { Adapter, Storage, StorageBody };
+export type { Adapter, ListResult, Storage, StorageBody };

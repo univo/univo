@@ -89,7 +89,16 @@ function storageAdapterTestSuite(getStorage: () => Storage) {
 			}
 			await storage.put("videos/v.mp4", "v");
 
-			expect(await storage.list("photos/")).toEqual(["photos/0.jpg", "photos/1.jpg", "photos/2.jpg", "photos/3.jpg", "photos/4.jpg"]);
+			const keys: string[] = [];
+			let continuationToken: string | undefined;
+
+			do {
+				const page = await storage.list("photos/", continuationToken);
+				keys.push(...page.keys);
+				continuationToken = page.continuationToken;
+			} while (continuationToken !== undefined);
+
+			expect(keys).toEqual(["photos/0.jpg", "photos/1.jpg", "photos/2.jpg", "photos/3.jpg", "photos/4.jpg"]);
 		});
 
 		test("deletes a key", async () => {
@@ -103,7 +112,7 @@ function storageAdapterTestSuite(getStorage: () => Storage) {
 			await storage.put(path, "sun");
 
 			expect(decoder.decode((await storage.get(path))!)).toBe("sun");
-			expect(await storage.list("photos/")).toEqual([path]);
+			expect(await storage.list("photos/")).toEqual({ keys: [path], continuationToken: undefined });
 		});
 	});
 }

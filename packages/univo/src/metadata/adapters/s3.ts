@@ -93,45 +93,35 @@ function s3(opts: S3Options) {
 			await request("PUT", url(path), body);
 		},
 
-		async list(prefix) {
-			const paths: string[] = [];
-			let continuationToken: string | undefined;
+		async list(prefix, continuationToken) {
+			const target = url();
+			target.searchParams.set("list-type", "2");
+			target.searchParams.set("encoding-type", "url");
 
-			do {
-				const target = url();
-				target.searchParams.set("list-type", "2");
-				target.searchParams.set("encoding-type", "url");
+			if (prefix !== undefined) {
+				target.searchParams.set("prefix", prefix);
+			}
 
-				if (prefix !== undefined) {
-					target.searchParams.set("prefix", prefix);
-				}
+			if (continuationToken !== undefined) {
+				target.searchParams.set("continuation-token", continuationToken);
+			}
 
-				if (continuationToken !== undefined) {
-					target.searchParams.set("continuation-token", continuationToken);
-				}
+			const parsed = parser.parse(await (await request("GET", target)).text()) as ListObjectsResult;
+			const result = parsed.ListBucketResult;
 
-				const parsed = parser.parse(await (await request("GET", target)).text()) as ListObjectsResult;
-				const result = parsed.ListBucketResult;
+			if (result === undefined) {
+				throw new Error("S3 list response has no ListBucketResult");
+			}
 
-				if (result === undefined) {
-					throw new Error("S3 list response has no ListBucketResult");
-				}
+			const contents = Array.isArray(result.Contents) ? result.Contents : result.Contents === undefined ? [] : [result.Contents];
+			const keys = contents.flatMap(({ Key }) => (Key === undefined ? [] : [decodeURIComponent(Key)]));
+			const nextContinuationToken = result.IsTruncated === "true" ? result.NextContinuationToken : undefined;
 
-				const contents = Array.isArray(result.Contents) ? result.Contents : result.Contents === undefined ? [] : [result.Contents];
-				paths.push(...contents.flatMap(({ Key }) => (Key === undefined ? [] : [decodeURIComponent(Key)])));
+			if (result.IsTruncated === "true" && nextContinuationToken === undefined) {
+				throw new Error("S3 list response is truncated but has no continuation token");
+			}
 
-				if (result.IsTruncated === "true") {
-					continuationToken = result.NextContinuationToken;
-
-					if (continuationToken === undefined) {
-						throw new Error("S3 list response is truncated but has no continuation token");
-					}
-				} else {
-					continuationToken = undefined;
-				}
-			} while (continuationToken !== undefined);
-
-			return paths;
+			return { keys, continuationToken: nextContinuationToken };
 		},
 
 		async delete(path) {

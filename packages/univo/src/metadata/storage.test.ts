@@ -20,12 +20,12 @@ describe("storage", () => {
 
 		await storage.put("hello.txt", "hello");
 		expect(new TextDecoder().decode((await storage.get("hello.txt"))!)).toBe("hello");
-		expect(await storage.list("hello")).toEqual(["hello.txt"]);
+		expect(await storage.list("hello")).toEqual({ keys: ["hello.txt"], continuationToken: undefined });
 		await storage.delete("hello.txt");
 
 		expect(put).toHaveBeenCalledWith("hello.txt", "hello");
 		expect(get).toHaveBeenCalledWith("hello.txt");
-		expect(list).toHaveBeenCalledWith("hello");
+		expect(list).toHaveBeenCalledWith("hello", undefined);
 		expect(remove).toHaveBeenCalledWith("hello.txt");
 	});
 
@@ -35,7 +35,7 @@ describe("storage", () => {
 		await storage.put("/photos/a.jpg", "a");
 
 		expect(new TextDecoder().decode((await storage.get("photos/a.jpg"))!)).toBe("a");
-		expect(await storage.list("/photos/")).toEqual(["photos/a.jpg"]);
+		expect(await storage.list("/photos/")).toEqual({ keys: ["photos/a.jpg"], continuationToken: undefined });
 	});
 
 	test("rejects empty paths", async () => {
