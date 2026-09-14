@@ -1,10 +1,8 @@
-import { StorageError } from "@storagesdk/core";
-import type { Storage } from "@storagesdk/core";
-
 import { local } from "./transport";
 import { createServer } from "./server";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
+import type { Storage } from "./metadata/storage";
 import { catchException, createException } from "./exceptions";
 import { compress, createLogger, decompress, hexToNumber, isHexEqual, normalizeHex, numberToHex, retry } from "./utils";
 
@@ -279,9 +277,7 @@ type IndexerOptions<TBlock> = {
 	/**
 	 * Storage interface for durably persisting indexer metadata.
 	 *
-	 * This uses the unified key-value storage API from unstorage. Install the `unstorage` dependency
-	 * and provide the return value of your `createStorage()` call. Check out the documentation for
-	 * a full list of [supported storage drivers](https://unstorage.unjs.io/drivers).
+	 * Create this with `defineStorage()` and one of univo's metadata storage adapters.
 	 *
 	 * Functionally, storing metadata is fundamental to ensure the correct operation of your indexer. It
 	 * ensures that you indexer recovers from downtime and ensures that all blocks are processed correctly during
@@ -359,10 +355,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					prefix += `/${normalizeHex(number, 16)}`;
 				}
 
-				const keys = await opts.metadataStorage.list({ prefix });
+				const { keys } = await opts.metadataStorage.adapter.list({ prefix });
 
-				const mapped = keys.items.map((key) => {
-					const [_, __, ___, number, hash, parent_hash] = key.path.split("/") as [
+				const mapped = keys.map((key) => {
+					const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
 						string,
 						string,
 						`0x${string}`,
@@ -384,15 +380,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				const parentHash = normalizeHex(head.parent_hash);
 				const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
 
-				const blob = await opts.metadataStorage.download(prefix, { as: "blob" }).catch((error) => {
-					if (error instanceof StorageError) {
-						if (error.code === "NotFound") {
-							return null;
-						}
-					}
-
-					throw error;
-				});
+				const blob = await opts.metadataStorage.adapter.get(prefix);
 
 				if (blob === null) {
 					return null;
@@ -417,7 +405,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
 						const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
 						const compressed = await compress(JSON.stringify(block));
-						await opts.metadataStorage.upload(prefix, compressed);
+						await opts.metadataStorage.adapter.put(prefix, compressed);
 					}),
 				);
 			},
@@ -434,7 +422,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						const hash = normalizeHex(block.hash);
 						const parentHash = normalizeHex(block.parent_hash);
 						const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
-						await opts.metadataStorage.delete(prefix);
+						await opts.metadataStorage.adapter.delete(prefix);
 					}),
 				);
 			},
@@ -452,10 +440,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					prefix += `/${normalizeHex(number, 16)}`;
 				}
 
-				const keys = await opts.metadataStorage.list({ prefix });
+				const { keys } = await opts.metadataStorage.adapter.list({ prefix });
 
-				const mapped = keys.items.map((key) => {
-					const [_, __, ___, number, hash, parent_hash] = key.path.split("/") as [
+				const mapped = keys.map((key) => {
+					const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
 						string,
 						string,
 						`0x${string}`,
@@ -479,7 +467,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				const body = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
 
-				await opts.metadataStorage.upload(prefix, body);
+				await opts.metadataStorage.adapter.put(prefix, body);
 			},
 
 			async delete(commits: Head[]) {
@@ -490,7 +478,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						const hash = normalizeHex(commit.hash);
 						const parentHash = normalizeHex(commit.parent_hash);
 						const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
-						await opts.metadataStorage.delete(prefix);
+						await opts.metadataStorage.adapter.delete(prefix);
 					}),
 				);
 			},
@@ -507,10 +495,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			async list(chain: `0x${string}`) {
 				const prefix = `heights/v1/${normalizeHex(chain)}`;
 
-				const keys = await opts.metadataStorage.list({ prefix });
+				const { keys } = await opts.metadataStorage.adapter.list({ prefix });
 
-				const mapped = keys.items.map((key) => {
-					const [_, __, ___, number] = key.path.split("/") as [string, string, `0x${string}`, `0x${string}`];
+				const mapped = keys.map((key) => {
+					const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
 
 					return { chain, number };
 				});
@@ -523,14 +511,14 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				const body = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
 
-				await opts.metadataStorage.upload(prefix, body);
+				await opts.metadataStorage.adapter.put(prefix, body);
 			},
 
 			async delete(heights: { chain: `0x${string}`; number: `0x${string}` }[]) {
 				await Promise.all(
 					heights.map(async (height) => {
 						const prefix = `heights/v1/${normalizeHex(height.chain)}/${normalizeHex(height.number, 16)}`;
-						await opts.metadataStorage.delete(prefix);
+						await opts.metadataStorage.adapter.delete(prefix);
 					}),
 				);
 			},

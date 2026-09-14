@@ -15,8 +15,8 @@ importers:
   examples/realtime:
     dependencies:
       univo:
-        specifier: 0.2.24
-        version: 0.2.24(@storagesdk/adapters@0.6.0)(@storagesdk/core@0.4.2)
+        specifier: workspace:*
+        version: link:../../packages/univo
     devDependencies:
       typescript:
         specifier: ^5.8.2
@@ -24,12 +24,6 @@ importers:
 
   packages/univo:
     dependencies:
-      '@storagesdk/adapters':
-        specifier: '>=0.6.0'
-        version: 0.6.0(vitest@3.1.3(@types/node@20.11.27)(msw@2.10.2(@types/node@20.11.27)(typescript@5.8.2)))
-      '@storagesdk/core':
-        specifier: '>=0.4.2'
-        version: 0.4.2
       aws4fetch:
         specifier: 1.0.20
         version: 1.0.20
@@ -661,49 +655,6 @@ packages:
 
   '@scure/bip39@1.6.0':
     resolution: {integrity: sha512-+lF0BbLiJNwVlev4eKelw1WWLaiKXw7sSl8T6FvBlWkdX+94aGJ4o8XjUdlyhTCjd8c+B3KT3JfS8P0bLRNU6A==}
-
-  '@storagesdk/adapters@0.6.0':
-    resolution: {integrity: sha512-tunYBBYqHnm5do5+IZN+lkB76eUefajFnUYca879/ncyl2grJkdW6tgdHADA2bK46tseH2hPhqzsXV8JQFWMyQ==}
-    engines: {node: '>=20'}
-    peerDependencies:
-      '@aws-sdk/client-s3': ^3.0.0
-      '@aws-sdk/lib-storage': ^3.0.0
-      '@aws-sdk/s3-presigned-post': ^3.0.0
-      '@aws-sdk/s3-request-presigner': ^3.0.0
-      '@azure/storage-blob': ^12.0.0
-      '@google-cloud/storage': ^7.0.0
-      '@octokit/rest': ^21.0.0
-      '@tigrisdata/storage': ^3.11.0
-      '@vercel/blob': ^2.3.0
-      vitest: ^4.0.0
-      webdav: ^5.10.0
-    peerDependenciesMeta:
-      '@aws-sdk/client-s3':
-        optional: true
-      '@aws-sdk/lib-storage':
-        optional: true
-      '@aws-sdk/s3-presigned-post':
-        optional: true
-      '@aws-sdk/s3-request-presigner':
-        optional: true
-      '@azure/storage-blob':
-        optional: true
-      '@google-cloud/storage':
-        optional: true
-      '@octokit/rest':
-        optional: true
-      '@tigrisdata/storage':
-        optional: true
-      '@vercel/blob':
-        optional: true
-      vitest:
-        optional: true
-      webdav:
-        optional: true
-
-  '@storagesdk/core@0.4.2':
-    resolution: {integrity: sha512-TASJvFpf4tHM52Sgg3AWMF1VsW6tiZAf6cG1PWktyqKWm+P4Iaz8cILEpD1VncvC4DzFYKeXRkq/xgaY3phKtg==}
-    engines: {node: '>=20'}
 
   '@trysound/sax@0.2.0':
     resolution: {integrity: sha512-L7z9BgrNEcYyUYtF+HaEfiS5ebkh9jXqbszz7pC0hRBPaatV0XjSD3+eHrpqFemQfgwiFF0QPIarnIihIDn7OA==}
@@ -1648,13 +1599,6 @@ packages:
     resolution: {integrity: sha512-CJ1QgKmNg3CwvAv/kOFmtnEN05f0D/cn9QntgNOQlQF9dgvVTHj3t+8JPdjqawCHk7V/KA+fbUqzZ9XWhcqPUg==}
     engines: {node: '>= 4.0.0'}
 
-  univo@0.2.24:
-    resolution: {integrity: sha512-iEn/LjJeFDKTUO1rTm3WwwhE2jc6rulkuaMNhtANKdZbtzFAo+ZiQorWN/XnEZE959DLjCjd1gK2B1W51GFZ7g==}
-    hasBin: true
-    peerDependencies:
-      '@storagesdk/adapters': '>=0.6.0'
-      '@storagesdk/core': '>=0.4.2'
-
   untyped@2.0.0:
     resolution: {integrity: sha512-nwNCjxJTjNuLCgFr42fEak5OcLuB3ecca+9ksPFNvtfYSLpjf+iJqSIaSnIile6ZPbKYxI5k2AfXqeopGudK/g==}
     hasBin: true
@@ -2179,18 +2123,6 @@ snapshots:
     dependencies:
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
-
-  '@storagesdk/adapters@0.6.0':
-    dependencies:
-      '@storagesdk/core': 0.4.2
-
-  '@storagesdk/adapters@0.6.0(vitest@3.1.3(@types/node@20.11.27)(msw@2.10.2(@types/node@20.11.27)(typescript@5.8.2)))':
-    dependencies:
-      '@storagesdk/core': 0.4.2
-    optionalDependencies:
-      vitest: 3.1.3(@types/node@20.11.27)(msw@2.10.2(@types/node@20.11.27)(typescript@5.8.2))
-
-  '@storagesdk/core@0.4.2': {}
 
   '@trysound/sax@0.2.0': {}
 
@@ -3184,19 +3116,6 @@ snapshots:
   undici-types@5.26.5: {}
 
   universalify@0.2.0: {}
-
-  univo@0.2.24(@storagesdk/adapters@0.6.0)(@storagesdk/core@0.4.2):
-    dependencies:
-      '@storagesdk/adapters': 0.6.0
-      '@storagesdk/core': 0.4.2
-      citty: 0.1.6
-      dotenv: 17.2.2
-      open: 10.2.0
-      partysocket: 1.1.3
-      ws: 8.18.3
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
 
   untyped@2.0.0:
     dependencies:
