@@ -1,34 +1,14 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { defineAdapter, defineStorage } from "./storage";
+import { memory } from "./adapters/memory";
+import { defineStorage } from "./storage";
 import type { Adapter } from "./storage";
-
-function inMemoryAdapter(): Adapter {
-	const objects = new Map<string, ArrayBuffer>();
-
-	return defineAdapter({
-		id: "memory",
-		async put(path, body) {
-			const bytes = typeof body === "string" ? new TextEncoder().encode(body).buffer : body;
-			objects.set(path, bytes.slice(0));
-		},
-		async get(path) {
-			return objects.get(path)?.slice(0) ?? null;
-		},
-		async list(prefix = "") {
-			return [...objects.keys()].filter((path) => path.startsWith(prefix)).sort();
-		},
-		async delete(path) {
-			objects.delete(path);
-		},
-	});
-}
 
 describe("storage", () => {
 	let adapter: Adapter;
 
 	beforeEach(() => {
-		adapter = inMemoryAdapter();
+		adapter = memory();
 	});
 
 	test("delegates each operation to the adapter", async () => {

@@ -37,6 +37,10 @@
 		"./metadata/r2": {
 			"types": "./dist/metadata/adapters/r2.d.ts",
 			"import": "./dist/metadata/adapters/r2.mjs"
+		},
+		"./metadata/memory": {
+			"types": "./dist/metadata/adapters/memory.d.ts",
+			"import": "./dist/metadata/adapters/memory.mjs"
 		}
 	},
 	"files": [
