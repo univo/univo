@@ -5,10 +5,10 @@ import { defineAdapter } from "../storage";
 
 interface S3Options {
 	bucket: string;
+	region: string;
 	accessKeyId: string;
 	secretAccessKey: string;
 
-	region?: string;
 	endpoint?: string;
 	forcePathStyle?: boolean;
 }
@@ -22,17 +22,16 @@ interface ListObjectsResult {
 }
 
 function s3(opts: S3Options) {
-	const region = opts.region ?? "us-east-1";
 	const client = new AwsClient({
 		retries: 0,
 		initRetryMs: 0,
 		service: "s3",
-		region,
+		region: opts.region,
 		accessKeyId: opts.accessKeyId,
 		secretAccessKey: opts.secretAccessKey,
 	});
 
-	const endpoint = new URL(opts.endpoint ?? `https://s3.${region}.amazonaws.com`);
+	const endpoint = new URL(opts.endpoint ?? `https://s3.${opts.region}.amazonaws.com`);
 	const parser = new XMLParser({ parseTagValue: false });
 
 	function normalizePath(path: string): string {
@@ -67,19 +66,6 @@ function s3(opts: S3Options) {
 		return target;
 	}
 
-	async function request(method: string, target: URL, body?: string | ArrayBuffer): Promise<Response> {
-		const response = await client.fetch(target, {
-			method,
-			...(body === undefined ? {} : { body }),
-		});
-
-		if (!response.ok) {
-			throw new Error(`S3 ${method} ${target.pathname} failed with ${response.status} ${response.statusText}`);
-		}
-
-		return response;
-	}
-
 	return defineAdapter({
 		id: "s3",
 
@@ -99,7 +85,12 @@ function s3(opts: S3Options) {
 		},
 
 		async put(path, body) {
-			await request("PUT", url(normalizePath(path)), body);
+			const target = url(normalizePath(path));
+			const response = await client.fetch(target, { method: "PUT", body });
+
+			if (!response.ok) {
+				throw new Error(`S3 PUT ${target.pathname} failed with ${response.status} ${response.statusText}`);
+			}
 		},
 
 		async list(opts) {
@@ -119,7 +110,13 @@ function s3(opts: S3Options) {
 				target.searchParams.set("max-keys", String(opts.limit));
 			}
 
-			const parsed = parser.parse(await (await request("GET", target)).text()) as ListObjectsResult;
+			const response = await client.fetch(target, { method: "GET" });
+
+			if (!response.ok) {
+				throw new Error(`S3 GET ${target.pathname} failed with ${response.status} ${response.statusText}`);
+			}
+
+			const parsed = parser.parse(await response.text()) as ListObjectsResult;
 			const result = parsed.ListBucketResult;
 
 			if (result === undefined) {
@@ -138,7 +135,12 @@ function s3(opts: S3Options) {
 		},
 
 		async delete(path) {
-			await request("DELETE", url(normalizePath(path)));
+			const target = url(normalizePath(path));
+			const response = await client.fetch(target, { method: "DELETE" });
+
+			if (!response.ok) {
+				throw new Error(`S3 DELETE ${target.pathname} failed with ${response.status} ${response.statusText}`);
+			}
 		},
 	});
 }
