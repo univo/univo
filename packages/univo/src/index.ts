@@ -277,8 +277,6 @@ type IndexerOptions<TBlock> = {
 	/**
 	 * Storage interface for durably persisting indexer metadata.
 	 *
-	 * Create this with `defineStorage()` and one of univo's metadata storage adapters.
-	 *
 	 * Functionally, storing metadata is fundamental to ensure the correct operation of your indexer. It
 	 * ensures that you indexer recovers from downtime and ensures that all blocks are processed correctly during
 	 * chain reorganisations.
