@@ -25,8 +25,9 @@ function memory() {
 				throw new AdapterError("PreconditionFailed", `Storage precondition failed for path "${key}"`);
 			}
 
-			const bytes = typeof body === "string" ? new TextEncoder().encode(body).buffer : body;
 			const nextEtag = String(etag++);
+			const bytes = typeof body === "string" ? new TextEncoder().encode(body).buffer : body;
+
 			objects.set(key, { body: bytes.slice(0), etag: nextEtag });
 
 			return { etag: nextEtag };
