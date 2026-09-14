@@ -1,4 +1,5 @@
 import { AwsClient } from "aws4fetch";
+import { XMLParser } from "fast-xml-parser";
 
 import { defineAdapter } from "../storage";
 import type { StorageBody } from "../storage";
@@ -13,6 +14,14 @@ interface S3Options {
 	forcePathStyle?: boolean;
 }
 
+interface ListObjectsResult {
+	ListBucketResult?: {
+		Contents?: { Key?: string } | { Key?: string }[];
+		IsTruncated?: string;
+		NextContinuationToken?: string;
+	};
+}
+
 function s3(opts: S3Options) {
 	const region = opts.region ?? "us-east-1";
 	const client = new AwsClient({
@@ -25,6 +34,7 @@ function s3(opts: S3Options) {
 	});
 
 	const endpoint = new URL(opts.endpoint ?? `https://s3.${region}.amazonaws.com`);
+	const parser = new XMLParser({ parseTagValue: false });
 
 	function url(path?: string): URL {
 		const target = new URL(endpoint);
@@ -100,11 +110,18 @@ function s3(opts: S3Options) {
 					target.searchParams.set("continuation-token", continuationToken);
 				}
 
-				const xml = await (await request("GET", target)).text();
-				paths.push(...extractTags(xml, "Key").map(decodeURIComponent));
+				const parsed = parser.parse(await (await request("GET", target)).text()) as ListObjectsResult;
+				const result = parsed.ListBucketResult;
 
-				if (extractTag(xml, "IsTruncated") === "true") {
-					continuationToken = extractTag(xml, "NextContinuationToken");
+				if (result === undefined) {
+					throw new Error("S3 list response has no ListBucketResult");
+				}
+
+				const contents = Array.isArray(result.Contents) ? result.Contents : result.Contents === undefined ? [] : [result.Contents];
+				paths.push(...contents.flatMap(({ Key }) => (Key === undefined ? [] : [decodeURIComponent(Key)])));
+
+				if (result.IsTruncated === "true") {
+					continuationToken = result.NextContinuationToken;
 
 					if (continuationToken === undefined) {
 						throw new Error("S3 list response is truncated but has no continuation token");
@@ -121,19 +138,6 @@ function s3(opts: S3Options) {
 			await request("DELETE", url(path));
 		},
 	});
-}
-
-function extractTag(xml: string, tag: string): string | undefined {
-	const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
-	return match?.[1] === undefined ? undefined : decodeXml(match[1]);
-}
-
-function extractTags(xml: string, tag: string): string[] {
-	return [...xml.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "g"))].map((match) => decodeXml(match[1] ?? ""));
-}
-
-function decodeXml(value: string): string {
-	return value.replaceAll("&quot;", '"').replaceAll("&apos;", "'").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 }
 
 export { s3 };

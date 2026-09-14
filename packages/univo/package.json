@@ -51,6 +51,7 @@
 		"aws4fetch": "1.0.20",
 		"citty": "^0.1.6",
 		"dotenv": "^17.2.2",
+		"fast-xml-parser": "5.11.1",
 		"open": "^10.2.0",
 		"partysocket": "^1.1.3",
 		"ws": "^8.18.1"
