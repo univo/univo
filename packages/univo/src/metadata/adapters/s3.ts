@@ -24,16 +24,6 @@ function s3(opts: S3Options) {
 	const parser = new XMLParser({ parseTagValue: false });
 	const endpoint = new URL(opts.endpoint ?? `https://s3.${opts.region}.amazonaws.com`);
 
-	function normalizePath(path: string): string {
-		const normalized = path.replace(/^\/+/, "");
-
-		if (normalized.length === 0) {
-			throw new Error("Storage path must not be empty");
-		}
-
-		return normalized;
-	}
-
 	function url(path?: string): URL {
 		const target = new URL(endpoint);
 
@@ -55,7 +45,13 @@ function s3(opts: S3Options) {
 		id: "s3",
 
 		async delete(path) {
-			const target = url(normalizePath(path));
+			const key = path.replace(/^\/+/, "");
+
+			if (key.length === 0) {
+				throw new Error("Storage path must not be empty");
+			}
+
+			const target = url(key);
 
 			const res = await client.fetch(target, { method: "DELETE" });
 
@@ -65,7 +61,13 @@ function s3(opts: S3Options) {
 		},
 
 		async get(path) {
-			const target = url(normalizePath(path));
+			const key = path.replace(/^\/+/, "");
+
+			if (key.length === 0) {
+				throw new Error("Storage path must not be empty");
+			}
+
+			const target = url(key);
 
 			const res = await client.fetch(target, { method: "GET" });
 
@@ -90,8 +92,13 @@ function s3(opts: S3Options) {
 		},
 
 		async put(path, body, opts) {
-			const normalizedPath = normalizePath(path);
-			const target = url(normalizedPath);
+			const key = path.replace(/^\/+/, "");
+
+			if (key.length === 0) {
+				throw new Error("Storage path must not be empty");
+			}
+
+			const target = url(key);
 			const headers = new Headers();
 
 			if (opts?.ifMatch !== undefined) {
@@ -105,7 +112,7 @@ function s3(opts: S3Options) {
 			const res = await client.fetch(target, { method: "PUT", body, headers });
 
 			if (res.status === 412) {
-				throw new AdapterError("PreconditionFailed", `Storage precondition failed for path "${normalizedPath}"`);
+				throw new AdapterError("PreconditionFailed", `Storage precondition failed for path "${key}"`);
 			}
 
 			if (!res.ok || res.status < 200 || res.status >= 300) {

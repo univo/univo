@@ -9,25 +9,27 @@ interface R2Options {
 function r2(opts: R2Options) {
 	const { binding } = opts;
 
-	function normalizePath(path: string): string {
-		const normalized = path.replace(/^\/+/, "");
-
-		if (normalized.length === 0) {
-			throw new Error("Storage path must not be empty");
-		}
-
-		return normalized;
-	}
-
 	return defineAdapter({
 		id: "r2-binding",
 
 		async delete(path) {
-			await binding.delete(normalizePath(path));
+			const key = path.replace(/^\/+/, "");
+
+			if (key.length === 0) {
+				throw new Error("Storage path must not be empty");
+			}
+
+			await binding.delete(key);
 		},
 
 		async get(path) {
-			const object = await binding.get(normalizePath(path));
+			const key = path.replace(/^\/+/, "");
+
+			if (key.length === 0) {
+				throw new Error("Storage path must not be empty");
+			}
+
+			const object = await binding.get(key);
 
 			if (object === null) {
 				return null;
@@ -40,7 +42,11 @@ function r2(opts: R2Options) {
 		},
 
 		async put(path, body, opts) {
-			const key = normalizePath(path);
+			const key = path.replace(/^\/+/, "");
+
+			if (key.length === 0) {
+				throw new Error("Storage path must not be empty");
+			}
 
 			const onlyIf =
 				opts?.ifMatch !== undefined

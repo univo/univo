@@ -5,21 +5,16 @@ function memory() {
 
 	const objects = new Map<string, { body: ArrayBuffer; etag: string }>();
 
-	function normalizePath(path: string): string {
-		const normalized = path.replace(/^\/+/, "");
-
-		if (normalized.length === 0) {
-			throw new Error("Storage path must not be empty");
-		}
-
-		return normalized;
-	}
-
 	return defineAdapter({
 		id: "memory",
 
 		async put(path, body, opts) {
-			const key = normalizePath(path);
+			const key = path.replace(/^\/+/, "");
+
+			if (key.length === 0) {
+				throw new Error("Storage path must not be empty");
+			}
+
 			const current = objects.get(key);
 
 			if (opts?.ifMatch !== undefined && current?.etag !== opts.ifMatch) {
@@ -38,7 +33,14 @@ function memory() {
 		},
 
 		async get(path) {
-			const object = objects.get(normalizePath(path));
+			const key = path.replace(/^\/+/, "");
+
+			if (key.length === 0) {
+				throw new Error("Storage path must not be empty");
+			}
+
+			const object = objects.get(key);
+
 			return object === undefined ? null : { body: object.body.slice(0), etag: object.etag };
 		},
 
@@ -54,7 +56,13 @@ function memory() {
 		},
 
 		async delete(path) {
-			objects.delete(normalizePath(path));
+			const key = path.replace(/^\/+/, "");
+
+			if (key.length === 0) {
+				throw new Error("Storage path must not be empty");
+			}
+
+			objects.delete(key);
 		},
 	});
 }
