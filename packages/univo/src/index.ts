@@ -815,10 +815,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
 		log.debug("Received finalized head...");
 
-		if (all_actions.length === 0) {
-			// If the indexer hasn't defined any actions then there isn't actually any work to complete
-			// on finalization, so this is an optimistic abort case to reduce costs.
+		// If the indexer hasn't defined any actions then there isn't actually any work to complete
+		// on finalization, so this is an optimistic abort case to reduce costs.
 
+		if (all_actions.length === 0) {
 			return;
 		}
 
