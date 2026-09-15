@@ -599,7 +599,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
 
 		if (hexToNumber(head.number) <= finalizedHeight) {
-			// TODO:
+			// TODO
 			// This attack vector is no longer possible in the new finalization mechanism?
 			// Or we could load the finalized height from the metadata table?
 
@@ -873,7 +873,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.error("Failed to determine finalized height when processing finalized head, aborting...");
 		}
 
-		// TODO:
+		// TODO
 		// Should also load the indexer finalized height and assert received height is between those that and
 		// the chain finalized height. This isn't strictly needed for correctness but just prevents the case
 		// where someone calls this method for a really old finalized block
