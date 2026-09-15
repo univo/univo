@@ -191,12 +191,12 @@ type Action<TBlock, TEvent> = {
 	id: string;
 
 	/**
-	 * The onchain event that should invoke this action.
+	 * The on-chain event that should invoke this action.
 	 */
 	event: Event<TBlock, TEvent>;
 
 	/**
-	 * The action you want to execute when the event _finalizes_ onchain.
+	 * The action you want to execute when the event _finalizes_ on-chain.
 	 *
 	 * Actions are processed during realtime indexing only and are never invoked during historical
 	 * backfills. Common actions include payment notifications for confirming payments or customer
@@ -298,12 +298,12 @@ type Indexer<TBlock> = {
 	fetch: (req: Request) => Promise<Response>;
 
 	/**
-	 * Define onchain events you want to record in your off-chain storage system.
+	 * Define on-chain events you want to record in your off-chain storage system.
 	 */
 	event: <TEvent>(event: Event<TBlock, TEvent>) => Event<TBlock, TEvent>;
 
 	/**
-	 * Perform fire-and-forget effects in response to onchain events.
+	 * Perform fire-and-forget effects in response to on-chain events.
 	 */
 	action: <TEvent>(action: Action<TBlock, TEvent>) => Action<TBlock, TEvent>;
 };
