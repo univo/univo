@@ -858,7 +858,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const blocks_start = Date.now();
 
-		const [block, finalizedBlock] = await Promise.all([
+		const [block, chainFinalizedBlock] = await Promise.all([
 			getBlockFromMetadataOrChain(head),
 			getBlockFromChain({ chain: head.chain, number: "finalized" }),
 		]);
@@ -869,15 +869,20 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.debug("Received null block response when loading finalized head, aborting...");
 		}
 
-		if (finalizedBlock === null) {
+		if (chainFinalizedBlock === null) {
 			return log.error("Failed to determine finalized height when processing finalized head, aborting...");
 		}
 
-		const receivedHeight = hexToNumber(head.number);
-		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+		// TODO:
+		// Should also load the indexer finalized height and assert received height is between those that and
+		// the chain finalized height. This isn't strictly needed for correctness but just prevents the case
+		// where someone calls this method for a really old finalized block
 
-		if (receivedHeight > finalizedHeight) {
-			return log.error(`Received head (${receivedHeight}) has not finalized (${finalizedHeight}), aborting...`);
+		const receivedHeight = hexToNumber(head.number);
+		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
+
+		if (receivedHeight > chainFinalizedHeight) {
+			return log.error(`Received head (${receivedHeight}) has not finalized (${chainFinalizedHeight}), aborting...`);
 		}
 
 		// Given the head is finalized, perform the associated actions for all events
