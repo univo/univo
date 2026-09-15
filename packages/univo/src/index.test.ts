@@ -49,11 +49,19 @@ test.concurrent("throws an error if an event with an invalid id is defined", () 
 });
 
 test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same block", async ({ expect }) => {
+	const chainFinalizedHeight = 0;
+
 	const univo = indexer({
-		quiet: false,
+		quiet: true,
 		signingKey: "test",
-		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
+		getBlock: async (block) => {
+			if (block.number === "finalized") {
+				return await test_getBlock({ chain: "0x1", number: numberToHex(chainFinalizedHeight) });
+			}
+
+			return await test_getBlock(block);
+		},
 	});
 
 	let count = 0;
@@ -82,7 +90,16 @@ test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same 
 
 	const block = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 
-	// First request should write this block to both the metadata and storage
+	// 1. Chain and indexer are finalised at 0
+
+	const initialIndexerFinalizedHeight = await local(univo).request({
+		method: "public_getFinalizedHeight",
+		params: ["0x1"],
+	});
+
+	expect(initialIndexerFinalizedHeight).toBe(0);
+
+	// 2. First request should write this block to both the metadata and storage
 
 	await local(univo).request({
 		method: "public_writeUnfinalizedHead",
@@ -96,7 +113,7 @@ test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same 
 		],
 	});
 
-	// Second request should hit the object storage precondition and not write to storage
+	// 3. Second request should hit the object storage precondition and not write to storage
 
 	await local(univo).request({
 		method: "public_writeUnfinalizedHead",
@@ -111,79 +128,6 @@ test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same 
 	});
 
 	expect(count).toBe(1);
-});
-
-test.concurrent("public_writeUnfinalizedHead calls actions", async () => {
-	const chainFinalizedHeight = 0;
-
-	const univo = indexer({
-		quiet: true,
-		signingKey: "test",
-		metadataStorage: test_metadataStorage(),
-		getBlock: async ({ chain, number }) => {
-			if (number === "finalized") {
-				return test_getBlock({ chain, number: numberToHex(chainFinalizedHeight) });
-			}
-
-			return test_getBlock({ chain, number });
-		},
-	});
-
-	const event = univo.event({
-		id: "event",
-
-		filters: [{ chain: 1, fromBlock: 0 }],
-
-		handler: (block) => {
-			return [block.eth_getBlockByNumber.hash];
-		},
-
-		storage: {
-			upsert: async () => {
-				//
-			},
-
-			delete: async () => {
-				//
-			},
-		},
-	});
-
-	let latest = false;
-	let finalized = false;
-
-	univo.action({
-		event,
-
-		id: "action",
-
-		handler: {
-			latest: async () => {
-				latest = true;
-			},
-
-			finalized: async () => {
-				finalized = true;
-			},
-		},
-	});
-
-	const block = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
-
-	await local(univo).request({
-		method: "public_writeUnfinalizedHead",
-		params: [
-			{
-				chain: block.eth_chainId,
-				hash: block.eth_getBlockByNumber.hash,
-				number: block.eth_getBlockByNumber.number,
-				parent_hash: block.eth_getBlockByNumber.parentHash,
-			},
-		],
-	});
-
-	expect(latest).toBe(true);
-	expect(finalized).toBe(false);
 });
 
 test.concurrent("public_writeUnfinalizedHead upserts events", async () => {
@@ -1046,22 +990,15 @@ test.concurrent("public_writeFinalizedHeads calls actions", async () => {
 		},
 	});
 
-	let latest = false;
-	let finalized = false;
+	let count = 0;
 
 	univo.action({
 		id: "action",
 
 		event,
 
-		handler: {
-			latest: async () => {
-				latest = true;
-			},
-
-			finalized: async () => {
-				finalized = true;
-			},
+		handler: async () => {
+			count++;
 		},
 	});
 
@@ -1103,8 +1040,7 @@ test.concurrent("public_writeFinalizedHeads calls actions", async () => {
 		params: [newHeads],
 	});
 
-	expect(latest).toBe(false);
-	expect(finalized).toBe(true);
+	expect(count).toBe(10);
 });
 
 test.concurrent("private_writeEvents indexes only the events requested", async () => {

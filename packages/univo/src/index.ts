@@ -196,7 +196,7 @@ type Action<TBlock, TEvent> = {
 	event: Event<TBlock, TEvent>;
 
 	/**
-	 * The action you want to execute when the event occurs on-chain.
+	 * The action you want to execute when the event _finalizes_ on-chain.
 	 *
 	 * Actions are processed during realtime indexing only and are never invoked during historical
 	 * backfills. Common actions include payment notifications for confirming payments or customer
@@ -204,33 +204,17 @@ type Action<TBlock, TEvent> = {
 	 * or wallet activity notifications or alerts.
 	 *
 	 * Actions may be invoked multiple times. It is important that your application code is
-	 * resilient to this by making use of an idempotency key - usually the id of the event passed
-	 * to your handler.
+	 * resilient to this by making use of an idempotency key (usually the id of the event passed
+	 * to your handler).
 	 *
-	 * In production, actions should perform lightweight processing only. Do not use them for
-	 * long-running tasks. Actions are extremely powerful when combined with a durable execution
-	 * framework like Temporal, Inngest, Trigger.dev, Cloudflare Workflows, or Restate.dev to
-	 * perform more advanced workflows that allow you to chain together multiple steps and
-	 * automatically handle retries.
+	 * Actions can be extremely powerful when combined with a durable execution framework like
+	 * Temporal, Inngest, Trigger.dev, Cloudflare Workflows, or Restate.dev to perform more
+	 * advanced workflows that allow you to chain together multiple steps and handle retries.
+	 *
+	 * Actions operate with at-least-once delivery. We guarantee that the indexer will not finalize
+	 * a given block until it achieves a non-erroring execution from your action.
 	 */
-	handler: {
-		/**
-		 * Executes your action when the event first occurs on-chain.
-		 *
-		 * Latest handlers operate with best-effort delivery. If your handler throws an error it will be
-		 * retried 2 and then ignored. If you need to guarantee that your latest handler is invoked
-		 * successfully you should run the same action code again from a finalized handler.
-		 */
-		latest?: (event: TEvent) => Promise<void> | void;
-
-		/**
-		 * Executes your action when the event finalizes on-chain.
-		 *
-		 * Finalized handlers operate with at-least-once delivery. We guarantee that the indexer
-		 * will not finalize a given block until it receives a successful response from your action.
-		 */
-		finalized?: (event: TEvent) => Promise<void> | void;
-	};
+	handler: (event: TEvent) => Promise<void> | void;
 };
 
 /**
@@ -608,7 +592,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
 			// stall indexing. We filter them out here and continue operating on unfinalized heads
 
-			return log.debug("Unfinalized head received is less than or equal to chain finalized height, aborting...");
+			return log.debug(`Unfinalized head (${hexToNumber(head.number)}) is <= finalized height (${finalizedHeight}), aborting...`);
 		}
 
 		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
@@ -717,30 +701,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// any extra work (fast)
 
 		await metadata.commits.upsert(head);
-
-		// Finally, we perform any actions listening for those events. Any actions performed when a block is
-		// first received run under a best-effort invocation. To provide any better guarantee is practically
-		// impossible because block finalization happens within a time constraint. In practice, applications
-		// use this handler to notify users that certain actions were acknowledged. It is usually okay for
-		// this notification to fail (very rare), it is more important that the event for that action is
-		// recorded in storage. If an application needs to guarantee this handler is run, they should execute
-		// the same logic in the finalized handler which does provide at-least-once processing semantics.
-
-		const actions = all_actions.flatMap((action) => {
-			if (typeof action.handler.latest === "undefined") {
-				return [];
-			}
-
-			return action.event.handler(block).map(async (event) => {
-				await retry(() => action.handler.latest!(event), 2).catch((error) => {
-					log.error(`Failed to execute 'latest' action ${action.id}`);
-
-					throw error;
-				});
-			});
-		});
-
-		await Promise.allSettled(actions);
 	};
 
 	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
@@ -1002,20 +962,16 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// We must receive an OK response from every finalized handler for this block in order
 		// to advance. This ensures at-least-once delivery to the finalized handler.
 
-		if (all_actions.every((action) => typeof action.handler.finalized === "undefined")) {
+		if (all_actions.length === 0) {
 			return; // Optimisation if the indexer has defined no finalized action handlers
 		}
 
 		const block = await getBlock({ chain: head.chain, number: head.number, hash: head.hash });
 
 		const promises = all_actions.flatMap((action) => {
-			if (typeof action.handler.finalized === "undefined") {
-				return [];
-			}
-
 			return action.event.handler(block).map(async (event) => {
-				await retry(() => action.handler.finalized!(event), 2).catch((error) => {
-					log.error(`Failed to execute 'finalized' action ${action.id}`);
+				await retry(() => action.handler(event), 2).catch((error) => {
+					log.error(`Failed to execute action ${action.id}`);
 
 					throw error;
 				});
