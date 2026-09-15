@@ -370,6 +370,11 @@ function realtime(opts: RealtimeOptions) {
 
 				const controller = new AbortController();
 
+				// TODO
+				// Essentially this is a call that should be invoked once we call the public_writeFinalizedHead
+				// method for the current chain finalized head. Because then we know as much of the finalization
+				// work has completed
+
 				await opts.indexer.request({
 					params: [newHeads],
 					signal: controller.signal,
