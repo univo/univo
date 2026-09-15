@@ -925,10 +925,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// invoke the action successfully for all events in this block, or we fail. We could commit by each actual
 			// event but that could dramatically increase the cost of the metadata layer from increased writes
 
-			const commit = `${prefix}/action/${action.id}`;
+			const key = `${prefix}/action/${action.id}`;
 			const value = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
 
-			await opts.metadataStorage.adapter.put(commit, value);
+			await opts.metadataStorage.adapter.put(key, value);
 		});
 
 		await Promise.all(promises);
