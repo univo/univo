@@ -3,6 +3,7 @@ import { createServer } from "./server";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import type { Storage } from "./metadata";
+import { AdapterError } from "./metadata/adapters";
 import { catchException, createException } from "./exceptions";
 import { compress, createLogger, decompress, hexToNumber, isHexEqual, normalizeHex, numberToHex, retry } from "./utils";
 
@@ -390,24 +391,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				return parsed as TBlock;
 			},
 
-			async upsert(blocks: TBlock[]) {
-				if (blocks.length === 0) {
-					return;
-				}
-
-				await Promise.all(
-					blocks.map(async (block) => {
-						const chain = normalizeHex(block.eth_chainId);
-						const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
-						const hash = normalizeHex(block.eth_getBlockByNumber.hash);
-						const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
-						const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
-						const compressed = await compress(JSON.stringify(block));
-						await opts.metadataStorage.adapter.put(prefix, compressed);
-					}),
-				);
-			},
-
 			async delete(blocks: Head[]) {
 				if (blocks.length === 0) {
 					return;
@@ -535,25 +518,33 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	async function retry_getBlock(head: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
-		const block = await opts.getBlock({ chain: head.chain, number: head.number });
+		try {
+			const block = await opts.getBlock({ chain: head.chain, number: head.number });
 
-		if (block === null) {
-			throw new Error("Provided `getBlock` function returned null");
-		}
-
-		if (typeof head.hash === "string") {
-			if (!isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
-				throw new Error("Method `eth_getBlockByNumber` returned unexpected block hash");
+			if (block === null) {
+				throw new Error("Provided `getBlock` function returned null");
 			}
 
-			for (const receipt of block.eth_getBlockReceipts) {
-				if (!isHexEqual(head.hash, receipt.blockHash)) {
-					throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
+			if (typeof head.hash === "string") {
+				if (!isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
+					throw new Error("Method `eth_getBlockByNumber` returned unexpected block hash");
+				}
+
+				for (const receipt of block.eth_getBlockReceipts) {
+					if (!isHexEqual(head.hash, receipt.blockHash)) {
+						throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
+					}
 				}
 			}
-		}
 
-		return block;
+			return block;
+		} catch (error) {
+			if (error instanceof Error) {
+				log.error(`Failed to load block: ${error.message}`);
+			}
+
+			throw error;
+		}
 	}
 
 	const GetBlockError = createException("Failed to load block from the provided `getBlock` function");
@@ -597,7 +588,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// is common for the client and server to be connected to different nodes. There is no guarantee that both
 			// those nodes see the same reorganisation so when we load the block on the server we get null
 
-			return;
+			return log.debug("Received null block response when loading unfinalized head, aborting...");
 		}
 
 		if (finalizedBlock === null) {
@@ -617,20 +608,49 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
 			// stall indexing. We filter them out here and continue operating on unfinalized heads
 
-			return;
+			return log.debug("Unfinalized head received is less than or equal to chain finalized height, aborting...");
 		}
 
 		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
 
-		// Before any blocks are processed they must be committed to the metadata storage. This ensures we have a record
-		// of the events that were upserted to storage. This is necessary to ensure that we can correctly discard any events
-		// from blocks that are later reorganised and no longer included in the canonical chain
+		// Before any blocks are processed they must be committed to the metadata storage write ahead log. This ensures we
+		// have a record of the events that were upserted to storage so that they can be safely deleted later if the block
+		// is ever reorganised out of the canonical chain.
 
 		const metadata_start = Date.now();
 
-		await metadata.blocks.upsert([block]);
+		const chain = normalizeHex(block.eth_chainId);
+		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
+		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
 
-		log.debug(`Persisted block to metadata in ${Date.now() - metadata_start}ms`);
+		const key = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const compressed = await compress(JSON.stringify(block));
+
+		// This upsert is performed as a conditional PUT that will error if a block already exists in the WAL for
+		// this height. This serves two purposes: it prevents overwriting data from other requests, and also acts as a
+		// concurrency control mechanism. When an indexer has multiple realtime clients for the same chain, only the first
+		// request received will succeed and all other requests will error (which we safely return OK to the client)
+
+		const conditional = {
+			ifNoneMatch: "*" as const,
+		};
+
+		const failed = await opts.metadataStorage.adapter.put(key, compressed, conditional).catch((error) => {
+			if (error instanceof AdapterError) {
+				if (error.tag === "PreconditionFailed") {
+					return true;
+				}
+			}
+		});
+
+		if (failed === true) {
+			return log.debug("Block already persisted to wal, ignoring...");
+		}
+
+		log.debug(`Persisted block to wal in ${Date.now() - metadata_start}ms`);
+
+		// Process the unfinalized block
 
 		const events_start = Date.now();
 
