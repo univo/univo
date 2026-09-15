@@ -567,6 +567,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			getBlock({ chain: head.chain, number: head.number, hash: head.hash }),
 		]);
 
+		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
+
 		if (block === null) {
 			// A null response is actually a common case during chain reorganisations. Because we load by block number it
 			// is common for the client and server to be connected to different nodes. There is no guarantee that both
@@ -594,8 +596,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			return log.debug(`Unfinalized head (${hexToNumber(head.number)}) is <= finalized height (${finalizedHeight}), aborting...`);
 		}
-
-		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
 
 		// Before any blocks are processed they must be committed to the metadata storage write ahead log. This ensures we
 		// have a record of the events that were upserted to storage so that they can be safely deleted later if the block
@@ -810,11 +810,91 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// After the above deletion occurs it is impossible for a malicious client to call `public_writeUnfinalizedHead`
 		// with the reorganised block because it won't be retrievable from the chain. This guard guarantees that our
 		// record of events will leave the canonical set and not the reorganised set.
+	};
 
-		// We don't delete the reorganised block from metadata storage for exceptional cases where a massive chain
-		// bug occurs and it takes a long time to finalize. Like in a worst case scenario where the chain could be
-		// constantly switching between two chains from major clients. We wait till everything is sorted and the
-		// chain finalizes to cleanup and process everything
+	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
+		log.debug("Received finalized head...");
+
+		if (all_actions.length === 0) {
+			// If the indexer hasn't defined any actions then there isn't actually any work to complete
+			// on finalization, so this is an optimistic abort case to reduce costs.
+
+			return;
+		}
+
+		// Otherwise, we may have actions to run
+
+		const blocks_start = Date.now();
+
+		const [finalizedBlock, block] = await Promise.all([
+			getBlock({ chain: head.chain, number: "finalized" }),
+			getBlock({ chain: head.chain, number: head.number, hash: head.hash }),
+		]);
+
+		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
+
+		if (block === null) {
+			return log.debug("Received null block response when loading finalized head, aborting...");
+		}
+
+		if (finalizedBlock === null) {
+			return log.error("Failed to determine finalized height when processing finalized head, aborting...");
+		}
+
+		const receivedHeight = hexToNumber(head.number);
+		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+
+		if (receivedHeight > finalizedHeight) {
+			return log.error(`Received head (${receivedHeight}) has not finalized (${finalizedHeight}), aborting...`);
+		}
+
+		// Given the head is finalized, perform the associated actions for all events
+
+		// TODO
+		// Eventually we should have some long-term mechanism for prevent repeated invocations. Because we are performing
+		// finalization work we actually have to persist something in the metadata layer indefinitely that indicates the
+		// work has been performed already. This can probably tie into the research with work-done persisted into metadata
+
+		const chain = normalizeHex(head.chain);
+		const number = normalizeHex(head.number, 16);
+		const hash = normalizeHex(head.hash);
+		const parentHash = normalizeHex(head.parent_hash);
+		const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
+
+		const promises = all_actions.map(async (action) => {
+			const events = action.event.handler(block);
+
+			const promises = events.map(async (event) => {
+				await retry(() => action.handler(event), 2).catch((error) => {
+					log.error(`Failed to execute action ${action.id}`);
+
+					throw error;
+				});
+			});
+
+			const results = await Promise.allSettled(promises);
+
+			// If we successfully invoked the action for all events we durably record a commit for this action id.
+			// This acknowledges the work was completed without issue and can be safely skipped at finalization.
+			// The commit will also run if there are no actual events to invoke the action for this block.
+
+			if (results.some((result) => result.status === "rejected")) {
+				return;
+			}
+
+			// In general, the goal of this commit is to maximally acknowledge work processed at finalization. This
+			// ensures that our finalization handler always remains fast by only having to re-do the minimum amount
+			// of work. However, there are some cost trade-offs to consider here. We commit by block here, either we
+			// invoke the action successfully for all events in this block, or we fail. We could commit by each actual
+			// event but that could dramatically increase the cost of the metadata layer from increased write cost.
+
+			const commit = `${prefix}/action/${action.id}`;
+			const value = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
+
+			await opts.metadataStorage.adapter.put(commit, value);
+		});
+
+		await Promise.all(promises);
 	};
 
 	// The goal of this function is to accept a contigious chain of heads that connect our indexer finalized height
@@ -1547,6 +1627,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const rpc: IndexerRpc = {
 		request: {
 			public_getFinalizedHeight,
+			public_writeFinalizedHead,
 			public_writeFinalizedHeads,
 			public_writeUnfinalizedHead,
 			public_deleteReorganisedHead,
