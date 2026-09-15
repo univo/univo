@@ -51,8 +51,8 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 	}
 
 	const [eth_getBlockByNumber, eth_getBlockReceipts] = await Promise.all([
-		rpc({ id: 2, method: "eth_getBlockReceipts", params: [block.number] }),
 		rpc({ id: 1, method: "eth_getBlockByNumber", params: [block.number, true] }),
+		rpc({ id: 2, method: "eth_getBlockReceipts", params: [block.number] }),
 	]);
 
 	if (eth_getBlockByNumber === null) {
