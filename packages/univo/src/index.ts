@@ -888,7 +888,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// Given the head is finalized, perform the associated actions for all events
 
 		// TODO
-		// Eventually we should have some long-term mechanism for prevent repeated invocations. Because we are performing
+		// Eventually we should have some long-term mechanism to prevent repeated invocations. Because we are performing
 		// finalization work we actually have to persist something in the metadata layer indefinitely that indicates the
 		// work has been performed already. This can probably tie into the research with work-done persisted into metadata
 
