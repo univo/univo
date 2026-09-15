@@ -874,8 +874,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		// TODO
-		// Should also load the indexer finalized height and assert received height is between those that and
-		// the chain finalized height. This isn't strictly needed for correctness but just prevents the case
+		// Should also load the indexer finalized height and assert received height is between that and the
+		// chain finalized height. This isn't strictly needed for correctness but just prevents the case
 		// where someone calls this method for a really old finalized block
 
 		const receivedHeight = hexToNumber(head.number);
