@@ -918,7 +918,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// ensures that our finalization handler always remains fast by only having to re-do the minimum amount
 			// of work. However, there are some cost trade-offs to consider here. We commit by block here, either we
 			// invoke the action successfully for all events in this block, or we fail. We could commit by each actual
-			// event but that could dramatically increase the cost of the metadata layer from increased write cost.
+			// event but that could dramatically increase the cost of the metadata layer from increased writes
 
 			const commit = `${prefix}/action/${action.id}`;
 			const value = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
