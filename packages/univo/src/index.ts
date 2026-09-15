@@ -490,18 +490,25 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		},
 	};
 
-	// Fetches a block using the provided `getBlock` function. Handles retries. The block hash is optional
-	// because we sometimes want the canonical block using only the block number. If a hash is provided we
-	// will ensure that the block returned via the block number lookup is the expected block
+	// Fetches a block using the provided `getBlock` function. Handles retries. We accept a partial head,
+	// sometimes want the canonical block using only the block number. If a hash and/or parent hash is
+	// provided we will ensure that they match the block returned
 
-	async function getBlock(head: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
-		return await retry(() => retry_getBlock(head), 2).catch(() => {
+	interface PartialHead {
+		chain: `0x${string}`;
+		number: string;
+		hash?: `0x${string}`;
+		parent_hash?: `0x${string}`;
+	}
+
+	async function getBlockFromChain(head: PartialHead) {
+		return await retry(() => retry_getBlockFromChain(head), 2).catch(() => {
 			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
 			return null;
 		});
 	}
 
-	async function retry_getBlock(head: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
+	async function retry_getBlockFromChain(head: PartialHead) {
 		try {
 			const block = await opts.getBlock({ chain: head.chain, number: head.number });
 
@@ -521,6 +528,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				}
 			}
 
+			if (typeof head.parent_hash === "string") {
+				if (!isHexEqual(head.parent_hash, block.eth_getBlockByNumber.parentHash)) {
+					throw new Error("Method `eth_getBlockByNumber` returned unexpected parent hash");
+				}
+			}
+
 			return block;
 		} catch (error) {
 			if (error instanceof Error) {
@@ -537,7 +550,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const heights = await metadata.heights.list(chain);
 
 		if (heights.length === 0) {
-			const block = await getBlock({ chain, number: "finalized" });
+			const block = await getBlockFromChain({ chain, number: "finalized" });
 
 			if (block === null) {
 				log.debug("Failed to fetch finalized block and unable to determine finalized height, aborting...");
@@ -562,9 +575,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const blocks_start = Date.now();
 
-		const [finalizedBlock, block] = await Promise.all([
-			getBlock({ chain: head.chain, number: "finalized" }),
-			getBlock({ chain: head.chain, number: head.number, hash: head.hash }),
+		const [block, finalizedBlock] = await Promise.all([
+			getBlockFromChain(head),
+			getBlockFromChain({ chain: head.chain, number: "finalized" }),
 		]);
 
 		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
@@ -710,20 +723,20 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// canonical chain than this request should yield a block with a different block hash. This is our proof
 		// that this block is no longer included in the chain and that it's safe to delete data associated with it
 
-		const [stored_block, canonical_block] = await Promise.all([
+		const [storedBlock, canonicalBlock] = await Promise.all([
 			metadata.blocks.get(head), //
-			getBlock({ chain: head.chain, number: head.number }),
+			getBlockFromChain({ chain: head.chain, number: head.number }),
 		]);
 
-		if (stored_block === null) {
+		if (storedBlock === null) {
 			return log.debug("Reorganised block never/already processed");
 		}
 
-		if (canonical_block === null) {
+		if (canonicalBlock === null) {
 			throw new Error("Attempted to delete unknown block");
 		}
 
-		if (isHexEqual(head.hash, canonical_block.eth_getBlockByNumber.hash)) {
+		if (isHexEqual(head.hash, canonicalBlock.eth_getBlockByNumber.hash)) {
 			throw new Error("Attempted to delete canonical block");
 		}
 
@@ -741,7 +754,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const batch: any[] = [];
 
 			try {
-				const events = event.handler(stored_block);
+				const events = event.handler(storedBlock);
 
 				for (const event of events) {
 					batch.push(event);
@@ -778,11 +791,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			for (const event of grouped_events) {
 				try {
-					if (!event.filters.some((filter) => matchFilter(canonical_block, filter))) {
+					if (!event.filters.some((filter) => matchFilter(canonicalBlock, filter))) {
 						continue;
 					}
 
-					const events = event.handler(canonical_block);
+					const events = event.handler(canonicalBlock);
 
 					for (const event of events) {
 						batch.push(event);
@@ -812,6 +825,25 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// record of events will leave the canonical set and not the reorganised set.
 	};
 
+	async function getBlockFromMetadataOrChain(head: Head) {
+		const chain = normalizeHex(head.chain);
+		const number = normalizeHex(head.number, 16);
+		const hash = normalizeHex(head.hash);
+		const parentHash = normalizeHex(head.parent_hash);
+		const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+
+		const object = await opts.metadataStorage.adapter.get(prefix);
+
+		if (object !== null) {
+			const block = await decompress(object.body);
+			const parsed = JSON.parse(block);
+
+			return parsed as TBlock;
+		}
+
+		return await getBlockFromChain(head);
+	}
+
 	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
 		log.debug("Received finalized head...");
 
@@ -826,9 +858,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const blocks_start = Date.now();
 
-		const [finalizedBlock, block] = await Promise.all([
-			getBlock({ chain: head.chain, number: "finalized" }),
-			getBlock({ chain: head.chain, number: head.number, hash: head.hash }),
+		const [block, finalizedBlock] = await Promise.all([
+			getBlockFromMetadataOrChain(head),
+			getBlockFromChain({ chain: head.chain, number: "finalized" }),
 		]);
 
 		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
@@ -956,7 +988,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const [heights, finalizedBlock] = await Promise.all([
 			metadata.heights.list(chain), //
-			getBlock({ chain, number: "finalized" }),
+			getBlockFromChain({ chain, number: "finalized" }),
 		]);
 
 		if (finalizedBlock === null) {
@@ -1046,7 +1078,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return; // Optimisation if the indexer has defined no finalized action handlers
 		}
 
-		const block = await getBlock({ chain: head.chain, number: head.number, hash: head.hash });
+		const block = await getBlockFromChain(head);
 
 		const promises = all_actions.flatMap((action) => {
 			return action.event.handler(block).map(async (event) => {
@@ -1106,7 +1138,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// We can either load the block from the chain or load from storage here? Not sure what
 		// is more appropriate it requires more testing in production
 
-		const block = await getBlock({ chain: head.chain, number: head.number, hash: head.hash });
+		const block = await getBlockFromChain(head);
 
 		if (block === null) {
 			throw new Error("Received unknown head that wasn't canonical");
@@ -1446,7 +1478,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		// Load the requested block
-		const block = await getBlock(params.head);
+		const block = await getBlockFromChain(params.head);
 
 		if (block === null) {
 			return {
