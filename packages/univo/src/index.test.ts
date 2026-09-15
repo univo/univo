@@ -48,6 +48,71 @@ test.concurrent("throws an error if an event with an invalid id is defined", () 
 	}).toThrowError;
 });
 
+test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same block", async ({ expect }) => {
+	const univo = indexer({
+		quiet: false,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+	});
+
+	let count = 0;
+
+	univo.event({
+		id: "event",
+
+		filters: [{ chain: 1, fromBlock: 0 }],
+
+		handler: (block) => {
+			count++;
+
+			return [block.eth_getBlockByNumber.hash];
+		},
+
+		storage: {
+			upsert: async () => {
+				//
+			},
+
+			delete: async () => {
+				//
+			},
+		},
+	});
+
+	const block = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
+
+	// First request should write this block to both the metadata and storage
+
+	await local(univo).request({
+		method: "public_writeUnfinalizedHead",
+		params: [
+			{
+				chain: block.eth_chainId,
+				hash: block.eth_getBlockByNumber.hash,
+				number: block.eth_getBlockByNumber.number,
+				parent_hash: block.eth_getBlockByNumber.parentHash,
+			},
+		],
+	});
+
+	// Second request should hit the object storage precondition and not write to storage
+
+	await local(univo).request({
+		method: "public_writeUnfinalizedHead",
+		params: [
+			{
+				chain: block.eth_chainId,
+				hash: block.eth_getBlockByNumber.hash,
+				number: block.eth_getBlockByNumber.number,
+				parent_hash: block.eth_getBlockByNumber.parentHash,
+			},
+		],
+	});
+
+	expect(count).toBe(1);
+});
+
 test.concurrent("public_writeUnfinalizedHead calls actions", async () => {
 	const chainFinalizedHeight = 0;
 
