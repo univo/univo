@@ -173,6 +173,8 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		return await reconcile(newBlock); // Finally we add this block
 	}
 
+	// TODO: reconcile should queue instead of dropping invocations with a mutex
+
 	return {
 		chain,
 		prune: mutex(prune),
@@ -232,12 +234,10 @@ function realtime(opts: RealtimeOptions) {
 		// that the number of blocks we have to process while unavailable is bounded. This puts an upper
 		// limit on our time-to-recovery and makes operational management simple.
 
-		const [latestBlock, latestFinalizedBlock] = await Promise.all([
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }),
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
-		]);
-
-		log.debug(`Chain finalized (${hexToNumber(latestFinalizedBlock.number)}) with tip (${hexToNumber(latestBlock.number)})`);
+		const chainLatestBlock = await opts.node.request({
+			params: ["latest", false],
+			method: "eth_getBlockByNumber",
+		});
 
 		const unfinalized = defineBlockchain({
 			getBlockByHash,
@@ -285,18 +285,10 @@ function realtime(opts: RealtimeOptions) {
 		});
 
 		await unfinalized.reconcile({
-			hash: latestFinalizedBlock.hash,
-			number: latestFinalizedBlock.number,
-			parent_hash: latestFinalizedBlock.parentHash,
+			hash: chainLatestBlock.hash,
+			number: chainLatestBlock.number,
+			parent_hash: chainLatestBlock.parentHash,
 		});
-
-		await unfinalized.reconcile({
-			hash: latestBlock.hash,
-			number: latestBlock.number,
-			parent_hash: latestBlock.parentHash,
-		});
-
-		log.debug("Reconciled unfinalized chain");
 
 		await opts.node.subscribe("newHeads", async (head) => {
 			await unfinalized.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
@@ -308,36 +300,68 @@ function realtime(opts: RealtimeOptions) {
 
 		log.debug("Subscribed unfinalized chain to new heads");
 
-		// Once the indexer is receiving the tip, we essentially want to do the same thing for finalized tip. Some indexer work
-		// can only be performed _after_ a block has finalized onchain (notably actions). Therefore we want to perform this work
-		// in parallel immediately as blocks finalize.
+		// Now that we are successfully processing the tip of the chain. We now need to index finalized blocks. This is done
+		// in two steps: firstly whenever we receive a new batch of finalized blocks we process them in parallel, second we
+		// attempt to finalize the work done by sending all heads between the indexer and chain finalized heights.
 
-		let finalizedHeight = hexToNumber(latestFinalizedBlock.number);
+		const initialIndexerFinalizedHeight = await opts.indexer.request({
+			params: [chain],
+			method: "public_getFinalizedHeight",
+		});
 
-		async function _poll() {
-			try {
-				log.debug("Polling for finalized height...");
+		const [chainFinalizedBlock, indexerFinalizedBlock] = await Promise.all([
+			opts.node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
+			opts.node.request({ method: "eth_getBlockByNumber", params: [numberToHex(initialIndexerFinalizedHeight), false] }),
+		]);
 
-				const finalizedBlock = await opts.node.request({
-					method: "eth_getBlockByNumber",
-					params: ["finalized", false],
-				});
+		const indexer = defineBlockchain({
+			getBlockByHash,
+			quiet: opts.quiet ?? false,
+		});
 
-				const nextFinalizedHeight = hexToNumber(finalizedBlock.number);
+		log.debug(`Indexer finalized (${initialIndexerFinalizedHeight}) and with tip (${hexToNumber(chainLatestBlock.number)})`);
 
-				if (nextFinalizedHeight <= finalizedHeight) {
-					return log.debug("No new finalized heads to process");
+		await indexer.reconcile({
+			hash: indexerFinalizedBlock.hash,
+			number: indexerFinalizedBlock.number,
+			parent_hash: indexerFinalizedBlock.parentHash,
+		});
+
+		// This can be an expensive operation, especially if we are just recovering from downtime, because we must first
+		// connect the last indexer finalized block with the last chain finalized block. This forces the realtime client
+		// to reconstruct the entire indexer unfinalized chain locally before any requests are made to the indexer.
+
+		await indexer.reconcile({
+			hash: chainLatestBlock.hash,
+			number: chainLatestBlock.number,
+			parent_hash: chainLatestBlock.parentHash,
+		});
+
+		log.debug("Reconciled local indexer chain");
+
+		await opts.node.subscribe("newHeads", async (head) => {
+			await indexer.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
+				if (error instanceof Error) {
+					log.debug(`Failed to reconcile latest indexer head: ${error.message}`);
 				}
+			});
+		});
 
-				// TODO
-				// This needs to go in the other poll mechanism. It means we won't start processing finalized
-				// blocks until we reconcile the recovery time but that's fine.
+		log.debug("Subscribed indexer chain to new heads");
 
-				// Determine newly finalized heads
+		// writeFinalizedHead is responsible for processing new heads in parallel as they finalize onchain
 
-				const finalizedHeads = unfinalized.chain
+		let chainFinalizedHeight = hexToNumber(chainFinalizedBlock.number);
+
+		async function writeFinalizedHead(nextFinalizedBlock: Head) {
+			try {
+				const nextFinalizedHeight = hexToNumber(nextFinalizedBlock.number);
+
+				// Determine new finalized heads
+
+				const newFinalizedHeads = unfinalized.chain
 					.filter((head) => {
-						if (hexToNumber(head.number) > finalizedHeight && hexToNumber(head.number) <= nextFinalizedHeight) {
+						if (hexToNumber(head.number) > chainFinalizedHeight && hexToNumber(head.number) <= nextFinalizedHeight) {
 							return true;
 						}
 
@@ -347,11 +371,15 @@ function realtime(opts: RealtimeOptions) {
 						return { chain, ...head };
 					});
 
+				if (newFinalizedHeads.length === 0) {
+					return log.debug("No new finalized heads to process");
+				}
+
 				// Process new heads
 
-				log.debug(`Processing ${finalizedHeads.length} finalized head(s)`);
+				log.debug(`Processing ${newFinalizedHeads.length} finalized head(s) in parallel`);
 
-				const promises = finalizedHeads.map(async (head) => {
+				const promises = newFinalizedHeads.map(async (head) => {
 					try {
 						log.debug("Received finalized head");
 
@@ -374,134 +402,85 @@ function realtime(opts: RealtimeOptions) {
 
 				await Promise.allSettled(promises);
 
-				// Acknowledge new finalized height
+				// Acknowledge heads were processed, irrespective of failures
 
-				log.debug(`Updating finalized height (${finalizedHeight}) to (${nextFinalizedHeight})`);
+				log.debug(`Processed ${newFinalizedHeads.length} finalized head(s) in parallel`);
 
-				finalizedHeight = nextFinalizedHeight;
+				chainFinalizedHeight = nextFinalizedHeight;
 
-				await unfinalized.prune({
-					hash: finalizedBlock.hash,
-					number: finalizedBlock.number,
-					parent_hash: finalizedBlock.parentHash,
-				});
+				await unfinalized.prune(nextFinalizedBlock);
 			} catch (error) {
-				if (error instanceof Error) {
-					log.error(`Failed to reconcile finalized head: ${error.message}`);
-				}
+				//
 			}
 		}
 
-		setInterval(mutex(_poll), POLLING_INTERVAL_MS);
+		// writeFinalizedHeads is responsible for finalizing the indexer
 
-		log.debug("Started polling finalized height for unfinalized chain");
+		let indexerFinalizedHeight = initialIndexerFinalizedHeight;
 
-		// After we have set up subscriptions to process both the tip and finalized blocks immediately in parallel. We also
-		// need to initialise our finalization process. This is what actually informs the indexer to advance its internal
-		// indexer height by acknowledging the unfinalized blocks were processed successfully.
+		async function writeFinalizedHeads(nextFinalizedBlock: Head) {
+			const nextFinalizedHeight = hexToNumber(nextFinalizedBlock.number);
 
-		// This can be an expensive operation, especially if we are just recovering from downtime, because we must first
-		// connect the last indexer finalized block with the last chain finalized block. This forces the realtime client
-		// to reconstruct the entire indexer unfinalized chain locally before any requests are made to the indexer.
+			// Determine indexer unfinalized heads
 
-		const initialIndexerHeight = await opts.indexer.request({
-			params: [chain],
-			method: "public_getFinalizedHeight",
-		});
+			const indexerUnfinalizedHeads = indexer.chain
+				.filter((head) => {
+					if (hexToNumber(head.number) > indexerFinalizedHeight && hexToNumber(head.number) <= nextFinalizedHeight) {
+						return true;
+					}
 
-		const indexer = defineBlockchain({
-			getBlockByHash,
-			quiet: opts.quiet ?? false,
-		});
+					return false;
+				})
+				.map((head) => {
+					return { chain, ...head };
+				});
 
-		log.debug(`Indexer finalized (${initialIndexerHeight}) with tip (${hexToNumber(latestBlock.number)})`);
+			if (indexerUnfinalizedHeads.length === 0) {
+				return log.debug("No new indexer unfinalized heads to deliver, ignoring...");
+			}
 
-		const indexerBlock = await opts.node.request({
-			method: "eth_getBlockByNumber",
-			params: [numberToHex(initialIndexerHeight), false],
-		});
+			log.debug(`Delivering ${indexerUnfinalizedHeads.length} indexer unfinalized head(s)...`);
 
-		await indexer.reconcile({
-			hash: indexerBlock.hash,
-			number: indexerBlock.number,
-			parent_hash: indexerBlock.parentHash,
-		});
+			const controller = new AbortController();
 
-		await indexer.reconcile({
-			hash: latestBlock.hash,
-			number: latestBlock.number,
-			parent_hash: latestBlock.parentHash,
-		});
-
-		log.debug("Reconciled local indexer chain");
-
-		// After we have fully constructed the indexer chain we set up a handler to process when new blocks finalize. Right
-		// now there exists no subscription for this so we have to poll. When new blocks finalize we send as many heads as
-		// possible connecting the latest finalized block indexed versus new blocks finalized on chain
-
-		await opts.node.subscribe("newHeads", async (head) => {
-			await indexer.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
-				if (error instanceof Error) {
-					log.debug(`Failed to reconcile latest indexer head: ${error.message}`);
-				}
+			await opts.indexer.request({
+				params: [indexerUnfinalizedHeads],
+				signal: controller.signal,
+				method: "public_writeFinalizedHeads",
 			});
-		});
 
-		log.debug("Subscribed indexer chain to new heads");
+			log.debug(`Delivered ${indexerUnfinalizedHeads.length} indexer unfinalized head(s)`);
 
-		let indexerHeight = initialIndexerHeight;
+			indexerFinalizedHeight = nextFinalizedHeight;
+
+			log.debug(`Updated indexer height to ${indexerFinalizedHeight}`);
+
+			await indexer.prune(nextFinalizedBlock);
+		}
+
+		// We wrap finalization in a mutex. This is just an optimisation to prevent repeated requests that will
+		// fail anyway if the indexer is currently finalising.
+
+		const mutex_writeFinalizedHeads = mutex(writeFinalizedHeads);
 
 		async function poll() {
 			try {
 				log.debug("Polling for finalized height...");
-
-				// This uses a natural retry method. If the request fails we never update the finalized height. If successful
-				// we will update it and safely remove all finalized blocks processed from the next request
 
 				const finalizedBlock = await opts.node.request({
 					method: "eth_getBlockByNumber",
 					params: ["finalized", false],
 				});
 
-				const finalizedHeight = hexToNumber(finalizedBlock.number);
-
-				log.debug(`Finalized chain height ${finalizedHeight} and indexer height ${indexerHeight}`);
-
-				const unfinalizedHeads = indexer.chain
-					.filter((head) => {
-						if (hexToNumber(head.number) > indexerHeight && hexToNumber(head.number) <= finalizedHeight) {
-							return true;
-						}
-
-						return false;
-					})
-					.map((head) => {
-						return { chain, ...head };
-					});
-
-				if (unfinalizedHeads.length === 0) {
-					return log.debug("No new finalized heads to deliver, ignoring...");
-				}
-
-				log.debug(`Delivering ${unfinalizedHeads.length} finalized head(s)...`);
-
-				const controller = new AbortController();
-
-				await opts.indexer.request({
-					params: [unfinalizedHeads],
-					signal: controller.signal,
-					method: "public_writeFinalizedHeads",
+				await writeFinalizedHead({
+					hash: finalizedBlock.hash,
+					number: finalizedBlock.number,
+					parent_hash: finalizedBlock.parentHash,
 				});
 
-				log.debug(`Delivered ${unfinalizedHeads.length} finalized head(s)`);
-
-				indexerHeight = hexToNumber(finalizedBlock.number);
-
-				log.debug(`Updated indexer height to ${indexerHeight}`);
-
-				await indexer.prune({
-					number: finalizedBlock.number,
+				await mutex_writeFinalizedHeads({
 					hash: finalizedBlock.hash,
+					number: finalizedBlock.number,
 					parent_hash: finalizedBlock.parentHash,
 				});
 			} catch (error) {
@@ -511,7 +490,7 @@ function realtime(opts: RealtimeOptions) {
 			}
 		}
 
-		setInterval(mutex(poll), POLLING_INTERVAL_MS);
+		setInterval(poll, POLLING_INTERVAL_MS);
 
 		log.debug("Started polling finalized height");
 	});
