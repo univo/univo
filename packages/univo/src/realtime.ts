@@ -385,7 +385,7 @@ function realtime(opts: RealtimeOptions) {
 
 						// Similar to tip indexing, we don't perform any retries here because of thundering herd issues.
 						// Instead retries should be handled by deploying multiple realtime clients. Any failures will
-						// automatically be resolved the finalization process
+						// automatically be resolved by the finalization process
 
 						await opts.indexer.request({
 							params: [head],
