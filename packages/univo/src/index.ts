@@ -633,15 +633,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			ifNoneMatch: "*" as const,
 		};
 
-		const failed = await opts.metadataStorage.adapter.put(key, compressed, conditional).catch((error) => {
+		const result = await opts.metadataStorage.adapter.put(key, compressed, conditional).catch((error) => {
 			if (error instanceof AdapterError) {
 				if (error.tag === "PreconditionFailed") {
-					return true;
+					return null;
 				}
 			}
+
+			throw error;
 		});
 
-		if (failed === true) {
+		if (result === null) {
 			return log.debug("Block already persisted to wal, ignoring...");
 		}
 
