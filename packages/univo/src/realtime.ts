@@ -481,6 +481,9 @@ function realtime(opts: RealtimeOptions) {
 					parent_hash: finalizedBlock.parentHash,
 				});
 
+				// It's very intentional that we perform the finalization work after processing the finalized
+				// blocks in parallel. This is what maximises finalization speed and reduces costs.
+
 				await mutex_writeFinalizedHeads({
 					hash: finalizedBlock.hash,
 					number: finalizedBlock.number,
