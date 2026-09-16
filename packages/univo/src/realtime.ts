@@ -214,11 +214,11 @@ type RealtimeOptions = {
 function realtime(opts: RealtimeOptions) {
 	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[realtime]" });
 
-	const getBlockByHash = async (hash: `0x${string}`) => {
+	async function getBlockByHash(hash: `0x${string}`) {
 		const block = await opts.node.request({ method: "eth_getBlockByHash", params: [hash, false] });
 
 		return { number: block.number, hash: block.hash, parent_hash: block.parentHash };
-	};
+	}
 
 	const promise = iife(async () => {
 		log.debug("Initialising realtime client for indexer");
@@ -227,23 +227,34 @@ function realtime(opts: RealtimeOptions) {
 
 		log.debug(`Determined chain identifier for connected node: ${hexToNumber(chain)}`);
 
-		const [latestBlock, initialIndexerHeight] = await Promise.all([
+		// First step is to initialise the realtime client so that it immediately begins indexing the tip
+		// of the chain. This is fundamentally important part of recovering from downtime because it means
+		// that the number of blocks we have to process while unavailable is bounded. This puts an upper
+		// limit on our time-to-recovery and makes operational management simple.
+
+		const [latestBlock, latestFinalizedBlock] = await Promise.all([
 			opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }),
-			opts.indexer.request({ method: "public_getFinalizedHeight", params: [chain] }),
+			opts.node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
 		]);
 
-		const latest = defineBlockchain({
+		log.debug(`Chain finalized (${hexToNumber(latestFinalizedBlock.number)}) with tip (${hexToNumber(latestBlock.number)})`);
+
+		const unfinalized = defineBlockchain({
 			getBlockByHash,
 			quiet: opts.quiet ?? false,
 			onBlockAdded: async (head) => {
 				try {
 					log.debug("Received unfinalized head");
 
-					// TODO
-					// We should only retry failed network requests. If we fail to process events or actions they will be retried within
-					// the server. This mitigates a thundering herd of retries caused by a persistent failure to process events
+					// We intentionally do not perform retries here. It makes more sense to improve the resiliency of
+					// tip indexing by deploying more realtime clients. Three clients means it at least three requests
+					// attempt to process the latest block. Concurrency control mechanisms on the indexer ensure that
+					// only one of these requests actually write data to storage
 
-					await retry(() => opts.indexer.request({ method: "public_writeUnfinalizedHead", params: [{ chain, ...head }] }), 2);
+					await opts.indexer.request({
+						method: "public_writeUnfinalizedHead",
+						params: [{ chain, ...head }],
+					});
 
 					log.debug("Delivered unfinalized head");
 				} catch (error) {
@@ -256,7 +267,13 @@ function realtime(opts: RealtimeOptions) {
 				try {
 					log.debug("Received reorganised head");
 
-					await retry(() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), 2);
+					// Because reorganised blocks are rare, it's safe to be pretty liberal with retries here. It won't cause any
+					// thundering herd or degradation and maximises the chance our indexer can safely process the reorged head
+
+					await retry(
+						() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
+						4,
+					);
 
 					log.debug("Delivered reorganised head");
 				} catch (error) {
@@ -267,33 +284,137 @@ function realtime(opts: RealtimeOptions) {
 			},
 		});
 
-		await latest.reconcile({
+		await unfinalized.reconcile({
+			hash: latestFinalizedBlock.hash,
+			number: latestFinalizedBlock.number,
+			parent_hash: latestFinalizedBlock.parentHash,
+		});
+
+		await unfinalized.reconcile({
 			hash: latestBlock.hash,
 			number: latestBlock.number,
 			parent_hash: latestBlock.parentHash,
 		});
 
-		// Now we attach the subscribers for new blocks because we want the indexer to receive the tip of the chain immediately
+		log.debug("Reconciled unfinalized chain");
 
 		await opts.node.subscribe("newHeads", async (head) => {
-			await latest.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
+			await unfinalized.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
 				if (error instanceof Error) {
-					log.error(`Failed to reconcile latest head: ${error.message}`);
+					log.error(`Failed to reconcile unfinalized head: ${error.message}`);
 				}
 			});
 		});
 
-		log.debug("Subscribed latest chain to new heads");
+		log.debug("Subscribed unfinalized chain to new heads");
 
-		// For correctness, we must also then send all finalised blocks from the last known finalised block from the indexer.
-		// First we attach the indexer finalized block and then we attach the latest block to reconstruct the entire chain
+		// Once the indexer is receiving the tip, we essentially want to do the same thing for finalized tip. Some indexer work
+		// can only be performed _after_ a block has finalized onchain (notably actions). Therefore we want to perform this work
+		// in parallel immediately as blocks finalize.
+
+		let finalizedHeight = hexToNumber(latestFinalizedBlock.number);
+
+		async function _poll() {
+			try {
+				log.debug("Polling for finalized height...");
+
+				const finalizedBlock = await opts.node.request({
+					method: "eth_getBlockByNumber",
+					params: ["finalized", false],
+				});
+
+				const nextFinalizedHeight = hexToNumber(finalizedBlock.number);
+
+				if (nextFinalizedHeight <= finalizedHeight) {
+					return log.debug("No new finalized heads to process");
+				}
+
+				// TODO
+				// This needs to go in the other poll mechanism. It means we won't start processing finalized
+				// blocks until we reconcile the recovery time but that's fine.
+
+				// Determine newly finalized heads
+
+				const finalizedHeads = unfinalized.chain
+					.filter((head) => {
+						if (hexToNumber(head.number) > finalizedHeight && hexToNumber(head.number) <= nextFinalizedHeight) {
+							return true;
+						}
+
+						return false;
+					})
+					.map((head) => {
+						return { chain, ...head };
+					});
+
+				// Process new heads
+
+				log.debug(`Processing ${finalizedHeads.length} finalized head(s)`);
+
+				const promises = finalizedHeads.map(async (head) => {
+					try {
+						log.debug("Received finalized head");
+
+						// Similar to tip indexing, we don't perform any retries here because of thundering herd issues.
+						// Instead retries should be handled by deploying multiple realtime clients. Any failures will
+						// automatically be resolved the finalization process
+
+						await opts.indexer.request({
+							params: [head],
+							method: "public_writeFinalizedHead",
+						});
+
+						log.debug("Delivered finalized head");
+					} catch (error) {
+						if (error instanceof Error) {
+							log.warn(`Failed to write finalized head: ${error.message}`);
+						}
+					}
+				});
+
+				await Promise.allSettled(promises);
+
+				// Acknowledge new finalized height
+
+				log.debug(`Updating finalized height (${finalizedHeight}) to (${nextFinalizedHeight})`);
+
+				finalizedHeight = nextFinalizedHeight;
+
+				await unfinalized.prune({
+					hash: finalizedBlock.hash,
+					number: finalizedBlock.number,
+					parent_hash: finalizedBlock.parentHash,
+				});
+			} catch (error) {
+				if (error instanceof Error) {
+					log.error(`Failed to reconcile finalized head: ${error.message}`);
+				}
+			}
+		}
+
+		setInterval(mutex(_poll), POLLING_INTERVAL_MS);
+
+		log.debug("Started polling finalized height for unfinalized chain");
+
+		// After we have set up subscriptions to process both the tip and finalized blocks immediately in parallel. We also
+		// need to initialise our finalization process. This is what actually informs the indexer to advance its internal
+		// indexer height by acknowledging the unfinalized blocks were processed successfully.
+
+		// This can be an expensive operation, especially if we are just recovering from downtime, because we must first
+		// connect the last indexer finalized block with the last chain finalized block. This forces the realtime client
+		// to reconstruct the entire indexer unfinalized chain locally before any requests are made to the indexer.
+
+		const initialIndexerHeight = await opts.indexer.request({
+			params: [chain],
+			method: "public_getFinalizedHeight",
+		});
 
 		const indexer = defineBlockchain({
 			getBlockByHash,
 			quiet: opts.quiet ?? false,
 		});
 
-		log.debug(`Indexer last finalized at ${initialIndexerHeight}, reconciling local chain...`);
+		log.debug(`Indexer finalized (${initialIndexerHeight}) with tip (${hexToNumber(latestBlock.number)})`);
 
 		const indexerBlock = await opts.node.request({
 			method: "eth_getBlockByNumber",
@@ -346,13 +467,9 @@ function realtime(opts: RealtimeOptions) {
 
 				log.debug(`Finalized chain height ${finalizedHeight} and indexer height ${indexerHeight}`);
 
-				const newHeads = indexer.chain
+				const unfinalizedHeads = indexer.chain
 					.filter((head) => {
-						if (hexToNumber(head.number) > finalizedHeight) {
-							return false;
-						}
-
-						if (hexToNumber(head.number) > indexerHeight) {
+						if (hexToNumber(head.number) > indexerHeight && hexToNumber(head.number) <= finalizedHeight) {
 							return true;
 						}
 
@@ -362,41 +479,27 @@ function realtime(opts: RealtimeOptions) {
 						return { chain, ...head };
 					});
 
-				if (newHeads.length === 0) {
+				if (unfinalizedHeads.length === 0) {
 					return log.debug("No new finalized heads to deliver, ignoring...");
 				}
 
-				log.debug(`Delivering ${newHeads.length} finalized head(s)...`);
+				log.debug(`Delivering ${unfinalizedHeads.length} finalized head(s)...`);
 
 				const controller = new AbortController();
 
-				// TODO
-				// Essentially this is a call that should be invoked once we call the public_writeFinalizedHead
-				// method for the current chain finalized head. Because then we know as much of the finalization
-				// work has completed
-
 				await opts.indexer.request({
-					params: [newHeads],
+					params: [unfinalizedHeads],
 					signal: controller.signal,
 					method: "public_writeFinalizedHeads",
 				});
 
-				log.debug(`Delivered ${newHeads.length} finalized head(s)`);
+				log.debug(`Delivered ${unfinalizedHeads.length} finalized head(s)`);
 
 				indexerHeight = hexToNumber(finalizedBlock.number);
 
 				log.debug(`Updated indexer height to ${indexerHeight}`);
 
-				// After successfully processing all blocks less than the indexer height we can safely prune our local chains
-				// and remove all locally stored blocks less than the indexer finalized height
-
 				await indexer.prune({
-					number: finalizedBlock.number,
-					hash: finalizedBlock.hash,
-					parent_hash: finalizedBlock.parentHash,
-				});
-
-				await latest.prune({
 					number: finalizedBlock.number,
 					hash: finalizedBlock.hash,
 					parent_hash: finalizedBlock.parentHash,
