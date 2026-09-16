@@ -460,8 +460,9 @@ function realtime(opts: RealtimeOptions) {
 			}
 		}
 
-		// We wrap finalization in a mutex. This is just an optimisation to prevent repeated requests that will
-		// fail anyway if the indexer is currently finalising.
+		// We wrap finalization in a mutex. On the indexer finalization is a single-writer process that
+		// operates under 60s leases. This means that any new requests while finalization is in-flight
+		// will fail anyway so this mutex is just an optimisation and doesn't break correctness.
 
 		const mutex_writeFinalizedHeads = mutex(writeFinalizedHeads);
 
