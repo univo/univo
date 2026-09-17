@@ -5,7 +5,7 @@ import { version } from "../package.json";
 import type { Storage } from "./metadata";
 import { AdapterError } from "./metadata/adapters";
 import { catchException, createException } from "./exceptions";
-import { compress, createLogger, decoder, decompress, hexToNumber, iife, isHexEqual, normalizeHex, retry } from "./utils";
+import { compress, createLogger, decoder, decompress, hexToNumber, isHexEqual, normalizeHex, numberToHex, retry } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -916,8 +916,47 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// larger batches of blocks is for the case where we are recovering from downtime. The goal is for us to guarantee
 	// that we can process a single batch within the lease, otherwise we will likely never be able to commit.
 
-	const FINALIZATION_BATCH_SIZE = 60;
+	const FINALIZATION_BATCH_SIZE = 32;
 	const LEASE_DURATION_MS = 60 * 1000;
+
+	async function getBlocksProcessedAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
+		// Using a while true loop here is fine because there is only ever a finite amount of metadata garbage
+		// collection to perform so there exists no attack vector where wouldn't be able to clear enough garbage
+		// to ever return
+
+		while (true) {
+			// LIST blocks
+
+			const blocksKey = `blocks/v1/${normalizeHex(chain)}`;
+			const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey, limit: FINALIZATION_BATCH_SIZE });
+
+			if (blocks.keys.length === 0) {
+				return [];
+			}
+
+			// Perform garbage collection
+
+			const garbageCollectionPromises = blocks.keys.flatMap(async (key) => {
+				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
+
+				if (hexToNumber(number) > finalizedHeight) {
+					return;
+				}
+
+				await opts.metadataStorage.adapter.delete(key);
+			});
+
+			if (garbageCollectionPromises.length === 0) {
+				return blocks.keys;
+			}
+
+			await Promise.all(garbageCollectionPromises);
+		}
+	}
+
+	async function getCommitsAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
+		//
+	}
 
 	const public_finalize: IndexerRpc["request"]["public_finalize"] = async (chain) => {
 		// Check if there are blocks to finalize
@@ -951,13 +990,15 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const manifest = JSON.parse(decoder.decode(manifestGetRes.body)) as Manifest;
 
-		if (manifest.finalized_height === chainFinalizedHeight) {
+		const indexerFinalizedHeight = manifest.finalized_height;
+
+		if (indexerFinalizedHeight === chainFinalizedHeight) {
 			return log.debug("Nothing to finalize");
 		}
 
 		// There are blocks to finalize, check for a valid lease
 
-		if (manifest.finalized_height !== manifest.finalizing_height) {
+		if (indexerFinalizedHeight !== manifest.finalizing_height) {
 			if (Date.now() - manifest.updated_at < LEASE_DURATION_MS) {
 				return log.debug("Found valid lease, aborting...");
 			}
@@ -972,11 +1013,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Update the manifest and acquire the lease
 
-		const finalizingHeight = manifest.finalized_height + FINALIZATION_BATCH_SIZE;
+		const finalizingHeight = Math.min(chainFinalizedHeight, indexerFinalizedHeight + FINALIZATION_BATCH_SIZE);
 
 		const updatedManifest: Manifest = {
+			finalized_height: indexerFinalizedHeight,
 			finalizing_height: finalizingHeight,
-			finalized_height: manifest.finalized_height,
 			updated_at: Date.now(),
 		};
 
@@ -999,40 +1040,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.debug("Failed to acquire lease, aborting...");
 		}
 
-		// There is only ever a finite amount of metadata garbage collection to perform so there exists no attack vector
-		// where wouldn't be able to clear enough garbage to ever continue finalizing.
-
-		const blocks = await iife(async () => {
-			while (true) {
-				// LIST blocks
-
-				const blocksKey = `blocks/v1/${normalizeHex(chain)}`;
-				const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey, limit: FINALIZATION_BATCH_SIZE });
-
-				if (blocks.keys.length === 0) {
-					return [];
-				}
-
-				// Perform garbage collection
-
-				const garbageCollectionPromises = blocks.keys.flatMap(async (key) => {
-					const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
-
-					if (hexToNumber(number) > manifest.finalized_height) {
-						return;
-					}
-
-					await opts.metadataStorage.adapter.delete(key);
-				});
-
-				if (garbageCollectionPromises.length === 0) {
-					return blocks.keys;
-				}
-
-				await Promise.all(garbageCollectionPromises);
-			}
-		});
-
 		// For each finalized block, our goal is to prove two things:
 		// - The unfinalized block was correctly processed (all events and actions returned OK)
 		// - The unfinalized block finalized onchain and was not reorganised
@@ -1048,8 +1055,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// indexer finalized height we can prove that all blocks in between these two onchain
 		// "anchor" points are also canonical.
 
-		// We then traverse the chain backwards, we verify the full contiguous chain by loading data
-		// first from the WAL and then from the chain if it's missing and push to the WAL
+		const [finalizingBlock, blocksProcessed] = await Promise.all([
+			getBlockFromChain({ chain, number: numberToHex(finalizingHeight) }),
+			getBlocksProcessedAndGarbageCollect(chain, manifest.finalized_height),
+		]);
+
+		if (finalizingBlock === null) {
+			throw new Error("Failed to load finalizing anchor block");
+		}
+
+		const hash = finalizingBlock.eth_getBlockByNumber.hash;
+		const parentHash = finalizingBlock.eth_getBlockByNumber.parentHash;
+		const number = hexToNumber(finalizingBlock.eth_getBlockByNumber.number);
 
 		// Second, we iterate over the canonical list of blocks and verify that each block was processed
 		// correctly. To prove this we just need a commit for every event and action that matches the
