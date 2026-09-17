@@ -2,9 +2,9 @@ import type { R2Bucket } from "@cloudflare/workers-types";
 
 import { AdapterError, defineAdapter } from "../adapters";
 
-interface R2Options {
+type R2Options = {
 	binding: R2Bucket;
-}
+};
 
 function r2(opts: R2Options) {
 	const { binding } = opts;
