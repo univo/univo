@@ -929,16 +929,19 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const FINALIZATION_BATCH_SIZE = 32;
 	const LEASE_DURATION_MS = 60 * 1000;
 
-	async function getBlocksProcessedAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
-		// Using a while true loop here is fine because there is only ever a finite amount of metadata garbage
-		// collection to perform so there exists no attack vector where wouldn't be able to clear enough garbage
-		// to ever return
+	// Note that there is only ever a finite amount of metadata garbage collection to perform so there exists no
+	// attack vector where we wouldn't be able to clear enough garbage to ever escape the while loop.
 
+	async function getBlocksProcessedAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
 		while (true) {
 			// LIST blocks
 
 			const blocksKey = `blocks/v1/${normalizeHex(chain)}`;
-			const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey, limit: FINALIZATION_BATCH_SIZE });
+
+			const blocks = await opts.metadataStorage.adapter.list({
+				prefix: blocksKey,
+				limit: FINALIZATION_BATCH_SIZE,
+			});
 
 			if (blocks.keys.length === 0) {
 				return [];
@@ -946,7 +949,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			// Perform garbage collection
 
-			const garbageCollectionPromises = blocks.keys.flatMap(async (key) => {
+			const garbageCollectionPromises = blocks.keys.map(async (key) => {
 				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
 
 				if (hexToNumber(number) > finalizedHeight) {
@@ -976,7 +979,51 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	async function getCommitsAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
-		//
+		while (true) {
+			// LIST commits
+
+			const commitsKey = `commits/v1/${normalizeHex(chain)}`;
+
+			const commits = await opts.metadataStorage.adapter.list({
+				prefix: commitsKey,
+				limit: FINALIZATION_BATCH_SIZE,
+			});
+
+			if (commits.keys.length === 0) {
+				return [];
+			}
+
+			// Perform garbage collection
+
+			const garbageCollectionPromises = commits.keys.map(async (key) => {
+				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
+
+				if (hexToNumber(number) > finalizedHeight) {
+					return;
+				}
+
+				await opts.metadataStorage.adapter.delete(key);
+			});
+
+			if (garbageCollectionPromises.length === 0) {
+				return commits.keys.map((key) => {
+					const [_, __, ___, number, hash, parentHash, type, id] = key.split("/") as [
+						string,
+						string,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+						"action" | undefined,
+						string | undefined,
+					];
+
+					return { number, hash, parentHash, type, id };
+				});
+			}
+
+			await Promise.all(garbageCollectionPromises);
+		}
 	}
 
 	const public_finalize: IndexerRpc["request"]["public_finalize"] = async (chain) => {
