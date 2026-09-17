@@ -5,7 +5,7 @@ import { version } from "../package.json";
 import type { Storage } from "./metadata";
 import { AdapterError } from "./metadata/adapters";
 import { catchException, createException } from "./exceptions";
-import { compress, createLogger, decoder, decompress, hexToNumber, isHexEqual, normalizeHex, retry } from "./utils";
+import { compress, createLogger, decoder, decompress, hexToNumber, iife, isHexEqual, normalizeHex, retry } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -851,8 +851,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// TODO
 		// Should also load the indexer finalized height and assert received height is between that and the
-		// chain finalized height. This isn't strictly needed for correctness but just prevents the case
-		// where someone calls this method for a really old finalized block
+		// chain finalized height. This is needed for correctness to ensure that a malicious client can't
+		// process old blocks that would create an infinite amount of garbage collection that the finalization
+		// process would never be able to delete
 
 		const receivedHeight = hexToNumber(head.number);
 		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
@@ -966,6 +967,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		log.debug("Lease unacquired, attempting to acquire...");
 
+		// TODO
+		// From here out it should be a loop. Will also need to add an exit condition if we have finalized all blocks
+
 		// Update the manifest and acquire the lease
 
 		const finalizingHeight = manifest.finalized_height + FINALIZATION_BATCH_SIZE;
@@ -995,7 +999,39 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.debug("Failed to acquire lease, aborting...");
 		}
 
-		// List over the blocks and commits in parallel. Perform garbage collection
+		// There is only ever a finite amount of metadata garbage collection to perform so there exists no attack vector
+		// where wouldn't be able to clear enough garbage to ever continue finalizing.
+
+		const blocks = await iife(async () => {
+			while (true) {
+				// LIST blocks
+
+				const blocksKey = `blocks/v1/${normalizeHex(chain)}`;
+				const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey, limit: FINALIZATION_BATCH_SIZE });
+
+				if (blocks.keys.length === 0) {
+					return [];
+				}
+
+				// Perform garbage collection
+
+				const garbageCollectionPromises = blocks.keys.flatMap(async (key) => {
+					const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
+
+					if (hexToNumber(number) > manifest.finalized_height) {
+						return;
+					}
+
+					await opts.metadataStorage.adapter.delete(key);
+				});
+
+				if (garbageCollectionPromises.length === 0) {
+					return blocks.keys;
+				}
+
+				await Promise.all(garbageCollectionPromises);
+			}
+		});
 
 		// For each finalized block, our goal is to prove two things:
 		// - The unfinalized block was correctly processed (all events and actions returned OK)
@@ -1023,6 +1059,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// relative ordering of the processing. It could be that the reorganised block was processed after
 		// the canonical block leaving our system in an incorrect state. Therefore, in the rare case that
 		// we do encounter a chain reorganisation we must process them again.
+
+		// LIST commits. We do this after the blocks because we could've performed processing.
 
 		// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
 		// Otherwise load the block from metadata and process it.
