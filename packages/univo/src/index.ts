@@ -826,50 +826,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return await getBlockFromChain(head);
 	}
 
-	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
-		log.debug("Received finalized head...");
-
-		// If the indexer hasn't defined any actions then there isn't actually any work to complete
-		// on finalization, so this is an optimistic abort case to reduce costs.
-
-		if (all_actions.length === 0) {
-			return;
-		}
-
-		// Otherwise, we may have actions to run
-
-		const blocks_start = Date.now();
-
-		const [block, chainFinalizedBlock] = await Promise.all([
-			getBlockFromMetadataOrChain(head),
-			getBlockFromChain({ chain: head.chain, number: "finalized" }),
-		]);
-
-		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
-
-		if (block === null) {
-			return log.debug("Received null block response when loading finalized head, aborting...");
-		}
-
-		if (chainFinalizedBlock === null) {
-			return log.error("Failed to determine finalized height when processing finalized head, aborting...");
-		}
-
-		// TODO
-		// Should also load the indexer finalized height and assert received height is between that and the
-		// chain finalized height. This is needed for correctness to ensure that a malicious client can't
-		// process old blocks that would create an infinite amount of garbage collection that the finalization
-		// process would never be able to delete
-
-		const receivedHeight = hexToNumber(head.number);
-		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
-
-		if (receivedHeight > chainFinalizedHeight) {
-			return log.error(`Received head (${receivedHeight}) has not finalized (${chainFinalizedHeight}), aborting...`);
-		}
-
-		// Given the head is finalized, perform the associated actions for all events
-
+	async function writeFinalizedBlock(head: Head, block: TBlock) {
 		// TODO
 		// Eventually we should have some long-term mechanism to prevent repeated invocations. Because we are performing
 		// finalization work we actually have to persist something in the metadata layer indefinitely that indicates the
@@ -915,6 +872,53 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		});
 
 		await Promise.all(promises);
+	}
+
+	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
+		log.debug("Received finalized head...");
+
+		// If the indexer hasn't defined any actions then there isn't actually any work to complete
+		// on finalization, so this is an optimistic abort case to reduce costs.
+
+		if (all_actions.length === 0) {
+			return;
+		}
+
+		// Otherwise, we may have actions to run
+
+		const blocks_start = Date.now();
+
+		const [block, chainFinalizedBlock] = await Promise.all([
+			getBlockFromMetadataOrChain(head),
+			getBlockFromChain({ chain: head.chain, number: "finalized" }),
+		]);
+
+		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
+
+		if (block === null) {
+			return log.debug("Received null block response when loading finalized head, aborting...");
+		}
+
+		if (chainFinalizedBlock === null) {
+			return log.error("Failed to determine finalized height when processing finalized head, aborting...");
+		}
+
+		// TODO
+		// Should also load the indexer finalized height and assert received height is between that and the
+		// chain finalized height. This is needed for correctness to ensure that a malicious client can't
+		// process old blocks that would create an infinite amount of garbage collection that the finalization
+		// process would never be able to delete
+
+		const receivedHeight = hexToNumber(head.number);
+		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
+
+		if (receivedHeight > chainFinalizedHeight) {
+			return log.error(`Received head (${receivedHeight}) has not finalized (${chainFinalizedHeight}), aborting...`);
+		}
+
+		// Given the head is finalized, perform the associated actions for all events
+
+		await writeFinalizedBlock(head, chainFinalizedBlock);
 	};
 
 	// TODO
