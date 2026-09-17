@@ -826,7 +826,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return await getBlockFromChain(head);
 	}
 
-	async function writeFinalizedBlock(head: Head, block: TBlock) {
+	async function writeFinalizedBlock(head: Head, block: TBlock, actions: Action<any, any>[]) {
 		// TODO
 		// Eventually we should have some long-term mechanism to prevent repeated invocations. Because we are performing
 		// finalization work we actually have to persist something in the metadata layer indefinitely that indicates the
@@ -838,7 +838,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const parentHash = normalizeHex(head.parent_hash);
 		const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
 
-		const promises = all_actions.map(async (action) => {
+		const promises = actions.map(async (action) => {
 			const events = action.event.handler(block);
 
 			const promises = events.map(async (event) => {
@@ -918,19 +918,22 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Given the head is finalized, perform the associated actions for all events
 
-		await writeFinalizedBlock(head, chainFinalizedBlock);
+		await writeFinalizedBlock(head, chainFinalizedBlock, all_actions);
 	};
 
 	// TODO
 	// These should be exposed as configuration options. At the moment the key limit preventing us from finalizing
 	// larger batches of blocks is for the case where we are recovering from downtime. The goal is for us to guarantee
-	// that we can process a single batch within the lease, otherwise we will likely never be able to commit.
+	// that we can process a single batch within the lease, otherwise we will likely never be able to commit. If a user
+	// is recovering from downtime they should set this to a smaller batch size to ensure that we process within a
+	// single lease, but in steady operation this should really be 1000 or whatever the max LIST size returned by the
+	// metadata storage adapter is
 
 	const FINALIZATION_BATCH_SIZE = 32;
 	const LEASE_DURATION_MS = 60 * 1000;
 
 	// Note that there is only ever a finite amount of metadata garbage collection to perform so there exists no
-	// attack vector where we wouldn't be able to clear enough garbage to ever escape the while loop.
+	// attack vector where we wouldn't be able to clear enough garbage to ever escape the while loops
 
 	async function getBlocksProcessedAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
 		while (true) {
@@ -1185,8 +1188,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// the WAL and push the associated commits after successful processing
 
 			await Promise.all([
-				writeFinalizedBlock(head, canonicalBlock), //
-				writeUnfinalizedBlock(head, canonicalBlock),
+				writeUnfinalizedBlock(head, canonicalBlock), //
+				writeFinalizedBlock(head, canonicalBlock, all_actions),
 			]);
 
 			heads.unshift(head); // Pushes to the start of array
@@ -1219,7 +1222,34 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// Otherwise load the block from metadata and process it.
 
 		for (const head of heads) {
-			//
+			// Actions are simpler, they only run for finalized blocks so there is no side-effects that have
+			// to be undone. So all we need is for a single commit present that matches the canonical head
+
+			const actionsWithoutCommit = all_actions.filter((action) => {
+				const commitExists = commits.some((commit) => {
+					return (
+						commit.id === action.id &&
+						commit.type === "action" &&
+						isHexEqual(head.hash, commit.hash) &&
+						isHexEqual(head.number, commit.number) &&
+						isHexEqual(head.parent_hash, commit.parent_hash)
+					);
+				});
+
+				return !commitExists;
+			});
+
+			// We only need to load this block if we either have to process actions or events again
+
+			const block = await getBlockFromMetadataOrChain(head);
+
+			if (block === null) {
+				throw new Error("Expected to load block from metadata or chain");
+			}
+
+			if (actionsWithoutCommit.length > 0) {
+				await writeFinalizedBlock(head, block, actionsWithoutCommit);
+			}
 		}
 
 		// Update the manifest and renew the lease
