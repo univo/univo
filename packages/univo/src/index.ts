@@ -936,6 +936,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// If they are equal we return
 
 		if (manifestGetRes === null) {
+			log.debug("No manifest file found");
+
 			const manifest: Manifest = {
 				finalized_height: chainFinalizedHeight,
 				finalizing_height: chainFinalizedHeight,
@@ -960,8 +962,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				return log.debug("Found valid lease, aborting...");
 			}
 
-			log.debug("Found expired lease, attempting to acquire");
+			log.debug("Found expired lease");
 		}
+
+		log.debug("Lease unacquired, attempting to acquire...");
 
 		// Update the manifest and acquire the lease
 
@@ -976,10 +980,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// The following conditional ensures that our read-modify-update doesn't race against another
 		// writer attempting to claim the lease. If we hit the precondition error we fail safely.
 
-		const conditional = { ifMatch: manifestGetRes.etag };
-
 		const manifestPutRes = await opts.metadataStorage.adapter
-			.put(manifestKey, JSON.stringify(updatedManifest), conditional)
+			.put(manifestKey, JSON.stringify(updatedManifest), { ifMatch: manifestGetRes.etag })
 			.catch((error) => {
 				if (error instanceof AdapterError) {
 					if (error.tag === "PreconditionFailed") {
@@ -994,12 +996,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.debug("Failed to acquire lease, aborting...");
 		}
 
-		// List over the blocks WAL. All blocks less than the finalized height should be discarded
+		// List over the blocks and commits in parallel. Perform garbage collection
 
 		// We then traverse the chain backwards, we verify the full contiguous chain by loading data
 		// first from the WAL and then from the chain if it's missing and push to the WAL
-
-		// List over the commits. All commits less than the finalized height should be discarded
 
 		// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
 		// Otherwise load the block from metadata and process it.
