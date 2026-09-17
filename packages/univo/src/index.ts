@@ -251,8 +251,9 @@ type Result = {
 };
 
 type Manifest = {
-	finalized_height: number;
-	finalizing_height: number;
+	finalized_block_height: number;
+	finalized_block_hash: `0x${string}`;
+	next_finalized_height: number;
 	updated_at: number;
 };
 
@@ -520,7 +521,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		if (res) {
 			const manifest = JSON.parse(decoder.decode(res.body)) as Manifest;
 
-			return manifest.finalized_height;
+			return manifest.finalized_block_height;
 		}
 
 		const block = await getBlockFromChain({ chain, number: "finalized" });
@@ -534,8 +535,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const finalizedHeight = hexToNumber(block.eth_getBlockByNumber.number);
 
 		const manifest: Manifest = {
-			finalized_height: finalizedHeight,
-			finalizing_height: finalizedHeight,
+			finalized_block_height: finalizedHeight,
+			finalized_block_hash: block.eth_getBlockByNumber.hash,
+			next_finalized_height: finalizedHeight,
 			updated_at: Date.now(),
 		};
 
@@ -947,7 +949,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			});
 
 			if (garbageCollectionPromises.length === 0) {
-				return blocks.keys;
+				return blocks.keys.map((key) => {
+					const [_, __, ___, number, hash, parentHash] = key.split("/") as [
+						string,
+						string,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+					];
+
+					return { number, hash, parentHash };
+				});
 			}
 
 			await Promise.all(garbageCollectionPromises);
@@ -978,8 +991,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			log.debug("No manifest file found");
 
 			const manifest: Manifest = {
-				finalized_height: chainFinalizedHeight,
-				finalizing_height: chainFinalizedHeight,
+				finalized_block_height: chainFinalizedHeight,
+				finalized_block_hash: chainFinalizedBlock.eth_getBlockByNumber.hash,
+				next_finalized_height: chainFinalizedHeight,
 				updated_at: Date.now(),
 			};
 
@@ -990,15 +1004,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const manifest = JSON.parse(decoder.decode(manifestGetRes.body)) as Manifest;
 
-		const indexerFinalizedHeight = manifest.finalized_height;
-
-		if (indexerFinalizedHeight === chainFinalizedHeight) {
+		if (manifest.finalized_block_height === chainFinalizedHeight) {
 			return log.debug("Nothing to finalize");
 		}
 
 		// There are blocks to finalize, check for a valid lease
 
-		if (indexerFinalizedHeight !== manifest.finalizing_height) {
+		if (manifest.finalized_block_height !== manifest.next_finalized_height) {
 			if (Date.now() - manifest.updated_at < LEASE_DURATION_MS) {
 				return log.debug("Found valid lease, aborting...");
 			}
@@ -1013,11 +1025,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Update the manifest and acquire the lease
 
-		const finalizingHeight = Math.min(chainFinalizedHeight, indexerFinalizedHeight + FINALIZATION_BATCH_SIZE);
+		const finalizingHeight = Math.min(chainFinalizedHeight, manifest.finalized_block_height + FINALIZATION_BATCH_SIZE);
 
 		const updatedManifest: Manifest = {
-			finalized_height: indexerFinalizedHeight,
-			finalizing_height: finalizingHeight,
+			finalized_block_height: manifest.finalized_block_height,
+			finalized_block_hash: manifest.finalized_block_hash,
+			next_finalized_height: finalizingHeight,
 			updated_at: Date.now(),
 		};
 
@@ -1057,16 +1070,45 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const [finalizingBlock, blocksProcessed] = await Promise.all([
 			getBlockFromChain({ chain, number: numberToHex(finalizingHeight) }),
-			getBlocksProcessedAndGarbageCollect(chain, manifest.finalized_height),
+			getBlocksProcessedAndGarbageCollect(chain, manifest.finalized_block_height),
 		]);
 
 		if (finalizingBlock === null) {
 			throw new Error("Failed to load finalizing anchor block");
 		}
 
-		const hash = finalizingBlock.eth_getBlockByNumber.hash;
-		const parentHash = finalizingBlock.eth_getBlockByNumber.parentHash;
-		const number = hexToNumber(finalizingBlock.eth_getBlockByNumber.number);
+		let parentHash = finalizingBlock.eth_getBlockByNumber.parentHash;
+
+		for (let index = 1; index < FINALIZATION_BATCH_SIZE; index++) {
+			// Load the block by number
+
+			const number = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number) - index;
+			const block = blocksProcessed.find((block) => hexToNumber(block.number) === number);
+
+			// If the block was canonical we continue on to the the next block
+
+			if (block !== undefined && isHexEqual(block.hash, parentHash)) {
+				parentHash = block.parentHash;
+
+				continue;
+			}
+
+			// Otherwise we load and process it from the chain
+
+			const canonical = await getBlockFromChain({ chain, number: numberToHex(number) });
+
+			if (canonical === null) {
+				throw new Error("Failed to load canonical block");
+			}
+
+			// TODO: Process and commit
+
+			parentHash = canonical.eth_getBlockByNumber.parentHash;
+		}
+
+		if (!isHexEqual(parentHash, manifest.finalized_block_hash)) {
+			throw new Error("Expected chain to match last finalized canonical anchor");
+		}
 
 		// Second, we iterate over the canonical list of blocks and verify that each block was processed
 		// correctly. To prove this we just need a commit for every event and action that matches the
@@ -1079,7 +1121,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// We LIST commits after the blocks because we could've performed processing.
 
-		const commits = await getCommitsAndGarbageCollect(chain, indexerFinalizedHeight);
+		const commits = await getCommitsAndGarbageCollect(chain, manifest.finalized_block_height);
 
 		// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
 		// Otherwise load the block from metadata and process it.
