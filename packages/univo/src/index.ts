@@ -919,7 +919,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const LEASE_DURATION_MS = 60 * 1000;
 
 	const public_finalize: IndexerRpc["request"]["public_finalize"] = async (chain) => {
-		// Get indexer finalised block and chain finalised block in parallel
+		// Check if there are blocks to finalize
+
 		const manifestKey = `manifest/v1/${normalizeHex(chain)}`;
 
 		const [chainFinalizedBlock, manifestGetRes] = await Promise.all([
@@ -932,8 +933,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
-
-		// If they are equal we return
 
 		if (manifestGetRes === null) {
 			log.debug("No manifest file found");
@@ -955,7 +954,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.debug("Nothing to finalize");
 		}
 
-		// There is work to be done, check for a valid lease
+		// There are blocks to finalize, check for a valid lease
 
 		if (manifest.finalized_height !== manifest.finalizing_height) {
 			if (Date.now() - manifest.updated_at < LEASE_DURATION_MS) {
@@ -998,8 +997,32 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// List over the blocks and commits in parallel. Perform garbage collection
 
+		// For each finalized block, our goal is to prove two things:
+		// - The unfinalized block was correctly processed (all events and actions returned OK)
+		// - The unfinalized block finalized onchain and was not reorganised
+		// If we can prove that then we actually have no more work to perform for that block
+
+		// First, we prove canonicality. To assert that a given block header actually finalised
+		// on chain we must consult the finalized chain by loading that block by number and
+		// comparing the returned block and parent hashes. To do this block by block is both
+		// slow and expensive in terms of RPC costs. Like most optimisations, the key method to
+		// improve speed and cost is batching. Instead, we load a block some length in the future
+		// denoted by FINALIZATION_BATCH_SIZE from the chain and verify it's canonical, then we
+		// perform a LIST over the blocks WAL. If we can connect this future block with our last
+		// indexer finalized height we can prove that all blocks in between these two onchain
+		// "anchor" points are also canonical.
+
 		// We then traverse the chain backwards, we verify the full contiguous chain by loading data
 		// first from the WAL and then from the chain if it's missing and push to the WAL
+
+		// Second, we iterate over the canonical list of blocks and verify that each block was processed
+		// correctly. To prove this we just need a commit for every event and action that matches the
+		// canonical head. This is our common case and what happens under steady operation. However, when
+		// there are multiple blocks for the same height because a chain reorganisation occurred we cannot
+		// rely on these commits to verify correct processing. This is because we cannot determine the
+		// relative ordering of the processing. It could be that the reorganised block was processed after
+		// the canonical block leaving our system in an incorrect state. Therefore, in the rare case that
+		// we do encounter a chain reorganisation we must process them again.
 
 		// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
 		// Otherwise load the block from metadata and process it.
