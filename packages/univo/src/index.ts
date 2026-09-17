@@ -228,6 +228,13 @@ type Head = {
 	parent_hash: `0x${string}`;
 };
 
+type PartialHead = {
+	chain: `0x${string}`;
+	number: string;
+	hash?: `0x${string}`;
+	parent_hash?: `0x${string}`;
+};
+
 type Metadata = {
 	version: string;
 	language: string;
@@ -241,6 +248,12 @@ type Result = {
 	number: `0x${string}`;
 	parent_hash: `0x${string}`;
 	created_at: number;
+};
+
+type Manifest = {
+	finalized_height: number;
+	finalizing_height: number;
+	updated_at: number;
 };
 
 type IndexerOptions<TBlock> = {
@@ -454,13 +467,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// sometimes want the canonical block using only the block number. If a hash and/or parent hash is
 	// provided we will ensure that they match the block returned
 
-	interface PartialHead {
-		chain: `0x${string}`;
-		number: string;
-		hash?: `0x${string}`;
-		parent_hash?: `0x${string}`;
-	}
-
 	async function getBlockFromChain(head: PartialHead) {
 		return await retry(() => retry_getBlockFromChain(head), 2).catch(() => {
 			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
@@ -505,12 +511,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	const GetBlockError = createException("Failed to load block from the provided `getBlock` function");
-
-	interface Manifest {
-		finalized_height: number;
-		finalizing_height: number;
-		updated_at: number;
-	}
 
 	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
 		const path = `manifest/v1/${normalizeHex(chain)}`;
@@ -910,14 +910,89 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await Promise.all(promises);
 	};
 
-	const public_finalize: IndexerRpc["request"]["public_finalize"] = async (chain) => {
-		const idk = true;
+	// TODO
+	// These should be exposed as configuration options. At the moment the key limit preventing us from finalizing
+	// larger batches of blocks is for the case where we are recovering from downtime. The goal is for us to guarantee
+	// that we can process a single batch within the lease, otherwise we will likely never be able to commit.
 
+	const FINALIZATION_BATCH_SIZE = 60;
+	const LEASE_DURATION_MS = 60 * 1000;
+
+	const public_finalize: IndexerRpc["request"]["public_finalize"] = async (chain) => {
 		// Get indexer finalised block and chain finalised block in parallel
+		const manifestKey = `manifest/v1/${normalizeHex(chain)}`;
+
+		const [chainFinalizedBlock, manifestGetRes] = await Promise.all([
+			getBlockFromChain({ chain, number: "finalized" }),
+			opts.metadataStorage.adapter.get(manifestKey), //
+		]);
+
+		if (chainFinalizedBlock === null) {
+			throw new Error("Failed to load chain finalized block");
+		}
+
+		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
 
 		// If they are equal we return
 
-		// If there is work to be done, we update the manifest and attempt to acquire the lease
+		if (manifestGetRes === null) {
+			const manifest: Manifest = {
+				finalized_height: chainFinalizedHeight,
+				finalizing_height: chainFinalizedHeight,
+				updated_at: Date.now(),
+			};
+
+			await opts.metadataStorage.adapter.put(manifestKey, JSON.stringify(manifest), { ifNoneMatch: "*" });
+
+			return log.debug("Nothing to finalize");
+		}
+
+		const manifest = JSON.parse(decoder.decode(manifestGetRes.body)) as Manifest;
+
+		if (manifest.finalized_height === chainFinalizedHeight) {
+			return log.debug("Nothing to finalize");
+		}
+
+		// There is work to be done, check for a valid lease
+
+		if (manifest.finalized_height !== manifest.finalizing_height) {
+			if (Date.now() - manifest.updated_at < LEASE_DURATION_MS) {
+				return log.debug("Found valid lease, aborting...");
+			}
+
+			log.debug("Found expired lease, attempting to acquire");
+		}
+
+		// Update the manifest and acquire the lease
+
+		const finalizingHeight = manifest.finalized_height + FINALIZATION_BATCH_SIZE;
+
+		const updatedManifest: Manifest = {
+			finalizing_height: finalizingHeight,
+			finalized_height: manifest.finalized_height,
+			updated_at: Date.now(),
+		};
+
+		// The following conditional ensures that our read-modify-update doesn't race against another
+		// writer attempting to claim the lease. If we hit the precondition error we fail safely.
+
+		const conditional = { ifMatch: manifestGetRes.etag };
+
+		const manifestPutRes = await opts.metadataStorage.adapter
+			.put(manifestKey, JSON.stringify(updatedManifest), conditional)
+			.catch((error) => {
+				if (error instanceof AdapterError) {
+					if (error.tag === "PreconditionFailed") {
+						return null;
+					}
+				}
+
+				throw error;
+			});
+
+		if (manifestPutRes === null) {
+			return log.debug("Failed to acquire lease, aborting...");
+		}
 
 		// List over the blocks WAL. All blocks less than the finalized height should be discarded
 
