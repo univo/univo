@@ -1077,7 +1077,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// the canonical block leaving our system in an incorrect state. Therefore, in the rare case that
 		// we do encounter a chain reorganisation we must process them again.
 
-		// LIST commits. We do this after the blocks because we could've performed processing.
+		// We LIST commits after the blocks because we could've performed processing.
+
+		const commits = await getCommitsAndGarbageCollect(chain, indexerFinalizedHeight);
 
 		// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
 		// Otherwise load the block from metadata and process it.
