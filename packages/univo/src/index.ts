@@ -546,46 +546,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return finalizedHeight;
 	};
 
-	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
-		log.debug("Received unfinalized head...");
-
-		const blocks_start = Date.now();
-
-		const [block, finalizedBlock] = await Promise.all([
-			getBlockFromChain(head),
-			getBlockFromChain({ chain: head.chain, number: "finalized" }),
-		]);
-
-		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
-
-		if (block === null) {
-			// A null response is actually a common case during chain reorganisations. Because we load by block number it
-			// is common for the client and server to be connected to different nodes. There is no guarantee that both
-			// those nodes see the same reorganisation so when we load the block on the server we get null
-
-			return log.debug("Received null block response when loading unfinalized head, aborting...");
-		}
-
-		if (finalizedBlock === null) {
-			log.debug("Failed to determine finalized height when processing unfinalized heads");
-
-			throw new Error(GetBlockError);
-		}
-
-		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
-
-		if (hexToNumber(head.number) <= finalizedHeight) {
-			// TODO
-			// This attack vector is no longer possible in the new finalization mechanism?
-			// Or we could load the finalized height from the metadata table?
-
-			// We must ensure each block is actually unfinalized to prevent an attack vector where a client could submit
-			// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
-			// stall indexing. We filter them out here and continue operating on unfinalized heads
-
-			return log.debug(`Unfinalized head (${hexToNumber(head.number)}) is <= finalized height (${finalizedHeight}), aborting...`);
-		}
-
+	async function writeUnfinalizedBlock(head: Head, block: TBlock) {
 		// Before any blocks are processed they must be committed to the metadata storage write ahead log. This ensures we
 		// have a record of the events that were upserted to storage so that they can be safely deleted later if the block
 		// is ever reorganised out of the canonical chain.
@@ -692,6 +653,49 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// any extra work (fast)
 
 		await metadata.commits.upsert(head);
+	}
+
+	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
+		log.debug("Received unfinalized head...");
+
+		const blocks_start = Date.now();
+
+		const [block, finalizedBlock] = await Promise.all([
+			getBlockFromChain(head),
+			getBlockFromChain({ chain: head.chain, number: "finalized" }),
+		]);
+
+		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
+
+		if (block === null) {
+			// A null response is actually a common case during chain reorganisations. Because we load by block number it
+			// is common for the client and server to be connected to different nodes. There is no guarantee that both
+			// those nodes see the same reorganisation so when we load the block on the server we get null
+
+			return log.debug("Received null block response when loading unfinalized head, aborting...");
+		}
+
+		if (finalizedBlock === null) {
+			log.debug("Failed to determine finalized height when processing unfinalized heads");
+
+			throw new Error(GetBlockError);
+		}
+
+		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+
+		if (hexToNumber(head.number) <= finalizedHeight) {
+			// TODO
+			// This attack vector is no longer possible in the new finalization mechanism?
+			// Or we could load the finalized height from the metadata table?
+
+			// We must ensure each block is actually unfinalized to prevent an attack vector where a client could submit
+			// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
+			// stall indexing. We filter them out here and continue operating on unfinalized heads
+
+			return log.debug(`Unfinalized head (${hexToNumber(head.number)}) is <= finalized height (${finalizedHeight}), aborting...`);
+		}
+
+		await writeUnfinalizedBlock(head, block);
 	};
 
 	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
