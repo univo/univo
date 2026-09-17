@@ -961,7 +961,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			if (garbageCollectionPromises.length === 0) {
 				return blocks.keys.map((key) => {
-					const [_, __, ___, number, hash, parentHash] = key.split("/") as [
+					const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
 						string,
 						string,
 						`0x${string}`,
@@ -970,7 +970,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						`0x${string}`,
 					];
 
-					return { number, hash, parentHash };
+					return { chain, number, hash, parent_hash };
 				});
 			}
 
@@ -1007,7 +1007,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			if (garbageCollectionPromises.length === 0) {
 				return commits.keys.map((key) => {
-					const [_, __, ___, number, hash, parentHash, type, id] = key.split("/") as [
+					const [_, __, ___, number, hash, parent_hash, type, id] = key.split("/") as [
 						string,
 						string,
 						`0x${string}`,
@@ -1018,7 +1018,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						string | undefined,
 					];
 
-					return { number, hash, parentHash, type, id };
+					return { chain, number, hash, parent_hash, type, id };
 				});
 			}
 
@@ -1134,6 +1134,15 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error("Failed to load finalizing anchor block");
 		}
 
+		const heads: Head[] = [
+			{
+				chain,
+				hash: finalizingBlock.eth_getBlockByNumber.hash,
+				number: finalizingBlock.eth_getBlockByNumber.number,
+				parent_hash: finalizingBlock.eth_getBlockByNumber.parentHash,
+			},
+		];
+
 		let parentHash = finalizingBlock.eth_getBlockByNumber.parentHash;
 
 		for (let index = 1; index < FINALIZATION_BATCH_SIZE; index++) {
@@ -1147,7 +1156,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const canonicalHead = blocks.find((block) => isHexEqual(block.hash, parentHash));
 
 			if (canonicalHead) {
-				parentHash = canonicalHead.parentHash;
+				heads.unshift(canonicalHead); // Pushes to the start of array
+
+				parentHash = canonicalHead.parent_hash;
 
 				continue;
 			}
@@ -1175,11 +1186,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				writeUnfinalizedBlock(head, canonicalBlock),
 			]);
 
+			heads.unshift(head); // Pushes to the start of array
+
 			parentHash = canonicalBlock.eth_getBlockByNumber.parentHash;
 		}
 
 		if (!isHexEqual(parentHash, manifest.finalized_block_hash)) {
 			throw new Error("Expected chain to match last finalized canonical anchor");
+		}
+
+		if (heads.length !== FINALIZATION_BATCH_SIZE) {
+			throw new Error(`Expected to have ${FINALIZATION_BATCH_SIZE} heads, found ${heads.length}`);
 		}
 
 		// Second, we iterate over the canonical list of blocks and verify that each block was processed
@@ -1197,6 +1214,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
 		// Otherwise load the block from metadata and process it.
+
+		for (const head of heads) {
+			//
+		}
 
 		// Update the manifest and renew the lease
 	};
