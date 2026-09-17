@@ -1119,11 +1119,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// public_writeUnfinalizedHead accepts a head that the indexer has not finalised
 			// public_writeFinalizedHead accepts a head that the indexer has not finalised but the chain has
 
-			// TODO: This currently causes a double load. We should extract out the fn to accept the block.
-
 			await Promise.all([
-				public_writeFinalizedHead(head), //
-				public_writeUnfinalizedHead(head),
+				writeFinalizedBlock(head, canonical), //
+				writeUnfinalizedBlock(head, canonical),
 			]);
 
 			parentHash = canonical.eth_getBlockByNumber.parentHash;
