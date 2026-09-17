@@ -76,6 +76,11 @@ type IndexerRpc = {
 		public_writeFinalizedHead: (head: Head) => Promise<void>;
 
 		/**
+		 * Accepts a chain identifier and finalizes the indexer
+		 */
+		public_finalize: (chain: `0x${string}`) => Promise<void>;
+
+		/**
 		 * @returns Specified metadata about the indexer
 		 */
 		private_getMetadata: () => Promise<Metadata>;

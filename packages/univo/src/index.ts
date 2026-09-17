@@ -910,6 +910,28 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await Promise.all(promises);
 	};
 
+	const public_finalize: IndexerRpc["request"]["public_finalize"] = async (chain) => {
+		const idk = true;
+
+		// Get indexer finalised block and chain finalised block in parallel
+
+		// If they are equal we return
+
+		// If there is work to be done, we update the manifest and attempt to acquire the lease
+
+		// List over the blocks WAL. All blocks less than the finalized height should be discarded
+
+		// We then traverse the chain backwards, we verify the full contiguous chain by loading data
+		// first from the WAL and then from the chain if it's missing and push to the WAL
+
+		// List over the commits. All commits less than the finalized height should be discarded
+
+		// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
+		// Otherwise load the block from metadata and process it.
+
+		// Update the manifest and renew the lease
+	};
+
 	const private_getMetadata: IndexerRpc["request"]["private_getMetadata"] = async () => {
 		return {
 			version,
@@ -1305,6 +1327,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const rpc: IndexerRpc = {
 		request: {
+			public_finalize,
 			public_getFinalizedHeight,
 			public_writeFinalizedHead,
 			public_writeUnfinalizedHead,
