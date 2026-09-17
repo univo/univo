@@ -349,7 +349,7 @@ function realtime(opts: RealtimeOptions) {
 
 		log.debug("Subscribed indexer chain to new heads");
 
-		// writeFinalizedHead is responsible for processing new heads in parallel as they finalize onchain
+		// writeFinalizedHead is responsible for processing new finalized heads in parallel
 
 		let chainFinalizedHeight = hexToNumber(chainFinalizedBlock.number);
 
@@ -410,62 +410,6 @@ function realtime(opts: RealtimeOptions) {
 			await unfinalized.prune(nextFinalizedBlock);
 		}
 
-		// writeFinalizedHeads is responsible for finalizing the indexer
-
-		let indexerFinalizedHeight = initialIndexerFinalizedHeight;
-
-		async function writeFinalizedHeads(nextFinalizedBlock: Head) {
-			try {
-				const nextFinalizedHeight = hexToNumber(nextFinalizedBlock.number);
-
-				// Determine indexer unfinalized heads
-
-				const indexerUnfinalizedHeads = indexer.chain
-					.filter((head) => {
-						if (hexToNumber(head.number) > indexerFinalizedHeight && hexToNumber(head.number) <= nextFinalizedHeight) {
-							return true;
-						}
-
-						return false;
-					})
-					.map((head) => {
-						return { chain, ...head };
-					});
-
-				if (indexerUnfinalizedHeads.length === 0) {
-					return log.debug("No new indexer unfinalized heads to deliver, ignoring...");
-				}
-
-				log.debug(`Delivering ${indexerUnfinalizedHeads.length} indexer unfinalized head(s)...`);
-
-				const controller = new AbortController();
-
-				await opts.indexer.request({
-					signal: controller.signal,
-					params: [indexerUnfinalizedHeads],
-					method: "public_writeFinalizedHeads",
-				});
-
-				log.debug(`Delivered ${indexerUnfinalizedHeads.length} indexer unfinalized head(s)`);
-
-				indexerFinalizedHeight = nextFinalizedHeight;
-
-				log.debug(`Updated indexer height to ${indexerFinalizedHeight}`);
-
-				await indexer.prune(nextFinalizedBlock);
-			} catch (error) {
-				if (error instanceof Error) {
-					log.warn(`Failed to write unfinalized heads ${error.message}`);
-				}
-			}
-		}
-
-		// We wrap finalization in a mutex. On the indexer finalization is a single-writer process that
-		// operates under 60s leases. This means that any new requests while finalization is in-flight
-		// will fail anyway so this mutex is just an optimisation and doesn't break correctness.
-
-		const mutex_writeFinalizedHeads = mutex(writeFinalizedHeads);
-
 		async function poll() {
 			try {
 				log.debug("Polling for finalized height...");
@@ -476,15 +420,6 @@ function realtime(opts: RealtimeOptions) {
 				});
 
 				await writeFinalizedHead({
-					hash: finalizedBlock.hash,
-					number: finalizedBlock.number,
-					parent_hash: finalizedBlock.parentHash,
-				});
-
-				// It's very intentional that we perform the finalization work after processing the finalized
-				// blocks in parallel. This is what maximises finalization speed and reduces costs.
-
-				await mutex_writeFinalizedHeads({
 					hash: finalizedBlock.hash,
 					number: finalizedBlock.number,
 					parent_hash: finalizedBlock.parentHash,

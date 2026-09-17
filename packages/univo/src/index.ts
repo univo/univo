@@ -5,7 +5,7 @@ import { version } from "../package.json";
 import type { Storage } from "./metadata";
 import { AdapterError } from "./metadata/adapters";
 import { catchException, createException } from "./exceptions";
-import { compress, createLogger, decompress, hexToNumber, isHexEqual, normalizeHex, numberToHex, retry } from "./utils";
+import { compress, createLogger, decoder, decompress, hexToNumber, isHexEqual, normalizeHex, retry } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -448,46 +448,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				);
 			},
 		},
-
-		// Our indexer always lags behind the canonical chain. The heights table is used as a durable record
-		// to track its own finalized height. As the chain finalizes, we process newly finalized blocks and
-		// then update the heights here to reflect to that outside world what height the indexer has currently
-		// finalized up to. This information is stored in a separate table so that we can `list` keys and
-		// immediately know which blocks were finalized correctly without ever having to load the entire block
-		// values themselves reducing memory usage and increasing finalizing throughput
-
-		heights: {
-			async list(chain: `0x${string}`) {
-				const prefix = `heights/v1/${normalizeHex(chain)}`;
-
-				const { keys } = await opts.metadataStorage.adapter.list({ prefix });
-
-				const mapped = keys.map((key) => {
-					const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
-
-					return { chain, number };
-				});
-
-				return mapped;
-			},
-
-			async upsert(chain: `0x${string}`, number: `0x${string}`) {
-				const prefix = `heights/v1/${normalizeHex(chain)}/${normalizeHex(number, 16)}`;
-
-				const body = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
-
-				await opts.metadataStorage.adapter.put(prefix, body);
-			},
-
-			async delete(heights: { chain: `0x${string}`; number: `0x${string}` }[]) {
-				await Promise.all(
-					heights.map(async (height) => {
-						const prefix = `heights/v1/${normalizeHex(height.chain)}/${normalizeHex(height.number, 16)}`;
-						await opts.metadataStorage.adapter.delete(prefix);
-					}),
-				);
-			},
-		},
 	};
 
 	// Fetches a block using the provided `getBlock` function. Handles retries. We accept a partial head,
@@ -546,28 +506,42 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const GetBlockError = createException("Failed to load block from the provided `getBlock` function");
 
+	interface Manifest {
+		finalized_height: number;
+		finalizing_height: number;
+		updated_at: number;
+	}
+
 	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
-		const heights = await metadata.heights.list(chain);
+		const path = `manifest/v1/${normalizeHex(chain)}`;
 
-		if (heights.length === 0) {
-			const block = await getBlockFromChain({ chain, number: "finalized" });
+		const res = await opts.metadataStorage.adapter.get(path);
 
-			if (block === null) {
-				log.debug("Failed to fetch finalized block and unable to determine finalized height, aborting...");
+		if (res) {
+			const manifest = JSON.parse(decoder.decode(res.body)) as Manifest;
 
-				throw new Error(GetBlockError);
-			}
-
-			await metadata.heights.upsert(chain, block.eth_getBlockByNumber.number);
-
-			return hexToNumber(block.eth_getBlockByNumber.number);
+			return manifest.finalized_height;
 		}
 
-		// There will exist at least one height in the array so this cannot result in -Infinity
+		const block = await getBlockFromChain({ chain, number: "finalized" });
 
-		const height = Math.max(...heights.map((height) => hexToNumber(height.number)));
+		if (block === null) {
+			log.debug("Failed to fetch finalized block and unable to determine finalized height, aborting...");
 
-		return height;
+			throw new Error(GetBlockError);
+		}
+
+		const finalizedHeight = hexToNumber(block.eth_getBlockByNumber.number);
+
+		const manifest: Manifest = {
+			finalized_height: finalizedHeight,
+			finalizing_height: finalizedHeight,
+			updated_at: Date.now(),
+		};
+
+		await opts.metadataStorage.adapter.put(path, JSON.stringify(manifest), { ifNoneMatch: "*" });
+
+		return finalizedHeight;
 	};
 
 	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
@@ -935,340 +909,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		await Promise.all(promises);
 	};
-
-	// The goal of this function is to accept a contigious chain of heads that connect our indexer finalized height
-	// to the chain finalized height. The indexer height is the last known point of canonical chain state, therefore
-	// we are connecting two canonical points on the chain and can be confident that all heads received are canonical.
-	// We process each head sequentially, updating our indexer height as we iterate. Returning an OK response indicates
-	// to the client that the indexer height is equal to chain height AND.
-
-	const public_writeFinalizedHeads: IndexerRpc["request"]["public_writeFinalizedHeads"] = async (heads) => {
-		if (heads.length === 0) {
-			throw new Error("No heads received, aborting...");
-		}
-
-		log.debug(`Received ${heads.length} finalized heads...`);
-
-		// Verify that all heads received are from the same chain
-
-		let chain = undefined;
-
-		for (const head of heads) {
-			if (chain === undefined) {
-				chain = head.chain;
-			}
-
-			if (!isHexEqual(chain, head.chain)) {
-				throw new Error("Received heads from separate chains");
-			}
-		}
-
-		if (chain === undefined) {
-			throw new Error("Internal error. Expected chain to be defined after checking heads length");
-		}
-
-		// Verify that the heads received are contigouous and sequential i.e. all hash and parent hash
-		// relationships match with an incrementing block number with each head
-
-		const [firstHead, ...remainingHeads] = heads;
-
-		if (firstHead === undefined) {
-			throw new Error("Internal error. Expected firstHead to be defined after checking heads length");
-		}
-
-		let previousHead = firstHead;
-
-		for (const head of remainingHeads) {
-			if (hexToNumber(head.number) !== hexToNumber(previousHead.number) + 1) {
-				throw new Error("Found invalid block number in received heads, aborting...");
-			}
-
-			if (!isHexEqual(head.parent_hash, previousHead.hash)) {
-				throw new Error("Found invalid block hash in received heads, aborting...");
-			}
-
-			previousHead = head;
-		}
-
-		// Now we know the heads are valid by themselves, we need to assert their validity in the context of the
-		// metadata and external chain state. We load the current indexer height and the finalized block.
-
-		const [heights, finalizedBlock] = await Promise.all([
-			metadata.heights.list(chain), //
-			getBlockFromChain({ chain, number: "finalized" }),
-		]);
-
-		if (finalizedBlock === null) {
-			log.debug("Failed to load chain finalized block. Request should be retried");
-
-			throw new Error(GetBlockError);
-		}
-
-		// This is a rare case that only happens the first time an indexer is started and we haven't stored
-		// a height for this given chain yet. As an optimisation we upsert the chain finalized height and
-		// manually push it to the finalized heights
-
-		if (heights.length === 0) {
-			await metadata.heights.upsert(chain, finalizedBlock.eth_getBlockByNumber.number);
-
-			heights.push({ chain, number: finalizedBlock.eth_getBlockByNumber.number });
-		}
-
-		const indexerHeight = Math.max(...heights.map((height) => hexToNumber(height.number)));
-
-		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
-
-		// Verify that the latest head received is equal to the chain finalized block. If we have not received
-		// enough heads we throw, if we have received heads greater than the chain finalized height we throw.
-
-		// A common error here occurs when the realtime client and indexer are connected to different nodes. The
-		// client will see from their node that the chain finalized at a new height, but the indexer may get a
-		// stale response from the ndoe it's connected to and not agree on that new height. This is easily solved
-		// by the client just immediately retrying the request until both nodes agree on the new finalized height.
-
-		const lastHead = heads[heads.length - 1];
-
-		if (lastHead === undefined || hexToNumber(lastHead.number) !== finalizedHeight) {
-			throw new Error("Client has stalled. Chain has finalized greater than the heads received");
-		}
-
-		log.debug(`Indexer height ${indexerHeight}, finalized height ${finalizedHeight}`);
-
-		// Finally, we verify that the heads received connect the chain back to our the block finalized in the last
-		// iteration. Essentially, we are connected canonical blocks that have finalized on chain. This is what allows
-		// us to trust the heads received from the client
-
-		const newHeads = heads.filter((head) => {
-			return hexToNumber(head.number) > indexerHeight;
-		});
-
-		const [firstNewHead] = newHeads;
-
-		if (firstNewHead === undefined && indexerHeight === finalizedHeight) {
-			return log.debug("No heads to finalize, returning...");
-		}
-
-		if (firstNewHead === undefined) {
-			throw new Error("Internal error. Expected at least one head greater than the indexer height and less than the finalized height.");
-		}
-
-		if (hexToNumber(firstNewHead.number) !== indexerHeight + 1) {
-			throw new Error("Client advanced too far. Heads received are greater than the first new head");
-		}
-
-		// We always optimistically perform clean up. This prevents our metadata layer getting into a state
-		// where it fails to make new progress because the amount of work to clean up is greater than what
-		// any single `list` call will return. We could perform recursive `list` calls to the metadata layer
-		// but that could create be unbounded so I want to avoid it
-
-		if (heights.length > 1) {
-			await cleanupFinalizedHeads(chain, numberToHex(indexerHeight));
-		}
-
-		for (const head of newHeads) {
-			await Promise.all([
-				processEventsForCanonicalHead(head),
-				processActionsForCanonicalHead(head), //
-			]);
-
-			await metadata.heights.upsert(head.chain, head.number);
-		}
-
-		await cleanupFinalizedHeads(chain, numberToHex(finalizedHeight));
-	};
-
-	async function processActionsForCanonicalHead(head: Head) {
-		// We must receive an OK response from every finalized handler for this block in order
-		// to advance. This ensures at-least-once delivery to the finalized handler.
-
-		if (all_actions.length === 0) {
-			return; // Optimisation if the indexer has defined no finalized action handlers
-		}
-
-		const block = await getBlockFromChain(head);
-
-		const promises = all_actions.flatMap((action) => {
-			return action.event.handler(block).map(async (event) => {
-				await retry(() => action.handler(event), 2).catch((error) => {
-					log.error(`Failed to execute action ${action.id}`);
-
-					throw error;
-				});
-			});
-		});
-
-		await Promise.all(promises);
-	}
-
-	async function processEventsForCanonicalHead(head: Head) {
-		// There is one edge case here. There's actually no guarantee this head is canonical. It's
-		// possible for a malicious client to submit the reorganised head. If they do that, and our
-		// indexer only processed the unfinalized reorganised head (and not the canonical head) it
-		// will be incorrectly processed and finalized. This edge case misses our chain check above
-		// because as long as they update the parent hash of the next block in the chain to the
-		// reorganised block it is still considered a valid chain (note that block will throw errors
-		// because it's invalid on the next iteration of this loop). In practice, this won't happen
-		// because it requires only one honest node to submit the canonical head after the chain
-		// reorganisation to cause this function to realise a reorganisation occurred at that block
-		// number and process everything again. Could optimistically check the next head to solve this?
-
-		const [processed, commits] = await Promise.all([
-			metadata.blocks.list(head.chain, head.number), //
-			metadata.commits.list(head.chain, head.number),
-		]);
-
-		// We check for our common case fast-path
-
-		if (processed.length === 1) {
-			if (commits.some((commit) => isHexEqual(head.hash, commit.hash) && isHexEqual(head.parent_hash, commit.parent_hash))) {
-				return;
-			}
-		}
-
-		// Otherwise, if some number of reorganised and canonical blocks were processed we must process everything
-		// again because we cannot determine any ordering for how those blocks were processed
-
-		const reorganised = processed.filter((block) => {
-			return !isHexEqual(head.hash, block.hash);
-		});
-
-		await Promise.all(
-			reorganised.map(async (block) => {
-				await deleteReorganisedHead(block);
-			}),
-		);
-
-		await writeFinalizedHead(head);
-	}
-
-	async function writeFinalizedHead(head: Head) {
-		// We can either load the block from the chain or load from storage here? Not sure what
-		// is more appropriate it requires more testing in production
-
-		const block = await getBlockFromChain(head);
-
-		if (block === null) {
-			throw new Error("Received unknown head that wasn't canonical");
-		}
-
-		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
-			const batch: any[] = [];
-
-			for (const event of grouped_events) {
-				try {
-					if (!event.filters.some((filter) => matchFilter(block, filter))) {
-						log.debug(`Block matches no filters for event ${event.id}`);
-						continue;
-					}
-
-					const events = event.handler(block);
-
-					for (const event of events) {
-						batch.push(event);
-					}
-				} catch (error) {
-					log.error(`Failed to run your 'handler' for event ${event.id}`);
-
-					throw error;
-				}
-			}
-
-			if (batch.length > 0) {
-				const start = Date.now();
-
-				await retry(() => storage.upsert(batch), 2).catch((error) => {
-					for (const event of grouped_events) {
-						log.error(`Failed to run your 'upsert' handler for event ${event.id}`);
-					}
-
-					throw error;
-				});
-
-				for (const event of grouped_events) {
-					log.debug(`Recorded ${batch.length} ${event.id} in ${Date.now() - start}ms`);
-				}
-			}
-		});
-
-		await Promise.all(promises);
-	}
-
-	async function deleteReorganisedHead(head: Head) {
-		// We know the block is not included in the canonical chain and we know that our storage system upserted
-		// events with this block data. We use the block data to generate the same set of events that we upserted
-		// and provide them to each events delete function
-
-		const block = await metadata.blocks.get(head);
-
-		// The reorganised block only exists in metadata so must load it from there
-
-		if (block === null) {
-			throw new Error("Expected reorganised block to exist in metadata");
-		}
-
-		const promises = all_events.map(async (event) => {
-			// We intentionally ignore filters and basically perform an optimistic delete on events that might
-			// have never been upserted. I make this choice because there is a time delay between upsert and delete,
-			// it's possible for a new deployment to update the filters in this gap that would prevent the delete
-			// from removing the upserted events if the filters were changed in just the right way
-
-			const batch: any[] = [];
-
-			try {
-				const events = event.handler(block);
-
-				for (const event of events) {
-					batch.push(event);
-				}
-			} catch (error) {
-				log.error(`Failed to run your 'handler' for event ${event.id}`);
-
-				throw error;
-			}
-
-			if (batch.length === 0) {
-				return;
-			}
-
-			await retry(() => event.storage.delete!(batch), 2).catch((error) => {
-				log.error(`Failed to run your 'delete' handler for event ${event.id}`);
-
-				throw error;
-			});
-		});
-
-		await Promise.all(promises);
-	}
-
-	async function cleanupFinalizedHeads(chain: `0x${string}`, finalized: `0x${string}`) {
-		const [_blocks, _commits, _heights] = await Promise.all([
-			metadata.blocks.list(chain), //
-			metadata.commits.list(chain),
-			metadata.heights.list(chain),
-		]);
-
-		const blocks = _blocks.filter((block) => {
-			return hexToNumber(block.number) <= hexToNumber(finalized);
-		});
-
-		const commits = _commits.filter((commit) => {
-			return hexToNumber(commit.number) <= hexToNumber(finalized);
-		});
-
-		// Key difference here is that we must always ensure the latest height remains in storage,
-		// however we can remove all blocks and commits up to and including the finalized height
-		// because they have already been successfully processed
-
-		const heights = _heights.filter((height) => {
-			return hexToNumber(height.number) < hexToNumber(finalized);
-		});
-
-		await Promise.all([
-			metadata.blocks.delete(blocks), //
-			metadata.commits.delete(commits),
-			metadata.heights.delete(heights),
-		]);
-	}
 
 	const private_getMetadata: IndexerRpc["request"]["private_getMetadata"] = async () => {
 		return {
@@ -1667,7 +1307,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		request: {
 			public_getFinalizedHeight,
 			public_writeFinalizedHead,
-			public_writeFinalizedHeads,
 			public_writeUnfinalizedHead,
 			public_deleteReorganisedHead,
 
