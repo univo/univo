@@ -1108,9 +1108,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				parent_hash: canonical.eth_getBlockByNumber.parentHash,
 			};
 
-			// The name is confusing here. It's valid to call both public methods because public_writeFinalizedHead
-			// checks that the head is unfinalized by the indexer but finalised by the chain. Similarly,
-			// public_writeUnfinalizedHead accepts a head that is not finalized by the indexer.
+			// public_writeUnfinalizedHead accepts a head that the indexer has not finalised
+			// public_writeFinalizedHead accepts a head that the indexer has not finalised but the chain has
+
+			// TODO: This currently causes a double load. We should extract out the fn to accept the block.
 
 			await Promise.all([
 				public_writeFinalizedHead(head), //
