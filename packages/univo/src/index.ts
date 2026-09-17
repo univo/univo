@@ -1137,43 +1137,45 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		let parentHash = finalizingBlock.eth_getBlockByNumber.parentHash;
 
 		for (let index = 1; index < FINALIZATION_BATCH_SIZE; index++) {
-			// Load the block by number
+			// Load processed blocks by number
 
 			const number = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number) - index;
-			const block = blocksProcessed.find((block) => hexToNumber(block.number) === number);
+			const blocks = blocksProcessed.filter((block) => hexToNumber(block.number) === number);
 
-			// If the block was canonical we continue on to the the next block
+			// If we have the canonical block we can abort early
 
-			if (block !== undefined && isHexEqual(block.hash, parentHash)) {
-				parentHash = block.parentHash;
+			const canonicalHead = blocks.find((block) => isHexEqual(block.hash, parentHash));
+
+			if (canonicalHead) {
+				parentHash = canonicalHead.parentHash;
 
 				continue;
 			}
 
-			// Otherwise we load and process it from the chain
+			// Otherwise we load and process the canonical block from the chain
 
-			const canonical = await getBlockFromChain({ chain, number: numberToHex(number) });
+			const canonicalBlock = await getBlockFromChain({ chain, number: numberToHex(number) });
 
-			if (canonical === null) {
+			if (canonicalBlock === null) {
 				throw new Error("Failed to load canonical block");
 			}
 
 			const head: Head = {
 				chain,
-				hash: canonical.eth_getBlockByNumber.hash,
-				number: canonical.eth_getBlockByNumber.number,
-				parent_hash: canonical.eth_getBlockByNumber.parentHash,
+				hash: canonicalBlock.eth_getBlockByNumber.hash,
+				number: canonicalBlock.eth_getBlockByNumber.number,
+				parent_hash: canonicalBlock.eth_getBlockByNumber.parentHash,
 			};
 
 			// public_writeUnfinalizedHead accepts a head that the indexer has not finalised
 			// public_writeFinalizedHead accepts a head that the indexer has not finalised but the chain has
 
 			await Promise.all([
-				writeFinalizedBlock(head, canonical), //
-				writeUnfinalizedBlock(head, canonical),
+				writeFinalizedBlock(head, canonicalBlock), //
+				writeUnfinalizedBlock(head, canonicalBlock),
 			]);
 
-			parentHash = canonical.eth_getBlockByNumber.parentHash;
+			parentHash = canonicalBlock.eth_getBlockByNumber.parentHash;
 		}
 
 		if (!isHexEqual(parentHash, manifest.finalized_block_hash)) {
