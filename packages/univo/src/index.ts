@@ -1056,17 +1056,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// For each finalized block, our goal is to prove two things:
 		// - The unfinalized block was correctly processed (all events and actions returned OK)
 		// - The unfinalized block finalized onchain and was not reorganised
-		// If we can prove that then we actually have no more work to perform for that block
+		// If we can prove those then we actually have no more work to perform for that block
 
 		// First, we prove canonicality. To assert that a given block header actually finalised
 		// on chain we must consult the finalized chain by loading that block by number and
 		// comparing the returned block and parent hashes. To do this block by block is both
 		// slow and expensive in terms of RPC costs. Like most optimisations, the key method to
 		// improve speed and cost is batching. Instead, we load a block some length in the future
-		// denoted by FINALIZATION_BATCH_SIZE from the chain and verify it's canonical, then we
-		// perform a LIST over the blocks WAL. If we can connect this future block with our last
-		// indexer finalized height we can prove that all blocks in between these two onchain
-		// "anchor" points are also canonical.
+		// denoted by FINALIZATION_BATCH_SIZE from the last indexer finalized height and verify
+		// it's canonical,  then we perform a LIST over the blocks WAL. If we can connect this
+		// future finalized block with our last indexer finalized height we can prove that all
+		// blocks between these two "anchor" points are also canonical.
 
 		const [finalizingBlock, blocksProcessed] = await Promise.all([
 			getBlockFromChain({ chain, number: numberToHex(finalizingHeight) }),
@@ -1101,7 +1101,21 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				throw new Error("Failed to load canonical block");
 			}
 
-			// TODO: Process and commit
+			const head: Head = {
+				chain,
+				hash: canonical.eth_getBlockByNumber.hash,
+				number: canonical.eth_getBlockByNumber.number,
+				parent_hash: canonical.eth_getBlockByNumber.parentHash,
+			};
+
+			// The name is confusing here. It's valid to call both public methods because public_writeFinalizedHead
+			// checks that the head is unfinalized by the indexer but finalised by the chain. Similarly,
+			// public_writeUnfinalizedHead accepts a head that is not finalized by the indexer.
+
+			await Promise.all([
+				public_writeFinalizedHead(head), //
+				public_writeUnfinalizedHead(head),
+			]);
 
 			parentHash = canonical.eth_getBlockByNumber.parentHash;
 		}
