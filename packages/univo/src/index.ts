@@ -1026,7 +1026,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			log.debug("Found expired lease");
 		}
 
-		log.debug("Lease unacquired, attempting to acquire...");
+		log.debug("Acquiring lease...");
 
 		// TODO
 		// From here out it should be a loop. Will also need to add an exit condition if we have finalized all blocks
@@ -1072,9 +1072,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// slow and expensive in terms of RPC costs. Like most optimisations, the key method to
 		// improve speed and cost is batching. Instead, we load a block some length in the future
 		// denoted by FINALIZATION_BATCH_SIZE from the last indexer finalized height and verify
-		// it's canonical,  then we perform a LIST over the blocks WAL. If we can connect this
+		// it's canonical, then we perform a LIST over the blocks WAL. If we can connect this
 		// future finalized block with our last indexer finalized height we can prove that all
 		// blocks between these two "anchor" points are also canonical.
+
+		// TODO: Finalizing block might not be needed if it's also the chain finalized block
 
 		const [finalizingBlock, blocksProcessed] = await Promise.all([
 			getBlockFromChain({ chain, number: numberToHex(finalizingHeight) }),
