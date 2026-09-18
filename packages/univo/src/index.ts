@@ -873,9 +873,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	async function getBlocksProcessedAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
 		while (true) {
-			// LIST blocks
+			// LIST blocks. Trailing slash is necessary to ensure chain ids 0x1 and 0x10 don't clash.
 
-			const blocksKey = `blocks/v1/${normalizeHex(chain)}`;
+			const blocksKey = `blocks/v1/${normalizeHex(chain)}/`;
 
 			const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey });
 
@@ -916,9 +916,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	async function getCommitsAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
 		while (true) {
-			// LIST commits
+			// LIST commits. Trailing slash is necessary to ensure chain ids 0x1 and 0x10 don't clash.
 
-			const commitsKey = `commits/v1/${normalizeHex(chain)}`;
+			const commitsKey = `commits/v1/${normalizeHex(chain)}/`;
 
 			const commits = await opts.metadataStorage.adapter.list({ prefix: commitsKey });
 
