@@ -339,37 +339,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// the correct processing of the indexer.
 
 	const metadata = {
-		// The blocks store essentially operates as our write-ahead-log (WAL) for unfinalized blocks. Before we
-		// commit any events to storage we first record the block input in our metadata layer. This allows our
-		// finalization handler to always have access to the input data in the case we need to remove events
-		// because of chain reorganisations
-
 		blocks: {
-			async list(chain: `0x${string}`, number?: `0x${string}`) {
-				let prefix = `blocks/v1/${normalizeHex(chain)}`;
-
-				if (typeof number === "string") {
-					prefix += `/${normalizeHex(number, 16)}`;
-				}
-
-				const { keys } = await opts.metadataStorage.adapter.list({ prefix });
-
-				const mapped = keys.map((key) => {
-					const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
-						string,
-						string,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-					];
-
-					return { chain, number, hash, parent_hash };
-				});
-
-				return mapped;
-			},
-
 			async get(head: Head) {
 				const chain = normalizeHex(head.chain);
 				const number = normalizeHex(head.number, 16);
@@ -388,55 +358,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				return parsed as TBlock;
 			},
-
-			async delete(blocks: Head[]) {
-				if (blocks.length === 0) {
-					return;
-				}
-
-				await Promise.all(
-					blocks.map(async (block) => {
-						const chain = normalizeHex(block.chain);
-						const number = normalizeHex(block.number, 16);
-						const hash = normalizeHex(block.hash);
-						const parentHash = normalizeHex(block.parent_hash);
-						const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
-						await opts.metadataStorage.adapter.delete(prefix);
-					}),
-				);
-			},
 		},
 
-		// When unfinalized events are upserted we commit a given block number and block hash to indicate
-		// that those events were successfully recorded. This enables an optimisation in our finalized
-		// handler that allows it to skip processing blocks that were successfully processed
-
 		commits: {
-			async list(chain: `0x${string}`, number?: `0x${string}`) {
-				let prefix = `commits/v1/${normalizeHex(chain)}`;
-
-				if (typeof number === "string") {
-					prefix += `/${normalizeHex(number, 16)}`;
-				}
-
-				const { keys } = await opts.metadataStorage.adapter.list({ prefix });
-
-				const mapped = keys.map((key) => {
-					const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
-						string,
-						string,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-					];
-
-					return { chain, number, hash, parent_hash };
-				});
-
-				return mapped;
-			},
-
 			async upsert(head: Head) {
 				const chain = normalizeHex(head.chain);
 				const number = normalizeHex(head.number, 16);
@@ -447,19 +371,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				const body = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
 
 				await opts.metadataStorage.adapter.put(prefix, body);
-			},
-
-			async delete(commits: Head[]) {
-				await Promise.all(
-					commits.map(async (commit) => {
-						const chain = normalizeHex(commit.chain);
-						const number = normalizeHex(commit.number, 16);
-						const hash = normalizeHex(commit.hash);
-						const parentHash = normalizeHex(commit.parent_hash);
-						const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
-						await opts.metadataStorage.adapter.delete(prefix);
-					}),
-				);
 			},
 		},
 	};
@@ -660,7 +571,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const blocks_start = Date.now();
 
-		const [block, finalizedBlock] = await Promise.all([
+		const [block, chainFinalizedBlock] = await Promise.all([
 			getBlockFromChain(head),
 			getBlockFromChain({ chain: head.chain, number: "finalized" }),
 		]);
@@ -675,13 +586,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.debug("Received null block response when loading unfinalized head, aborting...");
 		}
 
-		if (finalizedBlock === null) {
+		if (chainFinalizedBlock === null) {
 			log.debug("Failed to determine finalized height when processing unfinalized heads");
 
 			throw new Error(GetBlockError);
 		}
 
-		const finalizedHeight = hexToNumber(finalizedBlock.eth_getBlockByNumber.number);
+		const finalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
 
 		if (hexToNumber(head.number) <= finalizedHeight) {
 			// TODO
