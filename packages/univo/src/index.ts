@@ -569,41 +569,57 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
 		log.debug("Received unfinalized head...");
 
-		const blocks_start = Date.now();
+		const blocksStart = Date.now();
 
-		const [block, chainFinalizedBlock] = await Promise.all([
-			getBlockFromChain(head),
-			getBlockFromChain({ chain: head.chain, number: "finalized" }),
-		]);
+		const manifestKey = `manifest/v1/${normalizeHex(head.chain)}`;
 
-		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
+		const [block, manifestRes] = await Promise.all([getBlockFromChain(head), opts.metadataStorage.adapter.get(manifestKey)]);
+
+		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
+
+		// A null response is actually a common case during chain reorganisations. We load blocks via their block
+		// number and them validate them against the requested hash and parent hash. When the hash and parent hash
+		// aren't what we expected `getBlockFromChain` will return null. In a chain reorganisation, it's likely
+		// that the client and server are connected to different RPC nodes. There is no guarantee that both those
+		// nodes see the same chain reorganisation
 
 		if (block === null) {
-			// A null response is actually a common case during chain reorganisations. Because we load by block number it
-			// is common for the client and server to be connected to different nodes. There is no guarantee that both
-			// those nodes see the same reorganisation so when we load the block on the server we get null
-
 			return log.debug("Received null block response when loading unfinalized head, aborting...");
 		}
 
-		if (chainFinalizedBlock === null) {
-			log.debug("Failed to determine finalized height when processing unfinalized heads");
+		let manifest: Manifest;
 
-			throw new Error(GetBlockError);
+		if (manifestRes === null) {
+			const block = await getBlockFromChain({ chain: head.chain, number: "finalized" });
+
+			if (block === null) {
+				throw new Error("Failed to load finalized block when initialising manifest");
+			}
+
+			const chainFinalizedHeight = hexToNumber(block.eth_getBlockByNumber.number);
+
+			const newManifest: Manifest = {
+				finalized_block_height: chainFinalizedHeight,
+				finalized_block_hash: block.eth_getBlockByNumber.hash,
+				next_finalized_height: chainFinalizedHeight,
+				updated_at: Date.now(),
+			};
+
+			await opts.metadataStorage.adapter.put(manifestKey, JSON.stringify(newManifest), { ifNoneMatch: "*" });
+
+			manifest = newManifest;
+		} else {
+			manifest = JSON.parse(decoder.decode(manifestRes.body));
 		}
 
-		const finalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
+		const indexerFinalizedHeight = manifest.finalized_block_height;
 
-		if (hexToNumber(head.number) <= finalizedHeight) {
-			// TODO
-			// This attack vector is no longer possible in the new finalization mechanism?
-			// Or we could load the finalized height from the metadata table?
+		// We must ensure each block is actually unfinalized to prevent an attack vector where a client could submit
+		// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
+		// stall indexing. We filter them out here and continue operating on unfinalized heads
 
-			// We must ensure each block is actually unfinalized to prevent an attack vector where a client could submit
-			// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
-			// stall indexing. We filter them out here and continue operating on unfinalized heads
-
-			return log.debug(`Unfinalized head (${hexToNumber(head.number)}) is <= finalized height (${finalizedHeight}), aborting...`);
+		if (hexToNumber(head.number) <= indexerFinalizedHeight) {
+			return log.debug("Receiving finalized head, ignoring...");
 		}
 
 		await writeUnfinalizedBlock(head, block);
