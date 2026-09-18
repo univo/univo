@@ -1012,12 +1012,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		let indexerFinalizedBlockHeight = manifest.finalized_block_height;
 		let indexerFinalizedBlockHash = manifest.finalized_block_hash;
 
-		const nextFinalizedHeight = Math.min(chainFinalizedHeight, indexerFinalizedBlockHeight + FINALIZATION_BATCH_SIZE);
-
 		const updatedManifest: Manifest = {
 			finalized_block_height: indexerFinalizedBlockHeight,
 			finalized_block_hash: indexerFinalizedBlockHash,
-			next_finalized_height: nextFinalizedHeight,
+			next_finalized_height: Math.min(chainFinalizedHeight, indexerFinalizedBlockHeight + FINALIZATION_BATCH_SIZE),
 			updated_at: Date.now(),
 		};
 
@@ -1043,10 +1041,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		let latestManifestEtag = manifestPutRes.etag;
 
 		while (indexerFinalizedBlockHeight < chainFinalizedHeight) {
-			// This can update on each batch iteration, usually just on the last iteration when
+			// These can update on each batch iteration, usually just on the last iteration when
 			// the distance between the indexer and chain finalized height is less than the default
 			// batch size
 
+			const nextFinalizedHeight = Math.min(chainFinalizedHeight, indexerFinalizedBlockHeight + FINALIZATION_BATCH_SIZE);
 			const finalizationBatchSize = nextFinalizedHeight - indexerFinalizedBlockHeight;
 
 			// For each finalized block, our goal is to prove two things:
