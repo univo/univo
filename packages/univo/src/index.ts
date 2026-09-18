@@ -877,7 +877,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			const blocksKey = `blocks/v1/${normalizeHex(chain)}/`;
 
-			const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey });
+			const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey, limit: 1000 });
 
 			if (blocks.keys.length === 0) {
 				return [];
@@ -920,7 +920,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			const commitsKey = `commits/v1/${normalizeHex(chain)}/`;
 
-			const commits = await opts.metadataStorage.adapter.list({ prefix: commitsKey });
+			const commits = await opts.metadataStorage.adapter.list({ prefix: commitsKey, limit: 1000 });
 
 			if (commits.keys.length === 0) {
 				return [];
