@@ -417,7 +417,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return manifest.finalized_block_height;
 	};
 
-	async function writeUnfinalizedBlock(head: Head, block: TBlock) {
+	async function writeUnfinalizedBlock(block: TBlock) {
 		// Before any blocks are processed they must be committed to the metadata storage write ahead log. This ensures we
 		// have a record of the events that were upserted to storage so that they can be safely deleted later if the block
 		// is ever reorganised out of the canonical chain.
@@ -585,7 +585,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.debug("Receiving finalized head, ignoring...");
 		}
 
-		await writeUnfinalizedBlock(head, block);
+		await writeUnfinalizedBlock(block);
 	};
 
 	async function deleteReorganisedBlocksAndWriteCanonicalBlock(reorganised: TBlock[], canonical: TBlock) {
@@ -1120,7 +1120,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				// the WAL and push the associated commits after successful processing
 
 				await Promise.all([
-					writeUnfinalizedBlock(head, canonicalBlock), //
+					writeUnfinalizedBlock(canonicalBlock), //
 					writeFinalizedBlock(head, canonicalBlock, all_actions),
 				]);
 
