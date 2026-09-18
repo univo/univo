@@ -768,8 +768,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// This acknowledges the work was completed without issue and can be safely skipped at finalization.
 			// The commit will also run if there are no actual events to invoke the action for this block.
 
-			if (results.some((result) => result.status === "rejected")) {
-				return;
+			const failure = results.find((result) => result.status === "rejected");
+
+			if (failure !== undefined) {
+				throw failure.reason;
 			}
 
 			// In general, the goal of this commit is to maximally acknowledge work processed at finalization. This
