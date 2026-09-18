@@ -1017,9 +1017,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		let latestManifestEtag = manifestPutRes.etag;
 
 		while (indexerFinalizedBlockHeight < chainFinalizedHeight) {
-			// These can update on each batch iteration, usually just on the last iteration when
-			// the distance between the indexer and chain finalized height is less than the default
-			// batch size
+			// These can update on each batch iteration, usually just on the last iteration when the distance
+			// between the indexer and chain finalized height is less than the default batch size
 
 			const nextFinalizedHeight = Math.min(chainFinalizedHeight, indexerFinalizedBlockHeight + FINALIZATION_BATCH_SIZE);
 			const finalizationBatchSize = nextFinalizedHeight - indexerFinalizedBlockHeight;
