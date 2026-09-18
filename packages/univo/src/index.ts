@@ -808,6 +808,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const manifestKey = `manifest/v1/${normalizeHex(head.chain)}`;
 
+		// TODO: There is no guarantee that block loaded from metadata is canonical
+
 		const [block, manifestRes, chainFinalizedBlock] = await Promise.all([
 			getBlockFromMetadataOrChain(head),
 			opts.metadataStorage.adapter.get(manifestKey),
