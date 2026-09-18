@@ -1175,6 +1175,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					return isHexEqual(canonicalHead.number, head.number);
 				});
 
+				const processedOnlyCanonicalBlock = blocksProcessedForHeight.every((head) => {
+					return isHexEqual(canonicalHead.hash, head.hash) && isHexEqual(canonicalHead.parent_hash, head.parent_hash);
+				});
+
 				const eventsCommittedForHeight = commits.some((commit) => {
 					return (
 						commit.type === undefined &&
@@ -1198,7 +1202,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					return !commitExists;
 				});
 
-				if (blocksProcessedForHeight.length === 1 && eventsCommittedForHeight === true && actionsWithoutCommit.length === 0) {
+				if (eventsCommittedForHeight && processedOnlyCanonicalBlock && actionsWithoutCommit.length === 0) {
 					continue;
 				}
 
