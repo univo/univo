@@ -1267,7 +1267,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			// Otherwise there is work to be done. Note that this path doesn't have to be optimized because it's rare.
 			// Even if we are recovering from downtime, the previous iteration proving canonicality likely already
-			// performed all the work required so that we quickly finalize the batch
+			// performed all the work required so that we quickly finalize the batch. This path is usually just hit
+			// when a block is reorganised which is also rare
 
 			const reorganisedHeads = eventCommitsForHeight.flatMap((commit) => {
 				if (isHexEqual(head.hash, commit.hash)) {
