@@ -48,6 +48,48 @@ test.concurrent("throws an error if an event with an invalid id is defined", () 
 	}).toThrowError;
 });
 
+test.concurrent("throws an error if an action id contains a slash", () => {
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+	});
+
+	const event = univo.event({
+		id: "event",
+		handler: () => [],
+		storage: { upsert: async () => {}, delete: async () => {} },
+		filters: [{ chain: 1, fromBlock: 0 }],
+	});
+
+	expect(() => {
+		univo.action({ id: "invalid/action", event, handler: async () => {} });
+	}).toThrowError("Invalid action id `invalid/action`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.");
+});
+
+test.concurrent("throws an error if an action id is duplicated", () => {
+	const univo = indexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+	});
+
+	const event = univo.event({
+		id: "event",
+		handler: () => [],
+		storage: { upsert: async () => {}, delete: async () => {} },
+		filters: [{ chain: 1, fromBlock: 0 }],
+	});
+
+	univo.action({ id: "action", event, handler: async () => {} });
+
+	expect(() => {
+		univo.action({ id: "action", event, handler: async () => {} });
+	}).toThrowError("Duplicate action id `action`.");
+});
+
 test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same block", async ({ expect }) => {
 	const chainFinalizedHeight = 0;
 

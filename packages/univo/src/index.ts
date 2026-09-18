@@ -1690,6 +1690,14 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	const action: Indexer<TBlock>["action"] = (action) => {
+		if (!/^[A-Za-z0-9_-]+$/.test(action.id)) {
+			throw new Error(`Invalid action id \`${action.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
+		}
+
+		if (all_actions.some((existing) => existing.id === action.id)) {
+			throw new Error(`Duplicate action id \`${action.id}\`.`);
+		}
+
 		all_actions.push(action);
 
 		return action;
