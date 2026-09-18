@@ -1271,7 +1271,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			const reorganisedHeads = eventCommitsForHeight.flatMap((commit) => {
 				if (isHexEqual(head.hash, commit.hash)) {
-					return [];
+					return []; // Ignore canonical head
 				}
 
 				return commit;
