@@ -1087,6 +1087,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		let finalizedBlockHeight = manifest.finalized_block_height;
 		let finalizedBlockHash = manifest.finalized_block_hash;
+		let manifestEtag = manifestGetRes.etag;
 
 		while (finalizedBlockHeight < chainFinalizedHeight) {
 			const nextFinalizedHeight = Math.min(chainFinalizedHeight, finalizedBlockHeight + FINALIZATION_BATCH_SIZE);
@@ -1106,7 +1107,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// writer attempting to claim the lease. If we hit the precondition error we fail safely.
 
 			const manifestPutRes = await opts.metadataStorage.adapter
-				.put(manifestKey, JSON.stringify(updatedManifest), { ifMatch: manifestGetRes.etag })
+				.put(manifestKey, JSON.stringify(updatedManifest), { ifMatch: manifestEtag })
 				.catch((error) => {
 					if (error instanceof AdapterError) {
 						if (error.tag === "PreconditionFailed") {
@@ -1120,6 +1121,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			if (manifestPutRes === null) {
 				return log.debug("Failed to acquire lease, aborting...");
 			}
+
+			manifestEtag = manifestPutRes.etag;
 
 			// For each finalized block, our goal is to prove two things:
 			// - The unfinalized block was correctly processed (all events and actions returned OK)
