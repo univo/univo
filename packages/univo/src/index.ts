@@ -359,20 +359,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				return parsed as TBlock;
 			},
 		},
-
-		commits: {
-			async upsert(head: Head) {
-				const chain = normalizeHex(head.chain);
-				const number = normalizeHex(head.number, 16);
-				const hash = normalizeHex(head.hash);
-				const parentHash = normalizeHex(head.parent_hash);
-				const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
-
-				const body = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
-
-				await opts.metadataStorage.adapter.put(prefix, body);
-			},
-		},
 	};
 
 	// Fetches a block using the provided `getBlock` function. Handles retries. We accept a partial head,
@@ -469,8 +455,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
 		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
 
-		const key = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
-		const compressed = await compress(JSON.stringify(block));
+		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const blocksValue = await compress(JSON.stringify(block));
 
 		// This upsert is performed as a conditional PUT that will error if a block already exists in the WAL for
 		// this height. This serves two purposes: it prevents overwriting data from other requests, and also acts as a
@@ -481,7 +467,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			ifNoneMatch: "*" as const,
 		};
 
-		const result = await opts.metadataStorage.adapter.put(key, compressed, conditional).catch((error) => {
+		const result = await opts.metadataStorage.adapter.put(blocksKey, blocksValue, conditional).catch((error) => {
 			if (error instanceof AdapterError) {
 				if (error.tag === "PreconditionFailed") {
 					return null;
@@ -563,7 +549,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// finalized handler to ensure correctness (slow) but in the common case we don't need to perform
 		// any extra work (fast)
 
-		await metadata.commits.upsert(head);
+		const commitsKey = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const commitsValue = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
+
+		await opts.metadataStorage.adapter.put(commitsKey, commitsValue);
 	}
 
 	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
