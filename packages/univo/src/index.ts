@@ -1235,15 +1235,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// Otherwise load the block from metadata and process it.
 
 		for (const head of heads) {
-			// For events the fast-path we are a looking for is there is a single commit for this height
-			// AND that commit is canonical. In all other cases we have process the block again.
+			// The fast-path we are looking for:
+			// - Events have a single commit for this height that is canonical.
+			// - Actions have a commit for this height that is canonical for all actions.
 
 			const eventCommitsForHeight = commits.filter((commit) => {
 				return isHexEqual(head.number, commit.number);
 			});
-
-			// Actions are simpler, they only run for finalized blocks so there is no side-effects that have
-			// to be undone. So all we need is for a single commit present that matches the canonical head
 
 			const actionsWithoutCommit = all_actions.filter((action) => {
 				const commitExists = commits.some((commit) => {
@@ -1259,18 +1257,24 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				return !commitExists;
 			});
 
-			if (eventCommitsForHeight.length === 1) {
-				if (commits.some((commit) => isHexEqual(head.hash, commit.hash) && isHexEqual(head.parent_hash, commit.parent_hash))) {
-					//
-				}
+			if (
+				actionsWithoutCommit.length === 0 &&
+				eventCommitsForHeight.length === 1 &&
+				eventCommitsForHeight.some((commit) => isHexEqual(head.hash, commit.hash) && isHexEqual(head.parent_hash, commit.parent_hash))
+			) {
+				continue;
 			}
 
+			// Otherwise there is work to be done. Note that this path doesn't have to be optimized because it's rare.
+			// Even if we are recovering from downtime, the previous iteration proving canonicality likely already
+			// performed all the work required so that we quickly finalize the batch
+
 			const reorganisedHeads = eventCommitsForHeight.flatMap((commit) => {
-				if (!isHexEqual(head.hash, commit.hash)) {
-					return commit;
+				if (isHexEqual(head.hash, commit.hash)) {
+					return [];
 				}
 
-				return [];
+				return commit;
 			});
 
 			const reorganisedPromises = reorganisedHeads.map(async (head) => {
