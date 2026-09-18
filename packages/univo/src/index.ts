@@ -335,32 +335,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const all_actions: Action<any, any>[] = [];
 
-	// Metadata storage interface. Functionally this is responsible for storing all state related to ensuring
-	// the correct processing of the indexer.
-
-	const metadata = {
-		blocks: {
-			async get(head: Head) {
-				const chain = normalizeHex(head.chain);
-				const number = normalizeHex(head.number, 16);
-				const hash = normalizeHex(head.hash);
-				const parentHash = normalizeHex(head.parent_hash);
-				const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
-
-				const object = await opts.metadataStorage.adapter.get(prefix);
-
-				if (object === null) {
-					return null;
-				}
-
-				const block = await decompress(object.body);
-				const parsed = JSON.parse(block);
-
-				return parsed as TBlock;
-			},
-		},
-	};
-
 	// Fetches a block using the provided `getBlock` function. Handles retries. We accept a partial head,
 	// sometimes want the canonical block using only the block number. If a hash and/or parent hash is
 	// provided we will ensure that they match the block returned
@@ -701,14 +675,23 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// canonical chain than this request should yield a block with a different block hash. This is our proof
 		// that this block is no longer included in the chain and that it's safe to delete data associated with it
 
-		const [storedBlock, canonicalBlock] = await Promise.all([
-			metadata.blocks.get(head), //
+		const chain = normalizeHex(head.chain);
+		const number = normalizeHex(head.number, 16);
+		const hash = normalizeHex(head.hash);
+		const parentHash = normalizeHex(head.parent_hash);
+		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+
+		const [blocksRes, canonicalBlock] = await Promise.all([
+			opts.metadataStorage.adapter.get(blocksKey), //
 			getBlockFromChain({ chain: head.chain, number: head.number }),
 		]);
 
-		if (storedBlock === null) {
+		if (blocksRes === null) {
 			return log.debug("Reorganised block never/already processed");
 		}
+
+		const decompressedBlock = await decompress(blocksRes.body);
+		const storedBlock = JSON.parse(decompressedBlock);
 
 		if (canonicalBlock === null) {
 			throw new Error("Attempted to delete unknown block");
