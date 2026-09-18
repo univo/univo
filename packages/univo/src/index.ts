@@ -760,7 +760,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return;
 		}
 
-		// TODO: Use an `finalized` WAL to prevent duplicate invocations
+		// TODO
+		// Use an `finalized` WAL to prevent duplicate invocations. Note that this doesn't need to store
+		// the block and can be empty. The blocks are finalized and can always be loaded onchain. It
+		// serves as a concurrency mechanism
 
 		// Otherwise, we may have actions to run
 
