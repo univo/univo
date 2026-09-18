@@ -743,11 +743,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return;
 		}
 
-		// TODO
-		// Eventually we should have some long-term mechanism to prevent repeated invocations. Because we are performing
-		// finalization work we actually have to persist something in the metadata layer indefinitely that indicates the
-		// work has been performed already. This can probably tie into the research with work-done persisted into metadata
-
 		const chain = normalizeHex(block.eth_chainId);
 		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
 		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
@@ -804,6 +799,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		if (all_actions.length === 0) {
 			return;
 		}
+
+		// TODO: Use an actions WAL to prevent duplicate invocations
 
 		// Otherwise, we may have actions to run
 
