@@ -698,34 +698,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		await writeUnfinalizedBlock(head, block);
 	};
 
-	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
-		log.debug(`Received reorganised head ${hexToNumber(head.number)}`);
-
-		// We load blocks via their block number. If this block was truly reorganised and is no longer part of the
-		// canonical chain than this request should yield a block with a different block hash. This is our proof
-		// that this block is no longer included in the chain and that it's safe to delete data associated with it
-
-		const [storedBlock, canonicalBlock] = await Promise.all([
-			metadata.blocks.get(head), //
-			getBlockFromChain({ chain: head.chain, number: head.number }),
-		]);
-
-		if (storedBlock === null) {
-			return log.debug("Reorganised block never/already processed");
-		}
-
-		if (canonicalBlock === null) {
-			throw new Error("Attempted to delete unknown block");
-		}
-
-		if (isHexEqual(head.hash, canonicalBlock.eth_getBlockByNumber.hash)) {
-			throw new Error("Attempted to delete canonical block");
-		}
-
-		// We know the block is not included in the canonical chain and we know that our storage system may have upserted
-		// events with this block data. We use the block data to generate the same set of events that could have been
-		// upserted and provide them to each events delete function
-
+	async function deleteReorganisedBlocksAndWriteCanonicalBlock(reorganised: TBlock[], canonical: TBlock) {
 		const deletes = all_events.map(async (event) => {
 			// TODO
 			// We intentionally ignore filters and basically perform an optimistic delete on events that might
@@ -736,10 +709,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const batch: any[] = [];
 
 			try {
-				const events = event.handler(storedBlock);
+				for (const block of reorganised) {
+					const events = event.handler(block);
 
-				for (const event of events) {
-					batch.push(event);
+					for (const event of events) {
+						batch.push(event);
+					}
 				}
 			} catch (error) {
 				log.error(`Failed to run your 'handler' for event ${event.id}`);
@@ -773,11 +748,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			for (const event of grouped_events) {
 				try {
-					if (!event.filters.some((filter) => matchFilter(canonicalBlock, filter))) {
+					if (!event.filters.some((filter) => matchFilter(canonical, filter))) {
 						continue;
 					}
 
-					const events = event.handler(canonicalBlock);
+					const events = event.handler(canonical);
 
 					for (const event of events) {
 						batch.push(event);
@@ -801,6 +776,37 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		});
 
 		await Promise.all(upserts);
+	}
+
+	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
+		log.debug(`Received reorganised head ${hexToNumber(head.number)}`);
+
+		// We load blocks via their block number. If this block was truly reorganised and is no longer part of the
+		// canonical chain than this request should yield a block with a different block hash. This is our proof
+		// that this block is no longer included in the chain and that it's safe to delete data associated with it
+
+		const [storedBlock, canonicalBlock] = await Promise.all([
+			metadata.blocks.get(head), //
+			getBlockFromChain({ chain: head.chain, number: head.number }),
+		]);
+
+		if (storedBlock === null) {
+			return log.debug("Reorganised block never/already processed");
+		}
+
+		if (canonicalBlock === null) {
+			throw new Error("Attempted to delete unknown block");
+		}
+
+		if (isHexEqual(head.hash, canonicalBlock.eth_getBlockByNumber.hash)) {
+			throw new Error("Attempted to delete canonical block");
+		}
+
+		// We know the block is not included in the canonical chain and we know that our storage system may have upserted
+		// events with this block data. We use the block data to generate the same set of events that could have been
+		// upserted and provide them to each events delete function
+
+		await deleteReorganisedBlocksAndWriteCanonicalBlock([storedBlock], canonicalBlock);
 
 		// After the above deletion occurs it is impossible for a malicious client to call `public_writeUnfinalizedHead`
 		// with the reorganised block because it won't be retrievable from the chain. This guard guarantees that our
@@ -827,6 +833,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	async function writeFinalizedBlock(head: Head, block: TBlock, actions: Action<any, any>[]) {
+		// If the indexer hasn't defined any actions then there isn't actually any work to complete
+		// on finalization, so this is an optimistic abort case to reduce costs.
+
+		if (actions.length === 0) {
+			return;
+		}
+
 		// TODO
 		// Eventually we should have some long-term mechanism to prevent repeated invocations. Because we are performing
 		// finalization work we actually have to persist something in the metadata layer indefinitely that indicates the
@@ -1222,6 +1235,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// Otherwise load the block from metadata and process it.
 
 		for (const head of heads) {
+			// For events the fast-path we are a looking for is there is a single commit for this height
+			// AND that commit is canonical. In all other cases we have process the block again.
+
+			const eventCommitsForHeight = commits.filter((commit) => {
+				return isHexEqual(head.number, commit.number);
+			});
+
 			// Actions are simpler, they only run for finalized blocks so there is no side-effects that have
 			// to be undone. So all we need is for a single commit present that matches the canonical head
 
@@ -1239,17 +1259,43 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				return !commitExists;
 			});
 
-			// We only need to load this block if we either have to process actions or events again
+			if (eventCommitsForHeight.length === 1) {
+				if (commits.some((commit) => isHexEqual(head.hash, commit.hash) && isHexEqual(head.parent_hash, commit.parent_hash))) {
+					//
+				}
+			}
 
-			const block = await getBlockFromMetadataOrChain(head);
+			const reorganisedHeads = eventCommitsForHeight.flatMap((commit) => {
+				if (!isHexEqual(head.hash, commit.hash)) {
+					return commit;
+				}
 
-			if (block === null) {
+				return [];
+			});
+
+			const reorganisedPromises = reorganisedHeads.map(async (head) => {
+				const block = await getBlockFromMetadataOrChain(head);
+
+				if (block === null) {
+					throw new Error("Expected reorganised block to exist in metadata layer");
+				}
+
+				return block;
+			});
+
+			const [canonicalBlock, ...reorganisedBlocks] = await Promise.all([
+				getBlockFromMetadataOrChain(head), //
+				...reorganisedPromises,
+			]);
+
+			if (canonicalBlock === null) {
 				throw new Error("Expected to load block from metadata or chain");
 			}
 
-			if (actionsWithoutCommit.length > 0) {
-				await writeFinalizedBlock(head, block, actionsWithoutCommit);
-			}
+			await Promise.all([
+				writeFinalizedBlock(head, canonicalBlock, actionsWithoutCommit), //
+				deleteReorganisedBlocksAndWriteCanonicalBlock(reorganisedBlocks, canonicalBlock),
+			]);
 		}
 
 		// Update the manifest and renew the lease
