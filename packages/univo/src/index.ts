@@ -387,34 +387,34 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
 		const path = `manifest/v1/${normalizeHex(chain)}`;
 
-		const res = await opts.metadataStorage.adapter.get(path);
+		const manifestRes = await opts.metadataStorage.adapter.get(path);
 
-		if (res) {
-			const manifest = JSON.parse(decoder.decode(res.body)) as Manifest;
+		let manifest: Manifest;
 
-			return manifest.finalized_block_height;
+		if (manifestRes === null) {
+			const block = await getBlockFromChain({ chain, number: "finalized" });
+
+			if (block === null) {
+				throw new Error("Failed to fetch finalized block and unable to determine finalized height, aborting...");
+			}
+
+			const chainFinalizedHeight = hexToNumber(block.eth_getBlockByNumber.number);
+
+			const newManifest: Manifest = {
+				finalized_block_height: chainFinalizedHeight,
+				finalized_block_hash: block.eth_getBlockByNumber.hash,
+				next_finalized_height: chainFinalizedHeight,
+				updated_at: Date.now(),
+			};
+
+			await opts.metadataStorage.adapter.put(path, JSON.stringify(newManifest), { ifNoneMatch: "*" });
+
+			manifest = newManifest;
+		} else {
+			manifest = JSON.parse(decoder.decode(manifestRes.body));
 		}
 
-		const block = await getBlockFromChain({ chain, number: "finalized" });
-
-		if (block === null) {
-			log.debug("Failed to fetch finalized block and unable to determine finalized height, aborting...");
-
-			throw new Error(GetBlockError);
-		}
-
-		const finalizedHeight = hexToNumber(block.eth_getBlockByNumber.number);
-
-		const manifest: Manifest = {
-			finalized_block_height: finalizedHeight,
-			finalized_block_hash: block.eth_getBlockByNumber.hash,
-			next_finalized_height: finalizedHeight,
-			updated_at: Date.now(),
-		};
-
-		await opts.metadataStorage.adapter.put(path, JSON.stringify(manifest), { ifNoneMatch: "*" });
-
-		return finalizedHeight;
+		return manifest.finalized_block_height;
 	};
 
 	async function writeUnfinalizedBlock(head: Head, block: TBlock) {
