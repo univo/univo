@@ -692,6 +692,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// canonical chain than this request should yield a block with a different block hash. This is our proof
 		// that this block is no longer included in the chain and that it's safe to delete data associated with it
 
+		// We load the reorganised block directly from metadata and bypass the `getBlockFromChainOrMetadata` helper
+		// because if the block doesn't exist in metadata it means it was never processed and safely return
+
 		const chain = normalizeHex(head.chain);
 		const number = normalizeHex(head.number, 16);
 		const hash = normalizeHex(head.hash);
