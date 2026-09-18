@@ -878,6 +878,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		while (true) {
 			// LIST blocks. Trailing slash is necessary to ensure chain ids 0x1 and 0x10 don't clash.
 
+			// There is technically a correctness issue here where if we process more than 1000 blocks
+			// for the same height we wouldn't return them all here and therefore wouldn't remove the
+			// associated reorganised events. In practice I don't think there will be 1000 different
+			// onchain forks so i'm not going to handle this case.
+
 			const blocksKey = `blocks/v1/${normalizeHex(chain)}/`;
 
 			const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey, limit: 1000 });
