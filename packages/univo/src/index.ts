@@ -849,7 +849,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const indexerFinalizedHeight = manifest.finalized_block_height;
 
-		if (receivedHeight < indexerFinalizedHeight) {
+		if (receivedHeight <= indexerFinalizedHeight) {
 			return log.debug(`Received finalized head (${receivedHeight}) below indexer height (${indexerFinalizedHeight})`);
 		}
 
