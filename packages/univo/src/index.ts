@@ -1011,6 +1011,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		while (indexerFinalizedBlockHeight < chainFinalizedHeight) {
 			const nextFinalizedHeight = Math.min(chainFinalizedHeight, indexerFinalizedBlockHeight + FINALIZATION_BATCH_SIZE);
+			const finalizationBatchSize = nextFinalizedHeight - indexerFinalizedBlockHeight;
 
 			// Attempt to acquire lease
 
@@ -1081,10 +1082,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			let parentHash = nextFinalizedBlock.eth_getBlockByNumber.parentHash;
 
-			for (let index = 1; index < FINALIZATION_BATCH_SIZE; index++) {
+			for (let index = 1; index < finalizationBatchSize; index++) {
 				// Load processed blocks by number
 
-				const number = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number) - index;
+				const number = nextFinalizedHeight - index;
 				const blocks = blocksProcessed.filter((block) => hexToNumber(block.number) === number);
 
 				// If we have the canonical block we can abort early
@@ -1134,8 +1135,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				throw new Error("Expected chain to match last finalized canonical anchor");
 			}
 
-			if (heads.length !== FINALIZATION_BATCH_SIZE) {
-				throw new Error(`Expected to have ${FINALIZATION_BATCH_SIZE} heads, found ${heads.length}`);
+			if (heads.length !== finalizationBatchSize) {
+				throw new Error(`Expected to have ${finalizationBatchSize} heads, found ${heads.length}`);
 			}
 
 			// Second, we iterate over the canonical list of blocks and verify that each block was processed
