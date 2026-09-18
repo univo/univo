@@ -918,6 +918,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		while (true) {
 			// LIST commits. Trailing slash is necessary to ensure chain ids 0x1 and 0x10 don't clash.
 
+			// TODO
+			// It's possible that the number of commits for a given height exceed the 1000 limit if the
+			// indexer has defined thousands of actions. In this case we wouldn't be able to verify that
+			// all actions succeeded and we wouldn't be able to use our fast-path commit optimisation.
+
 			const commitsKey = `commits/v1/${normalizeHex(chain)}/`;
 
 			const commits = await opts.metadataStorage.adapter.list({ prefix: commitsKey, limit: 1000 });
