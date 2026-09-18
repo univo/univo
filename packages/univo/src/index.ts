@@ -1082,7 +1082,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				throw new Error("Failed to load finalizing anchor block");
 			}
 
-			const heads: Head[] = [
+			const canonicalHeads: Head[] = [
 				{
 					chain,
 					hash: nextFinalizedBlock.eth_getBlockByNumber.hash,
@@ -1104,7 +1104,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				const canonicalHead = blocks.find((block) => isHexEqual(block.hash, parentHash));
 
 				if (canonicalHead) {
-					heads.unshift(canonicalHead); // Pushes to the start of array
+					canonicalHeads.unshift(canonicalHead); // Pushes to the start of array
 
 					parentHash = canonicalHead.parent_hash;
 
@@ -1137,7 +1137,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					writeFinalizedBlock(canonicalBlock, all_actions),
 				]);
 
-				heads.unshift(head); // Pushes to the start of array
+				canonicalHeads.unshift(head); // Pushes to the start of array
 
 				parentHash = canonicalBlock.eth_getBlockByNumber.parentHash;
 			}
@@ -1146,8 +1146,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				throw new Error("Expected chain to match last finalized canonical anchor");
 			}
 
-			if (heads.length !== finalizationBatchSize) {
-				throw new Error(`Expected to have ${finalizationBatchSize} heads, found ${heads.length}`);
+			if (canonicalHeads.length !== finalizationBatchSize) {
+				throw new Error(`Expected to have ${finalizationBatchSize} heads, found ${canonicalHeads.length}`);
 			}
 
 			// Second, we iterate over the canonical list of blocks and verify that each block was processed
@@ -1166,13 +1166,22 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
 			// Otherwise load the block from metadata and process it.
 
-			for (const head of heads) {
+			for (const canonicalHead of canonicalHeads) {
 				// The fast-path we are looking for:
-				// - Events have a single commit for this height that is canonical.
-				// - Actions have a commit for this height that is canonical for all actions.
+				// - Only processed the canonical block for this height
+				// - There exists a commit for this canonical block for all events/actions
 
-				const eventCommitsForHeight = commits.filter((commit) => {
-					return isHexEqual(head.number, commit.number);
+				const blocksProcessedForHeight = blocksProcessed.filter((head) => {
+					return isHexEqual(canonicalHead.number, head.number);
+				});
+
+				const eventsCommittedForHeight = commits.some((commit) => {
+					return (
+						commit.type === undefined &&
+						isHexEqual(canonicalHead.hash, commit.hash) &&
+						isHexEqual(canonicalHead.number, commit.number) &&
+						isHexEqual(canonicalHead.parent_hash, commit.parent_hash)
+					);
 				});
 
 				const actionsWithoutCommit = all_actions.filter((action) => {
@@ -1180,20 +1189,16 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						return (
 							commit.id === action.id &&
 							commit.type === "action" &&
-							isHexEqual(head.hash, commit.hash) &&
-							isHexEqual(head.number, commit.number) &&
-							isHexEqual(head.parent_hash, commit.parent_hash)
+							isHexEqual(canonicalHead.hash, commit.hash) &&
+							isHexEqual(canonicalHead.number, commit.number) &&
+							isHexEqual(canonicalHead.parent_hash, commit.parent_hash)
 						);
 					});
 
 					return !commitExists;
 				});
 
-				if (
-					actionsWithoutCommit.length === 0 &&
-					eventCommitsForHeight.length === 1 &&
-					eventCommitsForHeight.some((commit) => isHexEqual(head.hash, commit.hash) && isHexEqual(head.parent_hash, commit.parent_hash))
-				) {
+				if (blocksProcessedForHeight.length === 1 && eventsCommittedForHeight === true && actionsWithoutCommit.length === 0) {
 					continue;
 				}
 
@@ -1202,12 +1207,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				// performed all the work required so that we quickly finalize the batch. This path is usually just hit
 				// when a block is reorganised which is also rare
 
-				const reorganisedHeads = eventCommitsForHeight.flatMap((commit) => {
-					if (isHexEqual(head.hash, commit.hash)) {
+				const reorganisedHeads = blocksProcessedForHeight.flatMap((head) => {
+					if (isHexEqual(canonicalHead.hash, head.hash)) {
 						return []; // Ignore canonical head
 					}
 
-					return { chain, number: commit.number, hash: commit.hash, parent_hash: commit.parent_hash };
+					return { chain, number: head.number, hash: head.hash, parent_hash: head.parent_hash };
 				});
 
 				const reorganisedPromises = reorganisedHeads.map(async (head) => {
@@ -1221,7 +1226,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				});
 
 				const [canonicalBlock, ...reorganisedBlocks] = await Promise.all([
-					getBlockFromMetadataOrChain(head), //
+					getBlockFromMetadataOrChain(canonicalHead), //
 					...reorganisedPromises,
 				]);
 
