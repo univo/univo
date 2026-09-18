@@ -173,8 +173,6 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		return await reconcile(newBlock); // Finally we add this block
 	}
 
-	// TODO: reconcile should queue instead of dropping invocations with a mutex
-
 	return {
 		chain,
 		prune: mutex(prune),
