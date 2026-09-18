@@ -826,14 +826,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Otherwise, we may have actions to run
 
-		const blocks_start = Date.now();
+		const blocksStart = Date.now();
 
-		const [block, chainFinalizedBlock] = await Promise.all([
+		const manifestKey = `manifest/v1/${normalizeHex(head.chain)}`;
+
+		const [block, manifestRes, chainFinalizedBlock] = await Promise.all([
 			getBlockFromMetadataOrChain(head),
+			opts.metadataStorage.adapter.get(manifestKey),
 			getBlockFromChain({ chain: head.chain, number: "finalized" }),
 		]);
 
-		log.debug(`Loaded block in ${Date.now() - blocks_start}ms`);
+		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
 
 		if (block === null) {
 			return log.debug("Received null block response when loading finalized head, aborting...");
@@ -843,20 +846,37 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.error("Failed to determine finalized height when processing finalized head, aborting...");
 		}
 
-		// TODO
-		// Should also load the indexer finalized height and assert received height is between that and the
-		// chain finalized height. This is needed for correctness to ensure that a malicious client can't
-		// process old blocks that would create an infinite amount of garbage collection that the finalization
-		// process would never be able to delete
-
 		const receivedHeight = hexToNumber(head.number);
 		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
 
-		if (receivedHeight > chainFinalizedHeight) {
-			return log.error(`Received head (${receivedHeight}) has not finalized (${chainFinalizedHeight}), aborting...`);
+		let manifest: Manifest;
+
+		if (manifestRes === null) {
+			const newManifest: Manifest = {
+				finalized_block_height: chainFinalizedHeight,
+				finalized_block_hash: block.eth_getBlockByNumber.hash,
+				next_finalized_height: chainFinalizedHeight,
+				updated_at: Date.now(),
+			};
+
+			await opts.metadataStorage.adapter.put(manifestKey, JSON.stringify(newManifest), { ifNoneMatch: "*" });
+
+			manifest = newManifest;
+		} else {
+			manifest = JSON.parse(decoder.decode(manifestRes.body));
 		}
 
-		// Given the head is finalized, perform the associated actions for all events
+		const indexerFinalizedHeight = manifest.finalized_block_height;
+
+		if (receivedHeight < indexerFinalizedHeight) {
+			return log.debug(`Received finalized head (${receivedHeight}) below indexer height (${indexerFinalizedHeight})`);
+		}
+
+		if (receivedHeight > chainFinalizedHeight) {
+			return log.error(`Received finalized head (${receivedHeight}) that has not finalized (${chainFinalizedHeight})`);
+		}
+
+		// Given the head is not finalized by the indexer but finalized onchain, perform the associated actions for all events
 
 		await writeFinalizedBlock(head, chainFinalizedBlock, all_actions);
 	};
