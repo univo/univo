@@ -382,7 +382,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 	}
 
-	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
+	async function getOrInitManifest(chain: `0x${string}`) {
 		const path = `manifest/v1/${normalizeHex(chain)}`;
 
 		const manifestRes = await opts.metadataStorage.adapter.get(path);
@@ -411,6 +411,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		} else {
 			manifest = JSON.parse(decoder.decode(manifestRes.body));
 		}
+
+		return manifest;
+	}
+
+	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
+		const manifest = await getOrInitManifest(chain);
 
 		return manifest.finalized_block_height;
 	};
@@ -532,11 +538,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const blocksStart = Date.now();
 
-		const manifestKey = `manifest/v1/${normalizeHex(head.chain)}`;
-
-		const [block, manifestRes] = await Promise.all([
+		const [block, manifest] = await Promise.all([
 			getBlockFromChain(head), //
-			opts.metadataStorage.adapter.get(manifestKey),
+			getOrInitManifest(head.chain),
 		]);
 
 		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
@@ -549,31 +553,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		if (block === null) {
 			return log.debug("Received null block response when loading unfinalized head, aborting...");
-		}
-
-		let manifest: Manifest;
-
-		if (manifestRes === null) {
-			const block = await getBlockFromChain({ chain: head.chain, number: "finalized" });
-
-			if (block === null) {
-				throw new Error("Failed to load finalized block when initialising manifest");
-			}
-
-			const chainFinalizedHeight = hexToNumber(block.eth_getBlockByNumber.number);
-
-			const newManifest: Manifest = {
-				finalized_block_height: chainFinalizedHeight,
-				finalized_block_hash: block.eth_getBlockByNumber.hash,
-				next_finalized_height: chainFinalizedHeight,
-				updated_at: Date.now(),
-			};
-
-			await opts.metadataStorage.adapter.put(manifestKey, JSON.stringify(newManifest), { ifNoneMatch: "*" });
-
-			manifest = newManifest;
-		} else {
-			manifest = JSON.parse(decoder.decode(manifestRes.body));
 		}
 
 		const indexerFinalizedHeight = manifest.finalized_block_height;
@@ -787,11 +766,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const blocksStart = Date.now();
 
-		const manifestKey = `manifest/v1/${normalizeHex(head.chain)}`;
-
-		const [block, manifestRes, chainFinalizedBlock] = await Promise.all([
+		const [block, manifest, chainFinalizedBlock] = await Promise.all([
 			getBlockFromChain(head),
-			opts.metadataStorage.adapter.get(manifestKey),
+			getOrInitManifest(head.chain),
 			getBlockFromChain({ chain: head.chain, number: "finalized" }),
 		]);
 
@@ -806,26 +783,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		const receivedHeight = hexToNumber(head.number);
-		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
-
-		let manifest: Manifest;
-
-		if (manifestRes === null) {
-			const newManifest: Manifest = {
-				finalized_block_height: chainFinalizedHeight,
-				finalized_block_hash: chainFinalizedBlock.eth_getBlockByNumber.hash,
-				next_finalized_height: chainFinalizedHeight,
-				updated_at: Date.now(),
-			};
-
-			await opts.metadataStorage.adapter.put(manifestKey, JSON.stringify(newManifest), { ifNoneMatch: "*" });
-
-			manifest = newManifest;
-		} else {
-			manifest = JSON.parse(decoder.decode(manifestRes.body));
-		}
-
 		const indexerFinalizedHeight = manifest.finalized_block_height;
+		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
 
 		if (receivedHeight <= indexerFinalizedHeight) {
 			return log.debug(`Received finalized head (${receivedHeight}) below indexer height (${indexerFinalizedHeight})`);
