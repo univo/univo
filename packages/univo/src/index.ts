@@ -1275,7 +1275,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						return []; // Ignore canonical head
 					}
 
-					return commit;
+					return { chain, number: commit.number, hash: commit.hash, parent_hash: commit.parent_hash };
 				});
 
 				const reorganisedPromises = reorganisedHeads.map(async (head) => {
