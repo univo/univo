@@ -731,7 +731,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return await getBlockFromChain(head);
 	}
 
-	async function writeFinalizedBlock(head: Head, block: TBlock, actions: Action<any, any>[]) {
+	async function writeFinalizedBlock(block: TBlock, actions: Action<any, any>[]) {
 		// If the indexer hasn't defined any actions then there isn't actually any work to complete
 		// on finalization, so this is an optimistic abort case to reduce costs.
 
@@ -744,10 +744,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// finalization work we actually have to persist something in the metadata layer indefinitely that indicates the
 		// work has been performed already. This can probably tie into the research with work-done persisted into metadata
 
-		const chain = normalizeHex(head.chain);
-		const number = normalizeHex(head.number, 16);
-		const hash = normalizeHex(head.hash);
-		const parentHash = normalizeHex(head.parent_hash);
+		const chain = normalizeHex(block.eth_chainId);
+		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
+		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
 		const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
 
 		const promises = actions.map(async (action) => {
@@ -850,7 +850,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Given the head is not finalized by the indexer but finalized onchain, perform the associated actions for all events
 
-		await writeFinalizedBlock(head, chainFinalizedBlock, all_actions);
+		await writeFinalizedBlock(chainFinalizedBlock, all_actions);
 	};
 
 	// TODO
@@ -1121,7 +1121,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				await Promise.all([
 					writeUnfinalizedBlock(canonicalBlock), //
-					writeFinalizedBlock(head, canonicalBlock, all_actions),
+					writeFinalizedBlock(canonicalBlock, all_actions),
 				]);
 
 				heads.unshift(head); // Pushes to the start of array
@@ -1217,7 +1217,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				}
 
 				await Promise.all([
-					writeFinalizedBlock(head, canonicalBlock, actionsWithoutCommit), //
+					writeFinalizedBlock(canonicalBlock, actionsWithoutCommit), //
 					deleteReorganisedBlocksAndWriteCanonicalBlock(reorganisedBlocks, canonicalBlock),
 				]);
 			}
