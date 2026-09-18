@@ -553,7 +553,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const manifestKey = `manifest/v1/${normalizeHex(head.chain)}`;
 
-		const [block, manifestRes] = await Promise.all([getBlockFromChain(head), opts.metadataStorage.adapter.get(manifestKey)]);
+		const [block, manifestRes] = await Promise.all([
+			getBlockFromChain(head), //
+			opts.metadataStorage.adapter.get(manifestKey),
+		]);
 
 		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
 
@@ -832,7 +835,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		if (manifestRes === null) {
 			const newManifest: Manifest = {
 				finalized_block_height: chainFinalizedHeight,
-				finalized_block_hash: block.eth_getBlockByNumber.hash,
+				finalized_block_hash: chainFinalizedBlock.eth_getBlockByNumber.hash,
 				next_finalized_height: chainFinalizedHeight,
 				updated_at: Date.now(),
 			};
