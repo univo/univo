@@ -1202,7 +1202,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					return !commitExists;
 				});
 
-				if (eventsCommittedForHeight && processedOnlyCanonicalBlock && actionsWithoutCommit.length === 0) {
+				if (
+					eventsCommittedForHeight &&
+					processedOnlyCanonicalBlock &&
+					actionsWithoutCommit.length === 0 &&
+					blocksProcessedForHeight.length === 1
+				) {
 					continue;
 				}
 
