@@ -935,8 +935,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	const public_finalize: IndexerRpc["request"]["public_finalize"] = async (chain) => {
-		// Check if there are blocks to finalize
-
 		const manifestKey = `manifest/v1/${normalizeHex(chain)}`;
 
 		const [chainFinalizedBlock, manifestGetRes] = await Promise.all([
