@@ -752,7 +752,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
 
 		const promises = actions.map(async (action) => {
-			const events = action.event.handler(block);
+			// Even if the there were no events for this block that would invoke the action it's important that we still
+			// mark the action as successful with a commit so that we don't cause the block to be processed again
+
+			const events = action.event.filters.some((filter) => matchFilter(block, filter)) ? action.event.handler(block) : [];
 
 			const promises = events.map(async (event) => {
 				await retry(() => action.handler(event), 2).catch((error) => {
