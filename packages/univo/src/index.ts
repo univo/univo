@@ -1075,11 +1075,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const manifest = JSON.parse(decoder.decode(manifestGetRes.body)) as Manifest;
 
-		if (manifest.finalized_block_height === chainFinalizedHeight) {
-			return log.debug("Nothing to finalize");
-		}
-
-		// There are blocks to finalize, check for a valid lease
+		// Check for a valid lease
 
 		if (manifest.finalized_block_height !== manifest.next_finalized_height) {
 			if (Date.now() - manifest.updated_at < LEASE_DURATION_MS) {
@@ -1089,221 +1085,226 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			log.debug("Found expired lease");
 		}
 
-		log.debug("Acquiring lease...");
+		// Check if there is finalization work to be done
 
-		// TODO
-		// From here out it should be a loop. Will also need to add an exit condition if we have finalized all blocks
+		let finalizedBlockHeight = manifest.finalized_block_height;
+		let finalizedBlockHash = manifest.finalized_block_hash;
 
-		// Update the manifest and acquire the lease
+		while (finalizedBlockHeight < chainFinalizedHeight) {
+			const nextFinalizedHeight = Math.min(chainFinalizedHeight, finalizedBlockHeight + FINALIZATION_BATCH_SIZE);
 
-		const finalizingHeight = Math.min(chainFinalizedHeight, manifest.finalized_block_height + FINALIZATION_BATCH_SIZE);
+			// Attempt to acquire lease
 
-		const updatedManifest: Manifest = {
-			finalized_block_height: manifest.finalized_block_height,
-			finalized_block_hash: manifest.finalized_block_hash,
-			next_finalized_height: finalizingHeight,
-			updated_at: Date.now(),
-		};
-
-		// The following conditional ensures that our read-modify-update doesn't race against another
-		// writer attempting to claim the lease. If we hit the precondition error we fail safely.
-
-		const manifestPutRes = await opts.metadataStorage.adapter
-			.put(manifestKey, JSON.stringify(updatedManifest), { ifMatch: manifestGetRes.etag })
-			.catch((error) => {
-				if (error instanceof AdapterError) {
-					if (error.tag === "PreconditionFailed") {
-						return null;
-					}
-				}
-
-				throw error;
-			});
-
-		if (manifestPutRes === null) {
-			return log.debug("Failed to acquire lease, aborting...");
-		}
-
-		// For each finalized block, our goal is to prove two things:
-		// - The unfinalized block was correctly processed (all events and actions returned OK)
-		// - The unfinalized block finalized onchain and was not reorganised
-		// If we can prove those then we actually have no more work to perform for that block
-
-		// First, we prove canonicality. To assert that a given block header actually finalised
-		// on chain we must consult the finalized chain by loading that block by number and
-		// comparing the returned block and parent hashes. To do this block by block is both
-		// slow and expensive in terms of RPC costs. Like most optimisations, the key method to
-		// improve speed and cost is batching. Instead, we load a block some length in the future
-		// denoted by FINALIZATION_BATCH_SIZE from the last indexer finalized height and verify
-		// it's canonical, then we perform a LIST over the blocks WAL. If we can connect this
-		// future finalized block with our last indexer finalized height we can prove that all
-		// blocks between these two "anchor" points are also canonical.
-
-		// TODO: Finalizing block might not be needed if it's also the chain finalized block
-
-		const [finalizingBlock, blocksProcessed] = await Promise.all([
-			getBlockFromChain({ chain, number: numberToHex(finalizingHeight) }),
-			getBlocksProcessedAndGarbageCollect(chain, manifest.finalized_block_height),
-		]);
-
-		if (finalizingBlock === null) {
-			throw new Error("Failed to load finalizing anchor block");
-		}
-
-		const heads: Head[] = [
-			{
-				chain,
-				hash: finalizingBlock.eth_getBlockByNumber.hash,
-				number: finalizingBlock.eth_getBlockByNumber.number,
-				parent_hash: finalizingBlock.eth_getBlockByNumber.parentHash,
-			},
-		];
-
-		let parentHash = finalizingBlock.eth_getBlockByNumber.parentHash;
-
-		for (let index = 1; index < FINALIZATION_BATCH_SIZE; index++) {
-			// Load processed blocks by number
-
-			const number = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number) - index;
-			const blocks = blocksProcessed.filter((block) => hexToNumber(block.number) === number);
-
-			// If we have the canonical block we can abort early
-
-			const canonicalHead = blocks.find((block) => isHexEqual(block.hash, parentHash));
-
-			if (canonicalHead) {
-				heads.unshift(canonicalHead); // Pushes to the start of array
-
-				parentHash = canonicalHead.parent_hash;
-
-				continue;
-			}
-
-			// Otherwise we load and process the canonical block from the chain
-
-			const canonicalBlock = await getBlockFromChain({ chain, number: numberToHex(number) });
-
-			if (canonicalBlock === null) {
-				throw new Error("Failed to load canonical block");
-			}
-
-			const head: Head = {
-				chain,
-				hash: canonicalBlock.eth_getBlockByNumber.hash,
-				number: canonicalBlock.eth_getBlockByNumber.number,
-				parent_hash: canonicalBlock.eth_getBlockByNumber.parentHash,
+			const updatedManifest: Manifest = {
+				finalized_block_height: finalizedBlockHeight,
+				finalized_block_hash: finalizedBlockHash,
+				next_finalized_height: nextFinalizedHeight,
+				updated_at: Date.now(),
 			};
 
-			// public_writeUnfinalizedHead accepts a head that the indexer has not finalised
-			// public_writeFinalizedHead accepts a head that the indexer has not finalised but the chain has
+			log.debug("Acquiring lease...");
 
-			// It's important to recognise that both these methods will push the associated blocks to
-			// the WAL and push the associated commits after successful processing
+			// The following conditional ensures that our read-modify-update doesn't race against another
+			// writer attempting to claim the lease. If we hit the precondition error we fail safely.
 
-			await Promise.all([
-				writeUnfinalizedBlock(head, canonicalBlock), //
-				writeFinalizedBlock(head, canonicalBlock, all_actions),
-			]);
+			const manifestPutRes = await opts.metadataStorage.adapter
+				.put(manifestKey, JSON.stringify(updatedManifest), { ifMatch: manifestGetRes.etag })
+				.catch((error) => {
+					if (error instanceof AdapterError) {
+						if (error.tag === "PreconditionFailed") {
+							return null;
+						}
+					}
 
-			heads.unshift(head); // Pushes to the start of array
-
-			parentHash = canonicalBlock.eth_getBlockByNumber.parentHash;
-		}
-
-		if (!isHexEqual(parentHash, manifest.finalized_block_hash)) {
-			throw new Error("Expected chain to match last finalized canonical anchor");
-		}
-
-		if (heads.length !== FINALIZATION_BATCH_SIZE) {
-			throw new Error(`Expected to have ${FINALIZATION_BATCH_SIZE} heads, found ${heads.length}`);
-		}
-
-		// Second, we iterate over the canonical list of blocks and verify that each block was processed
-		// correctly. To prove this we just need a commit for every event and action that matches the
-		// canonical head. This is our common case and what happens under steady operation. However, when
-		// there are multiple blocks for the same height because a chain reorganisation occurred we cannot
-		// rely on these commits to verify correct processing. This is because we cannot determine the
-		// relative ordering of the processing. It could be that the reorganised block was processed after
-		// the canonical block leaving our system in an incorrect state. Therefore, in the rare case that
-		// we do encounter a chain reorganisation we must process them again.
-
-		// We LIST commits after the blocks because we could've performed processing.
-
-		const commits = await getCommitsAndGarbageCollect(chain, manifest.finalized_block_height);
-
-		// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
-		// Otherwise load the block from metadata and process it.
-
-		for (const head of heads) {
-			// The fast-path we are looking for:
-			// - Events have a single commit for this height that is canonical.
-			// - Actions have a commit for this height that is canonical for all actions.
-
-			const eventCommitsForHeight = commits.filter((commit) => {
-				return isHexEqual(head.number, commit.number);
-			});
-
-			const actionsWithoutCommit = all_actions.filter((action) => {
-				const commitExists = commits.some((commit) => {
-					return (
-						commit.id === action.id &&
-						commit.type === "action" &&
-						isHexEqual(head.hash, commit.hash) &&
-						isHexEqual(head.number, commit.number) &&
-						isHexEqual(head.parent_hash, commit.parent_hash)
-					);
+					throw error;
 				});
 
-				return !commitExists;
-			});
-
-			if (
-				actionsWithoutCommit.length === 0 &&
-				eventCommitsForHeight.length === 1 &&
-				eventCommitsForHeight.some((commit) => isHexEqual(head.hash, commit.hash) && isHexEqual(head.parent_hash, commit.parent_hash))
-			) {
-				continue;
+			if (manifestPutRes === null) {
+				return log.debug("Failed to acquire lease, aborting...");
 			}
 
-			// Otherwise there is work to be done. Note that this path doesn't have to be optimized because it's rare.
-			// Even if we are recovering from downtime, the previous iteration proving canonicality likely already
-			// performed all the work required so that we quickly finalize the batch. This path is usually just hit
-			// when a block is reorganised which is also rare
+			// For each finalized block, our goal is to prove two things:
+			// - The unfinalized block was correctly processed (all events and actions returned OK)
+			// - The unfinalized block finalized onchain and was not reorganised
+			// If we can prove those then we actually have no more work to perform for that block
 
-			const reorganisedHeads = eventCommitsForHeight.flatMap((commit) => {
-				if (isHexEqual(head.hash, commit.hash)) {
-					return []; // Ignore canonical head
-				}
+			// First, we prove canonicality. To assert that a given block header actually finalised
+			// on chain we must consult the finalized chain by loading that block by number and
+			// comparing the returned block and parent hashes. To do this block by block is both
+			// slow and expensive in terms of RPC costs. Like most optimisations, the key method to
+			// improve speed and cost is batching. Instead, we load a block some length in the future
+			// denoted by FINALIZATION_BATCH_SIZE from the last indexer finalized height and verify
+			// it's canonical, then we perform a LIST over the blocks WAL. If we can connect this
+			// future finalized block with our last indexer finalized height we can prove that all
+			// blocks between these two "anchor" points are also canonical.
 
-				return commit;
-			});
+			// TODO: Finalizing block might not be needed if it's also the chain finalized block
 
-			const reorganisedPromises = reorganisedHeads.map(async (head) => {
-				const block = await getBlockFromMetadataOrChain(head);
-
-				if (block === null) {
-					throw new Error("Expected reorganised block to exist in metadata layer");
-				}
-
-				return block;
-			});
-
-			const [canonicalBlock, ...reorganisedBlocks] = await Promise.all([
-				getBlockFromMetadataOrChain(head), //
-				...reorganisedPromises,
+			const [nextFinalizedBlock, blocksProcessed] = await Promise.all([
+				getBlockFromChain({ chain, number: numberToHex(nextFinalizedHeight) }),
+				getBlocksProcessedAndGarbageCollect(chain, finalizedBlockHeight),
 			]);
 
-			if (canonicalBlock === null) {
-				throw new Error("Expected to load block from metadata or chain");
+			if (nextFinalizedBlock === null) {
+				throw new Error("Failed to load finalizing anchor block");
 			}
 
-			await Promise.all([
-				writeFinalizedBlock(head, canonicalBlock, actionsWithoutCommit), //
-				deleteReorganisedBlocksAndWriteCanonicalBlock(reorganisedBlocks, canonicalBlock),
-			]);
+			const heads: Head[] = [
+				{
+					chain,
+					hash: nextFinalizedBlock.eth_getBlockByNumber.hash,
+					number: nextFinalizedBlock.eth_getBlockByNumber.number,
+					parent_hash: nextFinalizedBlock.eth_getBlockByNumber.parentHash,
+				},
+			];
+
+			let parentHash = nextFinalizedBlock.eth_getBlockByNumber.parentHash;
+
+			for (let index = 1; index < FINALIZATION_BATCH_SIZE; index++) {
+				// Load processed blocks by number
+
+				const number = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number) - index;
+				const blocks = blocksProcessed.filter((block) => hexToNumber(block.number) === number);
+
+				// If we have the canonical block we can abort early
+
+				const canonicalHead = blocks.find((block) => isHexEqual(block.hash, parentHash));
+
+				if (canonicalHead) {
+					heads.unshift(canonicalHead); // Pushes to the start of array
+
+					parentHash = canonicalHead.parent_hash;
+
+					continue;
+				}
+
+				// Otherwise we load and process the canonical block from the chain
+
+				const canonicalBlock = await getBlockFromChain({ chain, number: numberToHex(number) });
+
+				if (canonicalBlock === null) {
+					throw new Error("Failed to load canonical block");
+				}
+
+				const head: Head = {
+					chain,
+					hash: canonicalBlock.eth_getBlockByNumber.hash,
+					number: canonicalBlock.eth_getBlockByNumber.number,
+					parent_hash: canonicalBlock.eth_getBlockByNumber.parentHash,
+				};
+
+				// public_writeUnfinalizedHead accepts a head that the indexer has not finalised
+				// public_writeFinalizedHead accepts a head that the indexer has not finalised but the chain has
+
+				// It's important to recognise that both these methods will push the associated blocks to
+				// the WAL and push the associated commits after successful processing
+
+				await Promise.all([
+					writeUnfinalizedBlock(head, canonicalBlock), //
+					writeFinalizedBlock(head, canonicalBlock, all_actions),
+				]);
+
+				heads.unshift(head); // Pushes to the start of array
+
+				parentHash = canonicalBlock.eth_getBlockByNumber.parentHash;
+			}
+
+			if (!isHexEqual(parentHash, finalizedBlockHash)) {
+				throw new Error("Expected chain to match last finalized canonical anchor");
+			}
+
+			if (heads.length !== FINALIZATION_BATCH_SIZE) {
+				throw new Error(`Expected to have ${FINALIZATION_BATCH_SIZE} heads, found ${heads.length}`);
+			}
+
+			// Second, we iterate over the canonical list of blocks and verify that each block was processed
+			// correctly. To prove this we just need a commit for every event and action that matches the
+			// canonical head. This is our common case and what happens under steady operation. However, when
+			// there are multiple blocks for the same height because a chain reorganisation occurred we cannot
+			// rely on these commits to verify correct processing. This is because we cannot determine the
+			// relative ordering of the processing. It could be that the reorganised block was processed after
+			// the canonical block leaving our system in an incorrect state. Therefore, in the rare case that
+			// we do encounter a chain reorganisation we must process them again.
+
+			// We LIST commits after the blocks because we could've performed processing.
+
+			const commits = await getCommitsAndGarbageCollect(chain, finalizedBlockHeight);
+
+			// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
+			// Otherwise load the block from metadata and process it.
+
+			for (const head of heads) {
+				// The fast-path we are looking for:
+				// - Events have a single commit for this height that is canonical.
+				// - Actions have a commit for this height that is canonical for all actions.
+
+				const eventCommitsForHeight = commits.filter((commit) => {
+					return isHexEqual(head.number, commit.number);
+				});
+
+				const actionsWithoutCommit = all_actions.filter((action) => {
+					const commitExists = commits.some((commit) => {
+						return (
+							commit.id === action.id &&
+							commit.type === "action" &&
+							isHexEqual(head.hash, commit.hash) &&
+							isHexEqual(head.number, commit.number) &&
+							isHexEqual(head.parent_hash, commit.parent_hash)
+						);
+					});
+
+					return !commitExists;
+				});
+
+				if (
+					actionsWithoutCommit.length === 0 &&
+					eventCommitsForHeight.length === 1 &&
+					eventCommitsForHeight.some((commit) => isHexEqual(head.hash, commit.hash) && isHexEqual(head.parent_hash, commit.parent_hash))
+				) {
+					continue;
+				}
+
+				// Otherwise there is work to be done. Note that this path doesn't have to be optimized because it's rare.
+				// Even if we are recovering from downtime, the previous iteration proving canonicality likely already
+				// performed all the work required so that we quickly finalize the batch. This path is usually just hit
+				// when a block is reorganised which is also rare
+
+				const reorganisedHeads = eventCommitsForHeight.flatMap((commit) => {
+					if (isHexEqual(head.hash, commit.hash)) {
+						return []; // Ignore canonical head
+					}
+
+					return commit;
+				});
+
+				const reorganisedPromises = reorganisedHeads.map(async (head) => {
+					const block = await getBlockFromMetadataOrChain(head);
+
+					if (block === null) {
+						throw new Error("Expected reorganised block to exist in metadata layer");
+					}
+
+					return block;
+				});
+
+				const [canonicalBlock, ...reorganisedBlocks] = await Promise.all([
+					getBlockFromMetadataOrChain(head), //
+					...reorganisedPromises,
+				]);
+
+				if (canonicalBlock === null) {
+					throw new Error("Expected to load block from metadata or chain");
+				}
+
+				await Promise.all([
+					writeFinalizedBlock(head, canonicalBlock, actionsWithoutCommit), //
+					deleteReorganisedBlocksAndWriteCanonicalBlock(reorganisedBlocks, canonicalBlock),
+				]);
+			}
+
+			finalizedBlockHeight = hexToNumber(nextFinalizedBlock.eth_getBlockByNumber.number);
+			finalizedBlockHash = nextFinalizedBlock.eth_getBlockByNumber.hash;
 		}
-
-		// Update the manifest and renew the lease
 	};
 
 	const private_getMetadata: IndexerRpc["request"]["private_getMetadata"] = async () => {
