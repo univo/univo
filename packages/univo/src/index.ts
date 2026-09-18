@@ -1085,8 +1085,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			log.debug("Found expired lease");
 		}
 
-		// Check if there is finalization work to be done
-
 		let finalizedBlockHeight = manifest.finalized_block_height;
 		let finalizedBlockHash = manifest.finalized_block_hash;
 
@@ -1305,6 +1303,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			finalizedBlockHeight = hexToNumber(nextFinalizedBlock.eth_getBlockByNumber.number);
 			finalizedBlockHash = nextFinalizedBlock.eth_getBlockByNumber.hash;
 		}
+
+		log.debug("Indexer finalized");
 	};
 
 	const private_getMetadata: IndexerRpc["request"]["private_getMetadata"] = async () => {
