@@ -885,17 +885,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			// Perform garbage collection
 
-			const garbageCollectionPromises = blocks.keys.map(async (key) => {
+			const garbageCollectionKeys = blocks.keys.filter((key) => {
 				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
 
-				if (hexToNumber(number) > finalizedHeight) {
-					return;
-				}
-
-				await opts.metadataStorage.adapter.delete(key);
+				return hexToNumber(number) <= finalizedHeight;
 			});
 
-			if (garbageCollectionPromises.length === 0) {
+			if (garbageCollectionKeys.length === 0) {
 				return blocks.keys.map((key) => {
 					const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
 						string,
@@ -909,6 +905,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					return { chain, number, hash, parent_hash };
 				});
 			}
+
+			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
+				await opts.metadataStorage.adapter.delete(key);
+			});
 
 			await Promise.all(garbageCollectionPromises);
 		}
@@ -931,17 +931,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			// Perform garbage collection
 
-			const garbageCollectionPromises = commits.keys.map(async (key) => {
+			const garbageCollectionKeys = commits.keys.filter((key) => {
 				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
 
-				if (hexToNumber(number) > finalizedHeight) {
-					return;
-				}
-
-				await opts.metadataStorage.adapter.delete(key);
+				return hexToNumber(number) <= finalizedHeight;
 			});
 
-			if (garbageCollectionPromises.length === 0) {
+			if (garbageCollectionKeys.length === 0) {
 				return commits.keys.map((key) => {
 					const [_, __, ___, number, hash, parent_hash, type, id] = key.split("/") as [
 						string,
@@ -957,6 +953,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					return { chain, number, hash, parent_hash, type, id };
 				});
 			}
+
+			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
+				await opts.metadataStorage.adapter.delete(key);
+			});
 
 			await Promise.all(garbageCollectionPromises);
 		}
@@ -1005,18 +1005,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			log.debug("Found expired lease");
 		}
 
-		let finalizedBlockHeight = manifest.finalized_block_height;
-		let finalizedBlockHash = manifest.finalized_block_hash;
+		let indexerFinalizedBlockHeight = manifest.finalized_block_height;
+		let indexerFinalizedBlockHash = manifest.finalized_block_hash;
 		let manifestEtag = manifestGetRes.etag;
 
-		while (finalizedBlockHeight < chainFinalizedHeight) {
-			const nextFinalizedHeight = Math.min(chainFinalizedHeight, finalizedBlockHeight + FINALIZATION_BATCH_SIZE);
+		while (indexerFinalizedBlockHeight < chainFinalizedHeight) {
+			const nextFinalizedHeight = Math.min(chainFinalizedHeight, indexerFinalizedBlockHeight + FINALIZATION_BATCH_SIZE);
 
 			// Attempt to acquire lease
 
 			const updatedManifest: Manifest = {
-				finalized_block_height: finalizedBlockHeight,
-				finalized_block_hash: finalizedBlockHash,
+				finalized_block_height: indexerFinalizedBlockHeight,
+				finalized_block_hash: indexerFinalizedBlockHash,
 				next_finalized_height: nextFinalizedHeight,
 				updated_at: Date.now(),
 			};
@@ -1063,7 +1063,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			const [nextFinalizedBlock, blocksProcessed] = await Promise.all([
 				getBlockFromChain({ chain, number: numberToHex(nextFinalizedHeight) }),
-				getBlocksProcessedAndGarbageCollect(chain, finalizedBlockHeight),
+				getBlocksProcessedAndGarbageCollect(chain, indexerFinalizedBlockHeight),
 			]);
 
 			if (nextFinalizedBlock === null) {
@@ -1130,7 +1130,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				parentHash = canonicalBlock.eth_getBlockByNumber.parentHash;
 			}
 
-			if (!isHexEqual(parentHash, finalizedBlockHash)) {
+			if (!isHexEqual(parentHash, indexerFinalizedBlockHash)) {
 				throw new Error("Expected chain to match last finalized canonical anchor");
 			}
 
@@ -1149,7 +1149,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			// We LIST commits after the blocks because we could've performed processing.
 
-			const commits = await getCommitsAndGarbageCollect(chain, finalizedBlockHeight);
+			const commits = await getCommitsAndGarbageCollect(chain, indexerFinalizedBlockHeight);
 
 			// We iterate over the contiguous list of blocks. If we have all the relevant commits we are done.
 			// Otherwise load the block from metadata and process it.
@@ -1223,8 +1223,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				]);
 			}
 
-			finalizedBlockHeight = hexToNumber(nextFinalizedBlock.eth_getBlockByNumber.number);
-			finalizedBlockHash = nextFinalizedBlock.eth_getBlockByNumber.hash;
+			indexerFinalizedBlockHeight = hexToNumber(nextFinalizedBlock.eth_getBlockByNumber.number);
+			indexerFinalizedBlockHash = nextFinalizedBlock.eth_getBlockByNumber.hash;
 		}
 
 		log.debug("Indexer finalized");
