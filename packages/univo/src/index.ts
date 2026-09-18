@@ -1005,12 +1005,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			log.debug("Found expired lease");
 		}
 
+		let indexerFinalizedBlockHeight = manifest.finalized_block_height;
+		let indexerFinalizedBlockHash = manifest.finalized_block_hash;
+
+		// Check if there is finalization work to be done
+
+		if (indexerFinalizedBlockHeight >= chainFinalizedHeight) {
+			return log.debug("Indexer already finalized, returning...");
+		}
+
 		// Attempt to acquire lease
 
 		log.debug("Acquiring lease...");
-
-		let indexerFinalizedBlockHeight = manifest.finalized_block_height;
-		let indexerFinalizedBlockHash = manifest.finalized_block_hash;
 
 		const updatedManifest: Manifest = {
 			finalized_block_height: indexerFinalizedBlockHeight,
