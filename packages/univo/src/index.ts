@@ -853,7 +853,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Given the head is not finalized by the indexer but finalized onchain, perform the associated actions for all events
 
-		await writeFinalizedBlock(chainFinalizedBlock, all_actions);
+		await writeFinalizedBlock(block, all_actions);
 	};
 
 	// TODO
