@@ -433,7 +433,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
 		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
 
-		const blocksKey = `unfinalized/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
 		const blocksValue = await compress(JSON.stringify(block));
 
 		// This upsert is performed as a conditional PUT that will error if a block already exists in the WAL for
@@ -662,7 +662,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const number = normalizeHex(head.number, 16);
 		const hash = normalizeHex(head.hash);
 		const parentHash = normalizeHex(head.parent_hash);
-		const blocksKey = `unfinalized/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
 
 		const [blocksRes, canonicalBlock] = await Promise.all([
 			opts.metadataStorage.adapter.get(blocksKey), //
@@ -826,7 +826,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// associated reorganised events. In practice I don't think there will be 1000 different
 			// onchain forks so i'm not going to handle this case.
 
-			const blocksKey = `unfinalized/v1/${normalizeHex(chain)}/`;
+			const blocksKey = `blocks/v1/${normalizeHex(chain)}/`;
 
 			const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey, limit: 1000 });
 
@@ -920,7 +920,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const number = normalizeHex(head.number, 16);
 		const hash = normalizeHex(head.hash);
 		const parentHash = normalizeHex(head.parent_hash);
-		const prefix = `unfinalized/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
 
 		const object = await opts.metadataStorage.adapter.get(prefix);
 
