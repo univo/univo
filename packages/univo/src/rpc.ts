@@ -71,9 +71,14 @@ type IndexerRpc = {
 		public_writeUnfinalizedHead: (head: Head) => Promise<void>;
 
 		/**
-		 * Accepts a chain of finalized heads and upserts canonical events and deletes reorganised events
+		 * Accepts a finalized head and executes all actions
 		 */
-		public_writeFinalizedHeads: (heads: Head[]) => Promise<void>;
+		public_writeFinalizedHead: (head: Head) => Promise<void>;
+
+		/**
+		 * Accepts a chain identifier and finalizes the indexer
+		 */
+		public_finalize: (chain: `0x${string}`) => Promise<void>;
 
 		/**
 		 * @returns Specified metadata about the indexer

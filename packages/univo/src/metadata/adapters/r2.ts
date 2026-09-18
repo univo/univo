@@ -1,13 +1,13 @@
 import { s3 } from "./s3";
 import type { Adapter } from "../adapters";
 
-interface R2Options {
+type R2Options = {
 	bucket: string;
 	endpoint?: string;
 	accountId: string;
 	accessKeyId: string;
 	secretAccessKey: string;
-}
+};
 
 function r2(opts: R2Options): Adapter {
 	const adapter = s3({
