@@ -382,8 +382,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 	}
 
-	const GetBlockError = createException("Failed to load block from the provided `getBlock` function");
-
 	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
 		const path = `manifest/v1/${normalizeHex(chain)}`;
 
