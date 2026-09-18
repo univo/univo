@@ -1229,6 +1229,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					throw new Error("Expected to load block from metadata or chain");
 				}
 
+				// It's important that deleteReorganisedBlocksAndWriteCanonicalBlock bypasses the WAL put
+				// conditional that would silently OK a block that has already processed. Otherwise we
+				// could advance without actually processing the events for a given block
+
 				await Promise.all([
 					writeFinalizedBlock(canonicalBlock, actionsWithoutCommit), //
 					deleteReorganisedBlocksAndWriteCanonicalBlock(reorganisedBlocks, canonicalBlock),
