@@ -1005,45 +1005,49 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			log.debug("Found expired lease");
 		}
 
+		// Attempt to acquire lease
+
+		log.debug("Acquiring lease...");
+
 		let indexerFinalizedBlockHeight = manifest.finalized_block_height;
 		let indexerFinalizedBlockHash = manifest.finalized_block_hash;
-		let manifestEtag = manifestGetRes.etag;
+
+		const nextFinalizedHeight = Math.min(chainFinalizedHeight, indexerFinalizedBlockHeight + FINALIZATION_BATCH_SIZE);
+
+		const updatedManifest: Manifest = {
+			finalized_block_height: indexerFinalizedBlockHeight,
+			finalized_block_hash: indexerFinalizedBlockHash,
+			next_finalized_height: nextFinalizedHeight,
+			updated_at: Date.now(),
+		};
+
+		// The following conditional ensures that our read-modify-update doesn't race against another
+		// writer attempting to claim the lease. If we hit the precondition error we fail safely.
+
+		const manifestPutRes = await opts.metadataStorage.adapter
+			.put(manifestKey, JSON.stringify(updatedManifest), { ifMatch: manifestGetRes.etag })
+			.catch((error) => {
+				if (error instanceof AdapterError) {
+					if (error.tag === "PreconditionFailed") {
+						return null;
+					}
+				}
+
+				throw error;
+			});
+
+		if (manifestPutRes === null) {
+			return log.debug("Failed to acquire lease, aborting...");
+		}
+
+		let latestManifestEtag = manifestPutRes.etag;
 
 		while (indexerFinalizedBlockHeight < chainFinalizedHeight) {
-			const nextFinalizedHeight = Math.min(chainFinalizedHeight, indexerFinalizedBlockHeight + FINALIZATION_BATCH_SIZE);
+			// This can update on each batch iteration, usually just on the last iteration when
+			// the distance between the indexer and chain finalized height is less than the default
+			// batch size
+
 			const finalizationBatchSize = nextFinalizedHeight - indexerFinalizedBlockHeight;
-
-			// Attempt to acquire lease
-
-			const updatedManifest: Manifest = {
-				finalized_block_height: indexerFinalizedBlockHeight,
-				finalized_block_hash: indexerFinalizedBlockHash,
-				next_finalized_height: nextFinalizedHeight,
-				updated_at: Date.now(),
-			};
-
-			log.debug("Acquiring lease...");
-
-			// The following conditional ensures that our read-modify-update doesn't race against another
-			// writer attempting to claim the lease. If we hit the precondition error we fail safely.
-
-			const manifestPutRes = await opts.metadataStorage.adapter
-				.put(manifestKey, JSON.stringify(updatedManifest), { ifMatch: manifestEtag })
-				.catch((error) => {
-					if (error instanceof AdapterError) {
-						if (error.tag === "PreconditionFailed") {
-							return null;
-						}
-					}
-
-					throw error;
-				});
-
-			if (manifestPutRes === null) {
-				return log.debug("Failed to acquire lease, aborting...");
-			}
-
-			manifestEtag = manifestPutRes.etag;
 
 			// For each finalized block, our goal is to prove two things:
 			// - The unfinalized block was correctly processed (all events and actions returned OK)
@@ -1224,11 +1228,43 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				]);
 			}
 
-			indexerFinalizedBlockHeight = hexToNumber(nextFinalizedBlock.eth_getBlockByNumber.number);
+			// Finally, we commit the batch and mark it as finalized. We use a conditional to fence this write
+			// in the case that we encountered a stop-the-world GC pause that took an hour or something. If that
+			// hasn't occurred we renew the current lease by updating the timestamp and immediately claiming the
+			// next batch in the same PUT
+
+			const nextBatchFinalizingHeight = Math.min(chainFinalizedHeight, nextFinalizedHeight + FINALIZATION_BATCH_SIZE);
+
+			const updatedManifest: Manifest = {
+				finalized_block_height: nextFinalizedHeight,
+				finalized_block_hash: nextFinalizedBlock.eth_getBlockByNumber.hash,
+				next_finalized_height: nextBatchFinalizingHeight,
+				updated_at: Date.now(),
+			};
+
+			const manifestPutRes = await opts.metadataStorage.adapter
+				.put(manifestKey, JSON.stringify(updatedManifest), { ifMatch: latestManifestEtag })
+				.catch((error) => {
+					if (error instanceof AdapterError) {
+						if (error.tag === "PreconditionFailed") {
+							return null;
+						}
+					}
+
+					throw error;
+				});
+
+			if (manifestPutRes === null) {
+				return log.debug("Failed to commit finalized batch, aborting...");
+			}
+
+			indexerFinalizedBlockHeight = nextFinalizedHeight;
 			indexerFinalizedBlockHash = nextFinalizedBlock.eth_getBlockByNumber.hash;
+
+			latestManifestEtag = manifestPutRes.etag;
 		}
 
-		log.debug("Indexer finalized");
+		log.debug("Indexer finalized, returning...");
 	};
 
 	const private_getMetadata: IndexerRpc["request"]["private_getMetadata"] = async () => {
