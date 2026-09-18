@@ -862,7 +862,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// that we can process a single batch within the lease, otherwise we will likely never be able to commit. If a user
 	// is recovering from downtime they should set this to a smaller batch size to ensure that we process within a
 	// single lease, but in steady operation this should really be 1000 or whatever the max LIST size returned by the
-	// metadata storage adapter is
+	// metadata storage adapter is. It should actually be slightly less than 1000 to accomodate for multiple blocks
+	// at the same height
 
 	const FINALIZATION_BATCH_SIZE = 32;
 	const LEASE_DURATION_MS = 60 * 1000;
@@ -876,10 +877,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			const blocksKey = `blocks/v1/${normalizeHex(chain)}`;
 
-			const blocks = await opts.metadataStorage.adapter.list({
-				prefix: blocksKey,
-				limit: FINALIZATION_BATCH_SIZE,
-			});
+			const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey });
 
 			if (blocks.keys.length === 0) {
 				return [];
@@ -922,10 +920,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			const commitsKey = `commits/v1/${normalizeHex(chain)}`;
 
-			const commits = await opts.metadataStorage.adapter.list({
-				prefix: commitsKey,
-				limit: FINALIZATION_BATCH_SIZE,
-			});
+			const commits = await opts.metadataStorage.adapter.list({ prefix: commitsKey });
 
 			if (commits.keys.length === 0) {
 				return [];
