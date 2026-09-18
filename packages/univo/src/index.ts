@@ -1194,8 +1194,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					parent_hash: canonicalBlock.eth_getBlockByNumber.parentHash,
 				};
 
-				// public_writeUnfinalizedHead accepts a head that the indexer has not finalised
-				// public_writeFinalizedHead accepts a head that the indexer has not finalised but the chain has
+				// public_writeUnfinalizedHead accepts a head that the indexer has not finalised and the chain has not finalised
+				// public_writeFinalizedHead accepts a head that the indexer has not finalised but the chain _has_ finalised
 
 				// It's important to recognise that both these methods will push the associated blocks to
 				// the WAL and push the associated commits after successful processing
