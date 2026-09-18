@@ -382,6 +382,25 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 	}
 
+	async function getBlockFromMetadataOrChain(head: Head) {
+		const chain = normalizeHex(head.chain);
+		const number = normalizeHex(head.number, 16);
+		const hash = normalizeHex(head.hash);
+		const parentHash = normalizeHex(head.parent_hash);
+		const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+
+		const object = await opts.metadataStorage.adapter.get(prefix);
+
+		if (object !== null) {
+			const block = await decompress(object.body);
+			const parsed = JSON.parse(block);
+
+			return parsed as TBlock;
+		}
+
+		return await getBlockFromChain(head);
+	}
+
 	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
 		const path = `manifest/v1/${normalizeHex(chain)}`;
 
@@ -709,25 +728,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// with the reorganised block because it won't be retrievable from the chain. This guard guarantees that our
 		// record of events will leave the canonical set and not the reorganised set.
 	};
-
-	async function getBlockFromMetadataOrChain(head: Head) {
-		const chain = normalizeHex(head.chain);
-		const number = normalizeHex(head.number, 16);
-		const hash = normalizeHex(head.hash);
-		const parentHash = normalizeHex(head.parent_hash);
-		const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
-
-		const object = await opts.metadataStorage.adapter.get(prefix);
-
-		if (object !== null) {
-			const block = await decompress(object.body);
-			const parsed = JSON.parse(block);
-
-			return parsed as TBlock;
-		}
-
-		return await getBlockFromChain(head);
-	}
 
 	async function writeFinalizedBlock(block: TBlock, actions: Action<any, any>[]) {
 		// If the indexer hasn't defined any actions then there isn't actually any work to complete
