@@ -760,11 +760,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return;
 		}
 
-		// TODO
-		// Use an `finalized` WAL to prevent duplicate invocations. Note that this doesn't need to store
-		// the block and can be empty. The blocks are finalized and can always be loaded onchain. It
-		// serves as a concurrency mechanism
-
 		// Otherwise, we may have actions to run
 
 		const blocksStart = Date.now();
@@ -795,6 +790,27 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		if (receivedHeight > chainFinalizedHeight) {
 			return log.error(`Received finalized head (${receivedHeight}) that has not finalized (${chainFinalizedHeight})`);
+		}
+
+		const chain = normalizeHex(block.eth_chainId);
+		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
+		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
+		const finalizedKey = `finalized/v1/${chain}/${number}/${hash}/${parentHash}`;
+
+		// Finalized blocks can always be loaded from the chain, so this WAL only needs an empty marker.
+		// The conditional put ensures that only one request can invoke actions for this block.
+
+		const result = await opts.metadataStorage.adapter.put(finalizedKey, "", { ifNoneMatch: "*" }).catch((error) => {
+			if (error instanceof AdapterError && error.tag === "PreconditionFailed") {
+				return null;
+			}
+
+			throw error;
+		});
+
+		if (result === null) {
+			return log.debug("Finalized block already persisted to wal, ignoring...");
 		}
 
 		// Given the head is not finalized by the indexer but finalized onchain, perform the associated actions for all events
@@ -1001,10 +1017,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const manifestPutRes = await opts.metadataStorage.adapter
 			.put(manifestKey, JSON.stringify(updatedManifest), { ifMatch: manifestGetRes.etag })
 			.catch((error) => {
-				if (error instanceof AdapterError) {
-					if (error.tag === "PreconditionFailed") {
-						return null;
-					}
+				if (error instanceof AdapterError && error.tag === "PreconditionFailed") {
+					return null;
 				}
 
 				throw error;
