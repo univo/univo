@@ -422,45 +422,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	async function writeUnfinalizedBlock(block: TBlock) {
-		// Before any blocks are processed they must be committed to the metadata storage write ahead log. This ensures we
-		// have a record of the events that were upserted to storage so that they can be safely deleted later if the block
-		// is ever reorganised out of the canonical chain.
-
-		const metadata_start = Date.now();
-
-		const chain = normalizeHex(block.eth_chainId);
-		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
-		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
-		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
-
-		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
-		const blocksValue = await compress(JSON.stringify(block));
-
-		// This upsert is performed as a conditional PUT that will error if a block already exists in the WAL for
-		// this height. This serves two purposes: it prevents overwriting data from other requests, and also acts as a
-		// concurrency control mechanism. When an indexer has multiple realtime clients for the same chain, only the first
-		// request received will succeed and all other requests will error (which we safely return OK to the client)
-
-		const conditional = {
-			ifNoneMatch: "*" as const,
-		};
-
-		const result = await opts.metadataStorage.adapter.put(blocksKey, blocksValue, conditional).catch((error) => {
-			if (error instanceof AdapterError) {
-				if (error.tag === "PreconditionFailed") {
-					return null;
-				}
-			}
-
-			throw error;
-		});
-
-		if (result === null) {
-			return log.debug("Block already persisted to wal, ignoring...");
-		}
-
-		log.debug(`Persisted block to wal in ${Date.now() - metadata_start}ms`);
-
 		// Process the unfinalized block
 
 		const events_start = Date.now();
@@ -527,6 +488,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// finalized handler to ensure correctness (slow) but in the common case we don't need to perform
 		// any extra work (fast)
 
+		const chain = normalizeHex(block.eth_chainId);
+		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
+		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
+
 		const commitsKey = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
 		const commitsValue = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
 
@@ -564,6 +530,45 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		if (hexToNumber(head.number) <= indexerFinalizedHeight) {
 			return log.debug("Receiving finalized head, ignoring...");
 		}
+
+		// Before any blocks are processed they must be committed to the metadata storage write ahead log. This ensures we
+		// have a record of the events that were upserted to storage so that they can be safely deleted later if the block
+		// is ever reorganised out of the canonical chain.
+
+		const metadata_start = Date.now();
+
+		const chain = normalizeHex(block.eth_chainId);
+		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
+		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
+
+		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const blocksValue = await compress(JSON.stringify(block));
+
+		// This upsert is performed as a conditional PUT that will error if a block already exists in the WAL for
+		// this height. This serves two purposes: it prevents overwriting data from other requests, and also acts as a
+		// concurrency control mechanism. When an indexer has multiple realtime clients for the same chain, only the first
+		// request received will succeed and all other requests will error (which we safely return OK to the client)
+
+		const conditional = {
+			ifNoneMatch: "*" as const,
+		};
+
+		const result = await opts.metadataStorage.adapter.put(blocksKey, blocksValue, conditional).catch((error) => {
+			if (error instanceof AdapterError) {
+				if (error.tag === "PreconditionFailed") {
+					return null;
+				}
+			}
+
+			throw error;
+		});
+
+		if (result === null) {
+			return log.debug("Block already persisted to wal, ignoring...");
+		}
+
+		log.debug(`Persisted block to wal in ${Date.now() - metadata_start}ms`);
 
 		await writeUnfinalizedBlock(block);
 	};
@@ -976,7 +981,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			await opts.metadataStorage.adapter.put(manifestKey, JSON.stringify(manifest), { ifNoneMatch: "*" });
 
-			return log.debug("Nothing to finalize");
+			return log.debug("Nothing to finalize, returning...");
 		}
 
 		const manifest = JSON.parse(decoder.decode(manifestGetRes.body)) as Manifest;
@@ -985,7 +990,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		if (manifest.finalized_block_height !== manifest.next_finalized_height) {
 			if (Date.now() - manifest.updated_at < LEASE_DURATION_MS) {
-				return log.debug("Found valid lease, aborting...");
+				return log.debug("Found valid lease, returning...");
 			}
 
 			log.debug("Found expired lease");
@@ -1025,7 +1030,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			});
 
 		if (manifestPutRes === null) {
-			return log.debug("Failed to acquire lease, aborting...");
+			return log.debug("Failed to acquire lease, returning...");
 		}
 
 		let latestManifestEtag = manifestPutRes.etag;
@@ -1095,6 +1100,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					continue;
 				}
 
+				log.debug("Canonical head never processed, loading from chain...");
+
 				// Otherwise we load and process the canonical block from the chain
 
 				const canonicalBlock = await getBlockFromChain({ chain, number: numberToHex(number) });
@@ -1112,9 +1119,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				// public_writeUnfinalizedHead accepts a head that the indexer has not finalised and the chain has not finalised
 				// public_writeFinalizedHead accepts a head that the indexer has not finalised but the chain _has_ finalised
+				// I'ts important to note that both methods push the associated commits after successful processing.
 
-				// It's important to recognise that both these methods will push the associated blocks to
-				// the WAL and push the associated commits after successful processing
+				log.debug("Processing canonical head");
 
 				await Promise.all([
 					writeUnfinalizedBlock(canonicalBlock), //
@@ -1195,6 +1202,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					continue;
 				}
 
+				log.debug("Fast-path missed for head");
+				log.debug(`Events commited for height: ${eventsCommittedForHeight}`);
+				log.debug(`Processed only canonical block: ${processedOnlyCanonicalBlock}`);
+				log.debug(`Actions without commit: ${actionsWithoutCommit.length}`);
+				log.debug(`Blocks processed for height: ${blocksProcessedForHeight.length}`);
+
 				// Otherwise there is work to be done. Note that this path doesn't have to be optimized because it's rare.
 				// Even if we are recovering from downtime, the previous iteration proving canonicality likely already
 				// performed all the work required so that we quickly finalize the batch. This path is usually just hit
@@ -1227,9 +1240,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					throw new Error("Expected to load block from metadata or chain");
 				}
 
-				// It's important that deleteReorganisedBlocksAndWriteCanonicalBlock bypasses the WAL put
-				// conditional that would silently OK a block that has already processed. Otherwise we
-				// could advance without actually processing the events for a given block
+				log.debug("Re-processing heads");
 
 				await Promise.all([
 					writeFinalizedBlock(canonicalBlock, actionsWithoutCommit), //
