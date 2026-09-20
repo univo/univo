@@ -1130,6 +1130,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				canonicalHeads.unshift(head); // Pushes to the start of array
 
+				blocksProcessed.push(head);
+
 				parentHash = canonicalBlock.eth_getBlockByNumber.parentHash;
 			}
 
@@ -1140,6 +1142,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			if (canonicalHeads.length !== finalizationBatchSize) {
 				throw new Error(`Expected to have ${finalizationBatchSize} heads, found ${canonicalHeads.length}`);
 			}
+
+			log.debug("Determined canonical chain");
 
 			// Second, we iterate over the canonical list of blocks and verify that each block was processed
 			// correctly. To prove this we just need a commit for every event and action that matches the
@@ -1163,7 +1167,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				// - There exists a commit for this canonical block for all events/actions
 
 				const blocksProcessedForHeight = blocksProcessed.filter((head) => {
-					return isHexEqual(canonicalHead.number, head.number);
+					return hexToNumber(canonicalHead.number) === hexToNumber(head.number);
 				});
 
 				const processedOnlyCanonicalBlock = blocksProcessedForHeight.every((head) => {
@@ -1174,8 +1178,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					return (
 						commit.type === undefined &&
 						isHexEqual(canonicalHead.hash, commit.hash) &&
-						isHexEqual(canonicalHead.number, commit.number) &&
-						isHexEqual(canonicalHead.parent_hash, commit.parent_hash)
+						isHexEqual(canonicalHead.parent_hash, commit.parent_hash) &&
+						hexToNumber(canonicalHead.number) === hexToNumber(commit.number)
 					);
 				});
 
@@ -1199,14 +1203,16 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					actionsWithoutCommit.length === 0 &&
 					blocksProcessedForHeight.length === 1
 				) {
+					log.debug("Executed fast-path");
+
 					continue;
 				}
 
 				log.debug("Fast-path missed for head");
 				log.debug(`Events commited for height: ${eventsCommittedForHeight}`);
 				log.debug(`Processed only canonical block: ${processedOnlyCanonicalBlock}`);
-				log.debug(`Actions without commit: ${actionsWithoutCommit.length}`);
-				log.debug(`Blocks processed for height: ${blocksProcessedForHeight.length}`);
+				log.debug(`Actions without commit (${actionsWithoutCommit.length}): ${actionsWithoutCommit.length === 0}`);
+				log.debug(`Blocks processed for height (${blocksProcessedForHeight.length}): ${blocksProcessedForHeight.length === 1}`);
 
 				// Otherwise there is work to be done. Note that this path doesn't have to be optimized because it's rare.
 				// Even if we are recovering from downtime, the previous iteration proving canonicality likely already
