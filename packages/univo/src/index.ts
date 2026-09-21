@@ -376,6 +376,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 	}
 
+	/**
+	 * Reconstructs the receipts trie and verifies it matches the block's receipts root.
+	 */
 	function verifyReceiptsRoot(block: TBlock) {
 		const receiptsRoot = calculateTrieRoot(block.eth_getBlockReceipts.map(serializeReceipt));
 
@@ -482,6 +485,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return type === 0n ? encoded : viem.concatBytes([Uint8Array.of(Number(type)), encoded]);
 	}
 
+	/**
+	 * Reconstructs the transactions trie and verifies it matches the block's transactions root.
+	 */
 	function verifyTransactionsRoot(block: TBlock) {
 		const transactions = block.eth_getBlockByNumber.transactions.map((transaction) => {
 			const serialized = _serializeTransaction(transaction);
