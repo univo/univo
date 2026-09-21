@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.0...v0.3.1
+
+[compare changes](https://github.com/univo/univo/compare/v0.3.0...v0.3.1)
+
+### 🩹 Fixes
+
+- **metadata:** Fix empty commits causing Content-Length issues ([#82](https://github.com/univo/univo/pull/82))
+- **realtime:** Reduce finalize requests ([#83](https://github.com/univo/univo/pull/83))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.24...v0.3.0
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.24...v0.3.0)
