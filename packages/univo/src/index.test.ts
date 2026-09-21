@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
+import { hexToNumber, numberToHex } from "viem";
 
 import { indexer } from ".";
 import { local } from "./transport";
 import type { Event, Head } from ".";
-import { hexToNumber, numberToHex } from "./utils";
 import { test_Block, test_getBlock, test_metadataStorage } from "../tests/utils";
 
 test.concurrent("correctly infers the event type", () => {
@@ -380,59 +380,6 @@ test.concurrent("public_writeUnfinalizedHead deduplicates events with the same s
 		"event1-0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
 		"event2-0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
 	]);
-});
-
-test.concurrent("public_writeUnfinalizedHead tolerates partial block-load failure", async () => {
-	const block9 = await test_getBlock({ chain: "0x1", number: numberToHex(9) });
-	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
-
-	let count = 0;
-
-	const univo = indexer({
-		quiet: true,
-		signingKey: "test",
-		metadataStorage: test_metadataStorage(),
-		getBlock: async (block) => {
-			if (block.number === "finalized") {
-				return block9;
-			}
-
-			if (count === 0) {
-				count++;
-				throw new Error("Simulating block failure");
-			}
-
-			return block10;
-		},
-	});
-
-	const upserted: string[] = [];
-
-	univo.event({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByNumber.number],
-		storage: {
-			async upsert(events) {
-				upserted.push(...events);
-			},
-			async delete() {},
-		},
-	});
-
-	await local(univo).request({
-		method: "public_writeUnfinalizedHead",
-		params: [
-			{
-				chain: "0x1",
-				hash: block10.eth_getBlockByNumber.hash,
-				number: block10.eth_getBlockByNumber.number,
-				parent_hash: block10.eth_getBlockByNumber.parentHash,
-			},
-		],
-	});
-
-	expect(upserted).toStrictEqual([block10.eth_getBlockByNumber.number]);
 });
 
 test.concurrent("public_writeUnfinalizedHead ignores finalized heads", async () => {

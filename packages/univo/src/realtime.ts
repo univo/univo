@@ -1,6 +1,8 @@
+import { hexToNumber } from "viem";
+
 import { IndexerRpc, NodeRpc } from "./rpc";
 import type { Transport } from "./transport";
-import { createLogger, hexToNumber, iife, isHexEqual, mutex, retry } from "./utils";
+import { createLogger, iife, isHexEqual, mutex, retry } from "./utils";
 
 /**
  * Blockchain -----------------------------------------------------------------------------------------------------------------------------------
@@ -159,7 +161,7 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		}
 
 		// Load the parent remote block and reconcile
-		const parentBlock = await retry(() => opts.getBlockByHash(newBlock.parent_hash), 5);
+		const parentBlock = await retry(() => opts.getBlockByHash(newBlock.parent_hash), 2);
 
 		if (parentBlock === null) {
 			throw new Error(`Failed to fetch parent block ${hexToNumber(newBlock.number)} ${newBlock.parent_hash.slice(0, 16)}`);

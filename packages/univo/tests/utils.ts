@@ -1,8 +1,8 @@
 import { join } from "node:path";
+import { hexToNumber } from "viem";
 import { promises as fs } from "node:fs";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
-import { hexToNumber } from "../src/utils";
 import { defineStorage } from "../src/metadata";
 import { memory } from "../src/metadata/adapters/memory";
 
@@ -26,9 +26,32 @@ export type test_Block = {
 };
 
 export async function test_getBlock(block: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
+	if (!block.number.startsWith("0x")) {
+		const [eth_getBlockByNumber, eth_getBlockReceipts] = await Promise.all([
+			rpc({ id: 1, method: "eth_getBlockByNumber", params: [block.number, true] }),
+			rpc({ id: 2, method: "eth_getBlockReceipts", params: [block.number] }),
+		]);
+
+		if (eth_getBlockByNumber === null) {
+			throw new Error("eth_getBlockByNumber is null");
+		}
+
+		if (eth_getBlockReceipts === null) {
+			throw new Error("eth_getBlockReceipts is null");
+		}
+
+		const blockData: test_Block = {
+			eth_chainId: block.chain,
+			eth_getBlockByNumber,
+			eth_getBlockReceipts,
+		};
+
+		return blockData;
+	}
+
 	const cacheDir = "tests/blocks";
 
-	let filename = `${hexToNumber(block.chain)}-${hexToNumber(block.number)}`;
+	let filename = `${hexToNumber(block.chain)}-${hexToNumber(block.number as `0x${string}`)}`;
 
 	if (typeof block.hash === "string") {
 		filename += `-${block.hash}`; // Optionally append block hash if we are testing reorganised blocks
@@ -38,16 +61,11 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 
 	const cacheFile = join(cacheDir, filename);
 
-	// We don't want to cache block tags like `latest` or `finalized`
-	const isBlockNumber = block.number.startsWith("0x");
-
-	if (isBlockNumber) {
-		try {
-			const cachedData = await fs.readFile(cacheFile, "utf-8");
-			return JSON.parse(cachedData) as test_Block;
-		} catch {
-			// Cache miss or invalid cache, continue to fetch from network
-		}
+	try {
+		const cachedData = await fs.readFile(cacheFile, "utf-8");
+		return JSON.parse(cachedData) as test_Block;
+	} catch {
+		// Cache miss or invalid cache, continue to fetch from network
 	}
 
 	const [eth_getBlockByNumber, eth_getBlockReceipts] = await Promise.all([
@@ -69,9 +87,7 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 		eth_getBlockReceipts,
 	};
 
-	if (isBlockNumber) {
-		saveToCache(cacheDir, cacheFile, blockData); // Save to cache without blocking
-	}
+	saveToCache(cacheDir, cacheFile, blockData); // Save to cache without blocking
 
 	return blockData;
 }
