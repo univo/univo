@@ -313,7 +313,7 @@ function realtime(opts: RealtimeOptions) {
 				log.debug("Indexer finalized");
 			} catch (error) {
 				if (error instanceof Error) {
-					log.warn(`Failed to finalize ${error.message}`);
+					log.warn(`Failed to finalize: ${error.message}`);
 				}
 			}
 		}
