@@ -324,10 +324,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const allActions: Action<any, any>[] = [];
 
-	// Fetches a block using the provided `getBlock` function. Handles retries. We accept a partial head,
-	// sometimes want the canonical block using only the block number. If a hash and/or parent hash is
-	// provided we will ensure that they match the block returned
-
+	/**
+	 * Fetches a block using the provided `getBlock` function. Handles retries. We accept a partial head,
+	 * sometimes want the canonical block using only the block number. If a hash and/or parent hash is
+	 * provided we will ensure that they match the block returned
+	 */
 	async function getBlockFromChain(head: PartialHead) {
 		return await retry(() => retry_getBlockFromChain(head), 2).catch(() => {
 			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
