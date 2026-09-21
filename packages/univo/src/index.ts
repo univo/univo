@@ -1017,15 +1017,16 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// The following conditional ensures that our read-modify-update doesn't race against another
 		// writer attempting to claim the lease. If we hit the precondition error we fail safely.
 
-		const manifestPutRes = await opts.metadataStorage.adapter
-			.put(manifestKey, JSON.stringify(updatedManifest), { ifMatch: manifestGetRes.etag })
-			.catch((error) => {
-				if (error instanceof AdapterError && error.tag === "PreconditionFailed") {
-					return null;
-				}
+		const conditional = { ifMatch: manifestGetRes.etag };
+		const manifestValue = JSON.stringify(updatedManifest);
 
-				throw error;
-			});
+		const manifestPutRes = await opts.metadataStorage.adapter.put(manifestKey, manifestValue, conditional).catch((error) => {
+			if (error instanceof AdapterError && error.tag === "PreconditionFailed") {
+				return null;
+			}
+
+			throw error;
+		});
 
 		if (manifestPutRes === null) {
 			return log.debug("Failed to acquire lease, returning...");
