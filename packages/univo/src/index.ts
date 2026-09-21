@@ -354,15 +354,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				throw new Error("Provided `getBlock` function returned null");
 			}
 
+			// Verify the returned block matches the expected hash and/or parent hash requested
+
 			if (typeof head.hash === "string") {
 				if (!isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
 					throw new Error("Method `eth_getBlockByNumber` returned unexpected block hash");
-				}
-
-				for (const receipt of block.eth_getBlockReceipts) {
-					if (!isHexEqual(head.hash, receipt.blockHash)) {
-						throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
-					}
 				}
 			}
 
@@ -372,6 +368,15 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				}
 			}
 
+			// Verify integrity of the RPC response
+
+			verifyBlockHashes(block);
+			verifyLogIndicies(block);
+			verifyReceiptsRoot(block);
+			verifyTransactionsRoot(block);
+			verifyTransactionIndicies(block);
+			verifyTransactionGasUsage(block);
+
 			return block;
 		} catch (error) {
 			if (error instanceof Error) {
@@ -380,6 +385,51 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			throw error;
 		}
+	}
+
+	function verifyReceiptsRoot(block: TBlock) {
+		//
+	}
+
+	function verifyTransactionsRoot(block: TBlock) {
+		//
+	}
+
+	/**
+	 * Accepts an RPC block and verifies that all block hashes on the response are consistent.
+	 */
+	function verifyBlockHashes(block: Block) {
+		// TODO: Verify transactions. Must update the type
+
+		// Verify receipts
+
+		for (const receipt of block.eth_getBlockReceipts) {
+			if (!isHexEqual(block.eth_getBlockByNumber.hash, receipt.blockHash)) {
+				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
+			}
+		}
+	}
+
+	/**
+	 * Accepts an RPC block and verifies all log indicies are contiguous
+	 */
+	function verifyLogIndicies(block: TBlock) {
+		//
+	}
+
+	/**
+	 * Accepts an RPC block and verifies all transaction indicies are contiguous
+	 */
+	function verifyTransactionIndicies(block: TBlock) {
+		//
+	}
+
+	/**
+	 * Accepts an RPC block and verifies the cumulative used adds up transaction by transaction,
+	 * and never exceeds the gas limit
+	 */
+	function verifyTransactionGasUsage(block: TBlock) {
+		//
 	}
 
 	async function getOrInitManifest(chain: `0x${string}`) {
