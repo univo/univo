@@ -314,7 +314,7 @@ type Indexer<TBlock> = {
 	action: <TEvent>(action: Action<TBlock, TEvent>) => Action<TBlock, TEvent>;
 };
 
-function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
+function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[indexer]" });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
@@ -1935,5 +1935,5 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
  * Exports -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-export { indexer };
+export { defineIndexer };
 export type { Indexer, Event, Filter, Block, Head, Metadata, Result };
