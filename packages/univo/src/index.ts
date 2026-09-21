@@ -333,44 +333,36 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	 * provided we will ensure that they match the block returned
 	 */
 	async function getBlockFromChain(head: PartialHead) {
-		try {
-			const block = await opts.getBlock({ chain: head.chain, number: head.number });
+		const block = await opts.getBlock({ chain: head.chain, number: head.number });
 
-			if (block === null) {
-				throw new Error("Provided `getBlock` function returned null");
-			}
-
-			// Verify the returned block matches the expected hash and/or parent hash requested
-
-			if (typeof head.hash === "string") {
-				if (!isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
-					throw new Error("Block returned unexpected block hash");
-				}
-			}
-
-			if (typeof head.parent_hash === "string") {
-				if (!isHexEqual(head.parent_hash, block.eth_getBlockByNumber.parentHash)) {
-					throw new Error("Block returned unexpected parent hash");
-				}
-			}
-
-			// Verify integrity of the RPC response
-
-			verifyBlockHashes(block);
-			verifyLogIndicies(block);
-			verifyReceiptsRoot(block);
-			verifyTransactionsRoot(block);
-			verifyTransactionIndicies(block);
-			verifyTransactionGasUsage(block);
-
-			return block;
-		} catch (error) {
-			if (error instanceof Error) {
-				log.error(`Failed to load block: ${error.message}`);
-			}
-
-			throw error;
+		if (block === null) {
+			throw new Error("Provided `getBlock` function returned null");
 		}
+
+		// Verify the returned block matches the expected hash and/or parent hash requested
+
+		if (typeof head.hash === "string") {
+			if (!isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
+				throw new Error("Block returned unexpected block hash");
+			}
+		}
+
+		if (typeof head.parent_hash === "string") {
+			if (!isHexEqual(head.parent_hash, block.eth_getBlockByNumber.parentHash)) {
+				throw new Error("Block returned unexpected parent hash");
+			}
+		}
+
+		// Verify integrity of the RPC response
+
+		verifyBlockHashes(block);
+		verifyLogIndicies(block);
+		verifyReceiptsRoot(block);
+		verifyTransactionsRoot(block);
+		verifyTransactionIndicies(block);
+		verifyTransactionGasUsage(block);
+
+		return block;
 	}
 
 	/**
