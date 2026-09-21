@@ -1071,26 +1071,52 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				throw new Error("Failed to load finalizing anchor block");
 			}
 
-			const canonicalHeads: Head[] = [
-				{
-					chain,
-					hash: nextFinalizedBlock.eth_getBlockByNumber.hash,
-					number: nextFinalizedBlock.eth_getBlockByNumber.number,
-					parent_hash: nextFinalizedBlock.eth_getBlockByNumber.parentHash,
-				},
-			];
+			const nextFinalizedHead: Head = {
+				chain,
+				hash: nextFinalizedBlock.eth_getBlockByNumber.hash,
+				number: nextFinalizedBlock.eth_getBlockByNumber.number,
+				parent_hash: nextFinalizedBlock.eth_getBlockByNumber.parentHash,
+			};
+
+			// In our loop to prove canonicality we start the index at 1 so that we skip over nextFinalizedBlock.
+			// The only issue with this is that if that block was never processed, we also skip re-processing it.
+			// We handle this case manually before entering the loop
+
+			const nextFinalizedBlockProcessed = blocksProcessed.some((block) => {
+				return (
+					isHexEqual(block.hash, nextFinalizedHead.hash) &&
+					isHexEqual(block.parent_hash, nextFinalizedHead.parent_hash) &&
+					hexToNumber(block.number) === hexToNumber(nextFinalizedHead.number)
+				);
+			});
+
+			if (nextFinalizedBlockProcessed === false) {
+				await Promise.all([
+					writeUnfinalizedBlock(nextFinalizedBlock), //
+					writeFinalizedBlock(nextFinalizedBlock, all_actions),
+				]);
+
+				blocksProcessed.push(nextFinalizedHead);
+			}
+
+			// Now we check for canonicality
+
+			const canonicalHeads = [nextFinalizedHead];
 
 			let parentHash = nextFinalizedBlock.eth_getBlockByNumber.parentHash;
 
 			for (let index = 1; index < finalizationBatchSize; index++) {
-				// Load processed blocks by number
-
 				const number = nextFinalizedHeight - index;
-				const blocks = blocksProcessed.filter((block) => hexToNumber(block.number) === number);
+
+				// Load processed blocks by number
+				const blocksProcessedForHeight = blocksProcessed.filter((block) => {
+					return hexToNumber(block.number) === number;
+				});
 
 				// If we have the canonical block we can abort early
-
-				const canonicalHead = blocks.find((block) => isHexEqual(block.hash, parentHash));
+				const canonicalHead = blocksProcessedForHeight.find((block) => {
+					return isHexEqual(block.hash, parentHash);
+				});
 
 				if (canonicalHead) {
 					canonicalHeads.unshift(canonicalHead); // Pushes to the start of array
