@@ -658,11 +658,14 @@ test.concurrent("public_finalize writes heads that were not processed", async ()
 	expect(finalIndexerFinalizedHeight).toBe(10);
 });
 
+// We define an event and an action, process them as unfinalized, and then expect
+// that when we finalize there is no more work to perform
+
 test.concurrent("public_finalize skips heads already processed", async () => {
 	let chainFinalizedHeight = 0;
 
 	const univo = indexer({
-		quiet: true,
+		quiet: false,
 		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
@@ -676,15 +679,33 @@ test.concurrent("public_finalize skips heads already processed", async () => {
 
 	const upserted: number[] = [];
 
-	univo.event({
-		id: "test",
+	const event = univo.event({
+		id: "event",
+
 		filters: [{ chain: 1, fromBlock: 0 }],
+
 		handler: (block) => [hexToNumber(block.eth_getBlockByNumber.number)],
+
 		storage: {
 			async upsert(events) {
 				upserted.push(...events);
 			},
-			async delete() {},
+
+			async delete() {
+				//
+			},
+		},
+	});
+
+	let invocations = 0;
+
+	univo.action({
+		id: "action",
+
+		event,
+
+		handler: async () => {
+			invocations++;
 		},
 	});
 
@@ -728,9 +749,20 @@ test.concurrent("public_finalize skips heads already processed", async () => {
 
 	chainFinalizedHeight = 10;
 
-	// 4. Finalize 10 new heads
+	// 4. Write 10 finalized heads
+
+	for (const head of newHeads) {
+		await local(univo).request({
+			method: "public_writeFinalizedHead",
+			params: [head],
+		});
+	}
+
+	// 5. Finalize indexer
 
 	await local(univo).request({ method: "public_finalize", params: ["0x1"] });
+
+	expect(invocations).toBe(10);
 
 	expect(upserted).toStrictEqual(result);
 
