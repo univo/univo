@@ -884,18 +884,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
 		log.debug(`Received reorganised head ${viem.hexToNumber(head.number)}`);
 
-		// We load blocks via their block number. If this block was truly reorganised and is no longer part of the
-		// canonical chain than this request should yield a block with a different block hash. This is our proof
-		// that this block is no longer included in the chain and that it's safe to delete data associated with it
-
 		// We load the reorganised block directly from metadata and bypass the `getBlockFromChainOrMetadata` helper
-		// because if the block doesn't exist in metadata it means it was never processed and safely return
+		// because if the block doesn't exist in metadata it means it was never processed and can safely return
 
 		const chain = normalizeHex(head.chain);
 		const number = normalizeHex(head.number, 16);
 		const hash = normalizeHex(head.hash);
 		const parentHash = normalizeHex(head.parent_hash);
 		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+
+		// We load blocks via their block number. If this block was truly reorganised and is no longer part of the
+		// canonical chain than this request should yield a block with a different block hash. This is our proof
+		// that this block is no longer included in the chain and that it's safe to delete data associated with it
 
 		const [blocksRes, canonicalBlock] = await Promise.all([
 			opts.metadataStorage.adapter.get(blocksKey), //
