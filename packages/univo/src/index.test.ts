@@ -601,7 +601,7 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 	expect(deleted).toBe(false);
 });
 
-test.concurrent("public_writeFinalizedHeads writes finalized heads", async () => {
+test.concurrent("public_finalize writes heads that were not processed", async () => {
 	let chainFinalizedHeight = 0;
 
 	const univo = indexer({
@@ -633,12 +633,7 @@ test.concurrent("public_writeFinalizedHeads writes finalized heads", async () =>
 
 	// 1. Chain and indexer are finalised at 0
 
-	const initialIndexerFinalizedHeight = await local(univo).request({
-		method: "public_getFinalizedHeight",
-		params: ["0x1"],
-	});
-
-	expect(initialIndexerFinalizedHeight).toBe(0);
+	await local(univo).request({ method: "public_finalize", params: ["0x1"] });
 
 	// 2. Chain finalizes at 10
 
@@ -646,30 +641,9 @@ test.concurrent("public_writeFinalizedHeads writes finalized heads", async () =>
 
 	// 3. Finalize 10 new heads
 
-	const result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+	await local(univo).request({ method: "public_finalize", params: ["0x1"] });
 
-	const newHeads = await Promise.all(
-		result.map(async (number) => {
-			const block = await test_getBlock({
-				chain: "0x1",
-				number: numberToHex(number),
-			});
-
-			return {
-				chain: block.eth_chainId,
-				hash: block.eth_getBlockByNumber.hash,
-				number: block.eth_getBlockByNumber.number,
-				parent_hash: block.eth_getBlockByNumber.parentHash,
-			};
-		}),
-	);
-
-	await local(univo).request({
-		method: "public_writeFinalizedHeads",
-		params: [newHeads],
-	});
-
-	expect(upserted).toStrictEqual(result);
+	expect(upserted).toStrictEqual([10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
 
 	const finalIndexerFinalizedHeight = await local(univo).request({
 		method: "public_getFinalizedHeight",
