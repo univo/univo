@@ -200,8 +200,11 @@ type Action<TBlock, TEvent> = {
 	 * Temporal, Inngest, Trigger.dev, Cloudflare Workflows, or Restate.dev to perform more
 	 * advanced workflows that allow you to chain together multiple steps and handle retries.
 	 *
-	 * Actions operate with at-least-once delivery. We guarantee that the indexer will not finalize
-	 * a given block until it achieves a non-erroring execution from your action.
+	 * Actions operate with at-least-once delivery. This means that your actions may be invoked
+	 * multiple times. It is important that your handler is resilient to this by making use of an
+	 * idempotency key (usually the identifier in the event passed to your handler). We guarantee
+	 * that the indexer will not finalize a given block until it achieves a non-erroring execution
+	 * from your action.
 	 */
 	handler: (event: TEvent) => Promise<void> | void;
 };
