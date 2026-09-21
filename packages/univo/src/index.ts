@@ -736,8 +736,9 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
 
 		const commitsKey = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const commitsValue = JSON.stringify({ hello: "world" });
 
-		await opts.metadataStorage.adapter.put(commitsKey, "commitsValue");
+		await opts.metadataStorage.adapter.put(commitsKey, commitsValue);
 	}
 
 	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
@@ -781,9 +782,7 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// concurrency control mechanism. When an indexer has multiple realtime clients for the same chain, only the first
 		// request received will succeed and all other requests will error (which we safely return OK to the client)
 
-		const conditional = {
-			ifNoneMatch: "*" as const,
-		};
+		const conditional = { ifNoneMatch: "*" } as const;
 
 		const result = await opts.metadataStorage.adapter.put(blocksKey, blocksValue, conditional).catch((error) => {
 			if (error instanceof AdapterError) {
@@ -974,8 +973,9 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// event but that could dramatically increase the cost of the metadata layer from increased writes
 
 			const commitsKey = `${prefix}/action/${action.id}`;
+			const commitsValue = JSON.stringify({ hello: "world" });
 
-			await opts.metadataStorage.adapter.put(commitsKey, "");
+			await opts.metadataStorage.adapter.put(commitsKey, commitsValue);
 		});
 
 		await Promise.all(promises);
@@ -1020,11 +1020,14 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
 		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
 		const finalizedKey = `finalized/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const finalizedValue = JSON.stringify({ hello: "world" });
 
 		// Finalized blocks can always be loaded from the chain, so this WAL only needs an empty marker.
 		// The conditional put ensures that only one request can invoke actions for this block.
 
-		const result = await opts.metadataStorage.adapter.put(finalizedKey, "", { ifNoneMatch: "*" }).catch((error) => {
+		const conditional = { ifNoneMatch: "*" } as const;
+
+		const result = await opts.metadataStorage.adapter.put(finalizedKey, finalizedValue, conditional).catch((error) => {
 			if (error instanceof AdapterError && error.tag === "PreconditionFailed") {
 				return null;
 			}
