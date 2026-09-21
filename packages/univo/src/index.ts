@@ -377,6 +377,60 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	/**
+	 * Accepts an RPC block and verifies that all block hashes on the response are consistent.
+	 */
+	function verifyBlockHashes(block: Block) {
+		const blockHash = block.eth_getBlockByNumber.hash;
+		const transactions = block.eth_getBlockByNumber.transactions;
+
+		for (const transaction of transactions) {
+			if (!isHexEqual(blockHash, transaction.blockHash)) {
+				throw new Error("Method `eth_getBlockByNumber` returned transaction with unexpected block hash");
+			}
+		}
+
+		for (const receipt of block.eth_getBlockReceipts) {
+			if (!isHexEqual(block.eth_getBlockByNumber.hash, receipt.blockHash)) {
+				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
+			}
+
+			const transactionIndex = viem.hexToNumber(receipt.transactionIndex);
+			const transaction = transactions[transactionIndex];
+
+			if (transaction === undefined || !isHexEqual(transaction.hash, receipt.transactionHash)) {
+				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected transaction hash");
+			}
+
+			for (const entry of receipt.logs) {
+				if (!isHexEqual(blockHash, entry.blockHash)) {
+					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected block hash");
+				}
+
+				if (!isHexEqual(receipt.transactionHash, entry.transactionHash)) {
+					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected transaction hash");
+				}
+			}
+		}
+	}
+
+	/**
+	 * Accepts an RPC block and verifies all log indicies are contiguous
+	 */
+	function verifyLogIndicies(block: TBlock) {
+		let expectedLogIndex = 0n;
+
+		for (const receipt of block.eth_getBlockReceipts) {
+			for (const entry of receipt.logs) {
+				if (viem.hexToBigInt(entry.logIndex) !== expectedLogIndex) {
+					throw new Error("Method `eth_getBlockReceipts` returned non-contiguous log indices");
+				}
+
+				expectedLogIndex++;
+			}
+		}
+	}
+
+	/**
 	 * Reconstructs the receipts trie and verifies it matches the block's receipts root.
 	 */
 	function verifyReceiptsRoot(block: TBlock) {
@@ -490,7 +544,17 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	 */
 	function verifyTransactionsRoot(block: TBlock) {
 		const transactions = block.eth_getBlockByNumber.transactions.map((transaction) => {
-			const serialized = _serializeTransaction(transaction);
+			const { input, ...formatted } = viem.formatTransaction(transaction);
+
+			const signature =
+				formatted.type === "legacy"
+					? { r: formatted.r, s: formatted.s, v: formatted.v }
+					: { r: formatted.r, s: formatted.s, yParity: formatted.yParity };
+
+			const serialized = viem.serializeTransaction(
+				{ ...formatted, data: input } as viem.TransactionSerializable, //
+				signature as viem.Signature,
+			);
 
 			if (!isHexEqual(transaction.hash, viem.keccak256(serialized))) {
 				throw new Error("Method `eth_getBlockByNumber` returned transaction with unexpected transaction hash");
@@ -503,74 +567,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		if (!isHexEqual(block.eth_getBlockByNumber.transactionsRoot, transactionsRoot)) {
 			throw new Error("Method `eth_getBlockByNumber` returned transactions that do not match the block transactions root");
-		}
-	}
-
-	function _serializeTransaction(transaction: viem.RpcTransaction<false>) {
-		const { input, ...formatted } = viem.formatTransaction(transaction);
-
-		const signature =
-			formatted.type === "legacy"
-				? { r: formatted.r, s: formatted.s, v: formatted.v }
-				: { r: formatted.r, s: formatted.s, yParity: formatted.yParity };
-
-		return viem.serializeTransaction(
-			{ ...formatted, data: input } as viem.TransactionSerializable, //
-			signature as viem.Signature,
-		);
-	}
-
-	/**
-	 * Accepts an RPC block and verifies that all block hashes on the response are consistent.
-	 */
-	function verifyBlockHashes(block: Block) {
-		const blockHash = block.eth_getBlockByNumber.hash;
-		const transactions = block.eth_getBlockByNumber.transactions;
-
-		for (const transaction of transactions) {
-			if (!isHexEqual(blockHash, transaction.blockHash)) {
-				throw new Error("Method `eth_getBlockByNumber` returned transaction with unexpected block hash");
-			}
-		}
-
-		for (const receipt of block.eth_getBlockReceipts) {
-			if (!isHexEqual(block.eth_getBlockByNumber.hash, receipt.blockHash)) {
-				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
-			}
-
-			const transactionIndex = viem.hexToNumber(receipt.transactionIndex);
-			const transaction = transactions[transactionIndex];
-
-			if (transaction === undefined || !isHexEqual(transaction.hash, receipt.transactionHash)) {
-				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected transaction hash");
-			}
-
-			for (const entry of receipt.logs) {
-				if (!isHexEqual(blockHash, entry.blockHash)) {
-					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected block hash");
-				}
-
-				if (!isHexEqual(receipt.transactionHash, entry.transactionHash)) {
-					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected transaction hash");
-				}
-			}
-		}
-	}
-
-	/**
-	 * Accepts an RPC block and verifies all log indicies are contiguous
-	 */
-	function verifyLogIndicies(block: TBlock) {
-		let expectedLogIndex = 0n;
-
-		for (const receipt of block.eth_getBlockReceipts) {
-			for (const entry of receipt.logs) {
-				if (viem.hexToBigInt(entry.logIndex) !== expectedLogIndex) {
-					throw new Error("Method `eth_getBlockReceipts` returned non-contiguous log indices");
-				}
-
-				expectedLogIndex++;
-			}
 		}
 	}
 
