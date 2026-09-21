@@ -344,13 +344,13 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			if (typeof head.hash === "string") {
 				if (!isHexEqual(head.hash, block.eth_getBlockByNumber.hash)) {
-					throw new Error("Method `eth_getBlockByNumber` returned unexpected block hash");
+					throw new Error("Block returned unexpected block hash");
 				}
 			}
 
 			if (typeof head.parent_hash === "string") {
 				if (!isHexEqual(head.parent_hash, block.eth_getBlockByNumber.parentHash)) {
-					throw new Error("Method `eth_getBlockByNumber` returned unexpected parent hash");
+					throw new Error("Block returned unexpected parent hash");
 				}
 			}
 
@@ -382,29 +382,29 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		for (const transaction of transactions) {
 			if (!isHexEqual(blockHash, transaction.blockHash)) {
-				throw new Error("Method `eth_getBlockByNumber` returned transaction with unexpected block hash");
+				throw new Error("Block returned transaction with unexpected block hash");
 			}
 		}
 
 		for (const receipt of block.eth_getBlockReceipts) {
 			if (!isHexEqual(block.eth_getBlockByNumber.hash, receipt.blockHash)) {
-				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
+				throw new Error("Block returned receipt with unexpected block hash");
 			}
 
 			const transactionIndex = viem.hexToNumber(receipt.transactionIndex);
 			const transaction = transactions[transactionIndex];
 
 			if (transaction === undefined || !isHexEqual(transaction.hash, receipt.transactionHash)) {
-				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected transaction hash");
+				throw new Error("Block returned receipt with unexpected transaction hash");
 			}
 
 			for (const entry of receipt.logs) {
 				if (!isHexEqual(blockHash, entry.blockHash)) {
-					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected block hash");
+					throw new Error("Block returned log with unexpected block hash");
 				}
 
 				if (!isHexEqual(receipt.transactionHash, entry.transactionHash)) {
-					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected transaction hash");
+					throw new Error("Block returned log with unexpected transaction hash");
 				}
 			}
 		}
@@ -419,7 +419,7 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		for (const receipt of block.eth_getBlockReceipts) {
 			for (const entry of receipt.logs) {
 				if (viem.hexToBigInt(entry.logIndex) !== expectedLogIndex) {
-					throw new Error("Method `eth_getBlockReceipts` returned non-contiguous log indices");
+					throw new Error("Block returned non-contiguous log indices");
 				}
 
 				expectedLogIndex++;
@@ -434,7 +434,7 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const receiptsRoot = calculateTrieRoot(block.eth_getBlockReceipts.map(serializeReceipt));
 
 		if (!isHexEqual(block.eth_getBlockByNumber.receiptsRoot, receiptsRoot)) {
-			throw new Error("Method `eth_getBlockReceipts` returned receipts that do not match the block receipts root");
+			throw new Error("Block returned receipts that do not match the block receipts root");
 		}
 	}
 
@@ -554,7 +554,7 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			);
 
 			if (!isHexEqual(transaction.hash, viem.keccak256(serialized))) {
-				throw new Error("Method `eth_getBlockByNumber` returned transaction with unexpected transaction hash");
+				throw new Error(`Transaction ${transaction.hash} failed serialization check`);
 			}
 
 			return viem.hexToBytes(serialized);
@@ -563,7 +563,7 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const transactionsRoot = calculateTrieRoot(transactions);
 
 		if (!isHexEqual(block.eth_getBlockByNumber.transactionsRoot, transactionsRoot)) {
-			throw new Error("Method `eth_getBlockByNumber` returned transactions that do not match the block transactions root");
+			throw new Error("Block returned transactions that do not match the block transactions root");
 		}
 	}
 
@@ -575,23 +575,23 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const transactions = block.eth_getBlockByNumber.transactions;
 
 		if (transactions.length !== receipts.length) {
-			throw new Error("Methods `eth_getBlockByNumber` and `eth_getBlockReceipts` returned different transaction counts");
+			throw new Error("Block returned different transaction counts");
 		}
 
 		for (let index = 0; index < transactions.length; index++) {
 			const expectedIndex = BigInt(index);
 
 			if (viem.hexToBigInt(transactions[index]!.transactionIndex) !== expectedIndex) {
-				throw new Error("Method `eth_getBlockByNumber` returned non-contiguous transaction indices");
+				throw new Error("Block returned non-contiguous transaction indices");
 			}
 
 			if (viem.hexToBigInt(receipts[index]!.transactionIndex) !== expectedIndex) {
-				throw new Error("Method `eth_getBlockReceipts` returned non-contiguous transaction indices");
+				throw new Error("Block returned non-contiguous transaction indices");
 			}
 
 			for (const entry of receipts[index]!.logs) {
 				if (viem.hexToBigInt(entry.transactionIndex) !== expectedIndex) {
-					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected transaction index");
+					throw new Error("Block returned log with unexpected transaction index");
 				}
 			}
 		}
@@ -606,7 +606,7 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const blockGasUsed = viem.hexToBigInt(block.eth_getBlockByNumber.gasUsed);
 
 		if (blockGasUsed > gasLimit) {
-			throw new Error("Method `eth_getBlockByNumber` returned gas used greater than the block gas limit");
+			throw new Error("Block returned gas used greater than the block gas limit");
 		}
 
 		let cumulativeGasUsed = 0n;
@@ -615,16 +615,16 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			cumulativeGasUsed += viem.hexToBigInt(receipt.gasUsed);
 
 			if (viem.hexToBigInt(receipt.cumulativeGasUsed) !== cumulativeGasUsed) {
-				throw new Error("Method `eth_getBlockReceipts` returned inconsistent cumulative gas used");
+				throw new Error("Block returned inconsistent cumulative gas used");
 			}
 
 			if (cumulativeGasUsed > gasLimit) {
-				throw new Error("Method `eth_getBlockReceipts` returned cumulative gas used greater than the block gas limit");
+				throw new Error("Block returned cumulative gas used greater than the block gas limit");
 			}
 		}
 
 		if (cumulativeGasUsed !== blockGasUsed) {
-			throw new Error("Methods `eth_getBlockByNumber` and `eth_getBlockReceipts` returned inconsistent gas used");
+			throw new Error("Block returned inconsistent gas used");
 		}
 	}
 
