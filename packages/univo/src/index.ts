@@ -1214,8 +1214,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 							commit.id === action.id &&
 							commit.type === "action" &&
 							isHexEqual(canonicalHead.hash, commit.hash) &&
-							isHexEqual(canonicalHead.number, commit.number) &&
-							isHexEqual(canonicalHead.parent_hash, commit.parent_hash)
+							isHexEqual(canonicalHead.parent_hash, commit.parent_hash) &&
+							hexToNumber(canonicalHead.number) === hexToNumber(commit.number)
 						);
 					});
 
