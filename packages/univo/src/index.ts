@@ -333,7 +333,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	// Actions
 
-	const all_actions: Action<any, any>[] = [];
+	const allActions: Action<any, any>[] = [];
 
 	// Fetches a block using the provided `getBlock` function. Handles retries. We accept a partial head,
 	// sometimes want the canonical block using only the block number. If a hash and/or parent hash is
@@ -761,7 +761,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// If the indexer hasn't defined any actions then there isn't actually any work to complete
 		// on finalization, so this is an optimistic abort case to reduce costs.
 
-		if (all_actions.length === 0) {
+		if (allActions.length === 0) {
 			return;
 		}
 
@@ -820,7 +820,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		// Given the head is not finalized by the indexer but finalized onchain, perform the associated actions for all events
 
-		await writeFinalizedBlock(block, all_actions);
+		await writeFinalizedBlock(block, allActions);
 	};
 
 	// TODO
@@ -1093,7 +1093,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			if (nextFinalizedBlockProcessed === false) {
 				await Promise.all([
 					writeUnfinalizedBlock(nextFinalizedBlock), //
-					writeFinalizedBlock(nextFinalizedBlock, all_actions),
+					writeFinalizedBlock(nextFinalizedBlock, allActions),
 				]);
 
 				blocksProcessed.push(nextFinalizedHead);
@@ -1151,7 +1151,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				await Promise.all([
 					writeUnfinalizedBlock(canonicalBlock), //
-					writeFinalizedBlock(canonicalBlock, all_actions),
+					writeFinalizedBlock(canonicalBlock, allActions),
 				]);
 
 				canonicalHeads.unshift(head); // Pushes to the start of array
@@ -1209,7 +1209,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					);
 				});
 
-				const actionsWithoutCommit = all_actions.filter((action) => {
+				const actionsWithoutCommit = allActions.filter((action) => {
 					const commitExists = commits.some((commit) => {
 						return (
 							commit.id === action.id &&
@@ -1711,11 +1711,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error(`Invalid action id \`${action.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
 		}
 
-		if (all_actions.some((existing) => existing.id === action.id)) {
+		if (allActions.some((existing) => existing.id === action.id)) {
 			throw new Error(`Duplicate action id \`${action.id}\`.`);
 		}
 
-		all_actions.push(action);
+		allActions.push(action);
 
 		return action;
 	};
