@@ -34,19 +34,19 @@
 			"types": "./dist/metadata/adapters.d.ts",
 			"import": "./dist/metadata/adapters.mjs"
 		},
-		"./metadata/s3": {
+		"./metadata/adapters/s3": {
 			"types": "./dist/metadata/adapters/s3.d.ts",
 			"import": "./dist/metadata/adapters/s3.mjs"
 		},
-		"./metadata/r2": {
+		"./metadata/adapters/r2": {
 			"types": "./dist/metadata/adapters/r2.d.ts",
 			"import": "./dist/metadata/adapters/r2.mjs"
 		},
-		"./metadata/r2-binding": {
+		"./metadata/adapters/r2-binding": {
 			"types": "./dist/metadata/adapters/r2-binding.d.ts",
 			"import": "./dist/metadata/adapters/r2-binding.mjs"
 		},
-		"./metadata/memory": {
+		"./metadata/adapters/memory": {
 			"types": "./dist/metadata/adapters/memory.d.ts",
 			"import": "./dist/metadata/adapters/memory.mjs"
 		}
