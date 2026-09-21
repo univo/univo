@@ -300,65 +300,9 @@ function realtime(opts: RealtimeOptions) {
 
 		log.debug("Subscribed unfinalized chain to new heads");
 
-		// writeFinalizedHead is responsible for processing new finalized heads in parallel
-
-		let chainFinalizedHeight = hexToNumber(chainFinalizedBlock.number);
-
-		async function writeFinalizedHead(nextFinalizedBlock: Head) {
-			const nextFinalizedHeight = hexToNumber(nextFinalizedBlock.number);
-
-			// Determine new finalized heads
-
-			const newFinalizedHeads = unfinalized.chain
-				.filter((head) => {
-					if (hexToNumber(head.number) > chainFinalizedHeight && hexToNumber(head.number) <= nextFinalizedHeight) {
-						return true;
-					}
-
-					return false;
-				})
-				.map((head) => {
-					return { chain, ...head };
-				});
-
-			if (newFinalizedHeads.length === 0) {
-				return log.debug("No new finalized heads to process");
-			}
-
-			// Process new heads
-
-			log.debug(`Processing ${newFinalizedHeads.length} finalized head(s) in parallel`);
-
-			const promises = newFinalizedHeads.map(async (head) => {
-				try {
-					log.debug("Received finalized head");
-
-					// Similar to tip indexing, we don't perform any retries here because of thundering herd issues.
-					// Instead retries should be handled by deploying multiple realtime clients. Any failures will
-					// automatically be resolved by the finalization process
-
-					await opts.indexer.request({ params: [head], method: "public_writeFinalizedHead" });
-
-					log.debug("Delivered finalized head");
-				} catch (error) {
-					if (error instanceof Error) {
-						log.warn(`Failed to write finalized head: ${error.message}`);
-					}
-				}
-			});
-
-			await Promise.allSettled(promises);
-
-			// Acknowledge heads were processed, irrespective of failures
-
-			log.debug(`Processed ${newFinalizedHeads.length} finalized head(s) in parallel`);
-
-			chainFinalizedHeight = nextFinalizedHeight;
-
-			await unfinalized.prune(nextFinalizedBlock);
-		}
-
-		// finalize is responsible for finalizing the indexer
+		// We wrap finalization in a mutex. On the indexer finalization is a single-writer process that
+		// operates under 60s leases. This means that any new requests while finalization is in-flight
+		// will fail anyway so this mutex is just an optimisation and doesn't break correctness.
 
 		async function finalize() {
 			try {
@@ -369,16 +313,16 @@ function realtime(opts: RealtimeOptions) {
 				log.debug("Indexer finalized");
 			} catch (error) {
 				if (error instanceof Error) {
-					log.warn(`Failed to write unfinalized heads ${error.message}`);
+					log.warn(`Failed to finalize ${error.message}`);
 				}
 			}
 		}
 
-		// We wrap finalization in a mutex. On the indexer finalization is a single-writer process that
-		// operates under 60s leases. This means that any new requests while finalization is in-flight
-		// will fail anyway so this mutex is just an optimisation and doesn't break correctness.
-
 		const mutex_finalize = mutex(finalize);
+
+		// Begin polling for finalized height
+
+		let chainFinalizedHeight = hexToNumber(chainFinalizedBlock.number);
 
 		async function poll() {
 			try {
@@ -389,7 +333,57 @@ function realtime(opts: RealtimeOptions) {
 					params: ["finalized", false],
 				});
 
-				await writeFinalizedHead({
+				const nextFinalizedHeight = hexToNumber(finalizedBlock.number);
+
+				// Determine new finalized heads
+
+				const newFinalizedHeads = unfinalized.chain
+					.filter((head) => {
+						if (hexToNumber(head.number) > chainFinalizedHeight && hexToNumber(head.number) <= nextFinalizedHeight) {
+							return true;
+						}
+
+						return false;
+					})
+					.map((head) => {
+						return { chain, ...head };
+					});
+
+				if (newFinalizedHeads.length === 0) {
+					return log.debug("No new finalized heads to process");
+				}
+
+				// Process new heads
+
+				log.debug(`Processing ${newFinalizedHeads.length} finalized head(s) in parallel`);
+
+				const promises = newFinalizedHeads.map(async (head) => {
+					try {
+						log.debug("Received finalized head");
+
+						// Similar to tip indexing, we don't perform any retries here because of thundering herd issues.
+						// Instead retries should be handled by deploying multiple realtime clients. Any failures will
+						// automatically be resolved by the finalization process
+
+						await opts.indexer.request({ params: [head], method: "public_writeFinalizedHead" });
+
+						log.debug("Delivered finalized head");
+					} catch (error) {
+						if (error instanceof Error) {
+							log.warn(`Failed to write finalized head: ${error.message}`);
+						}
+					}
+				});
+
+				await Promise.allSettled(promises);
+
+				// Acknowledge heads were processed, irrespective of failures
+
+				log.debug(`Processed ${newFinalizedHeads.length} finalized head(s) in parallel`);
+
+				chainFinalizedHeight = nextFinalizedHeight;
+
+				await unfinalized.prune({
 					hash: finalizedBlock.hash,
 					number: finalizedBlock.number,
 					parent_hash: finalizedBlock.parentHash,
