@@ -684,7 +684,7 @@ test.concurrent("public_finalize skips heads already processed", async () => {
 	let chainFinalizedHeight = 0;
 
 	const univo = indexer({
-		quiet: false,
+		quiet: true,
 		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
