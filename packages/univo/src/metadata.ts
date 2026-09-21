@@ -1,8 +1,8 @@
 import { Adapter } from "./metadata/adapters";
 
-interface Storage {
+type Storage = {
 	adapter: Adapter;
-}
+};
 
 function defineStorage(storage: Storage): Storage {
 	return storage;

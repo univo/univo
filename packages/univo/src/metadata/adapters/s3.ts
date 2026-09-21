@@ -3,13 +3,13 @@ import { XMLParser } from "fast-xml-parser";
 
 import { AdapterError, defineAdapter } from "../adapters";
 
-interface S3Options {
+type S3Options = {
 	bucket: string;
 	region: string;
 	endpoint?: string;
 	accessKeyId: string;
 	secretAccessKey: string;
-}
+};
 
 function s3(opts: S3Options) {
 	const client = new AwsClient({
