@@ -330,13 +330,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	 * provided we will ensure that they match the block returned
 	 */
 	async function getBlockFromChain(head: PartialHead) {
-		return await retry(() => retry_getBlockFromChain(head), 2).catch(() => {
-			log.error("Failed to load block from the provided `getBlock` function after 3 attempts");
-			return null;
-		});
-	}
-
-	async function retry_getBlockFromChain(head: PartialHead) {
 		try {
 			const block = await opts.getBlock({ chain: head.chain, number: head.number });
 
@@ -642,10 +635,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		if (manifestRes === null) {
 			const block = await getBlockFromChain({ chain, number: "finalized" });
 
-			if (block === null) {
-				throw new Error("Failed to fetch finalized block and unable to determine finalized height, aborting...");
-			}
-
 			const chainFinalizedHeight = viem.hexToNumber(block.eth_getBlockByNumber.number);
 
 			const newManifest: Manifest = {
@@ -759,16 +748,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		]);
 
 		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
-
-		// A null response is actually a common case during chain reorganisations. We load blocks via their block
-		// number and them validate them against the requested hash and parent hash. When the hash and parent hash
-		// aren't what we expected `getBlockFromChain` will return null. In a chain reorganisation, it's likely
-		// that the client and server are connected to different RPC nodes. There is no guarantee that both those
-		// nodes see the same chain reorganisation
-
-		if (block === null) {
-			return log.debug("Received null block response when loading unfinalized head, aborting...");
-		}
 
 		const indexerFinalizedHeight = manifest.finalized_block_height;
 
@@ -930,10 +909,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const decompressedBlock = await decompress(blocksRes.body);
 		const storedBlock = JSON.parse(decompressedBlock);
 
-		if (canonicalBlock === null) {
-			throw new Error("Attempted to delete unknown block");
-		}
-
 		if (isHexEqual(head.hash, canonicalBlock.eth_getBlockByNumber.hash)) {
 			throw new Error("Attempted to delete canonical block");
 		}
@@ -1024,14 +999,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		]);
 
 		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
-
-		if (block === null) {
-			return log.debug("Received null block response when loading finalized head, aborting...");
-		}
-
-		if (chainFinalizedBlock === null) {
-			return log.error("Failed to determine finalized height when processing finalized head, aborting...");
-		}
 
 		const receivedHeight = viem.hexToNumber(head.number);
 		const indexerFinalizedHeight = manifest.finalized_block_height;
@@ -1211,10 +1178,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			opts.metadataStorage.adapter.get(manifestKey), //
 		]);
 
-		if (chainFinalizedBlock === null) {
-			throw new Error("Failed to load chain finalized block");
-		}
-
 		const chainFinalizedHeight = viem.hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
 
 		if (manifestGetRes === null) {
@@ -1316,10 +1279,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				getBlocksProcessedAndGarbageCollect(chain, indexerFinalizedBlockHeight),
 			]);
 
-			if (nextFinalizedBlock === null) {
-				throw new Error("Failed to load finalizing anchor block");
-			}
-
 			const nextFinalizedHead: Head = {
 				chain,
 				hash: nextFinalizedBlock.eth_getBlockByNumber.hash,
@@ -1380,10 +1339,6 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				// Otherwise we load and process the canonical block from the chain
 
 				const canonicalBlock = await getBlockFromChain({ chain, number: viem.numberToHex(number) });
-
-				if (canonicalBlock === null) {
-					throw new Error("Failed to load canonical block");
-				}
 
 				const head: Head = {
 					chain,
@@ -1502,25 +1457,12 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					return { chain, number: head.number, hash: head.hash, parent_hash: head.parent_hash };
 				});
 
-				const reorganisedPromises = reorganisedHeads.map(async (head) => {
-					const block = await getBlockFromMetadataOrChain(head);
-
-					if (block === null) {
-						throw new Error("Expected reorganised block to exist in metadata layer");
-					}
-
-					return block;
-				});
+				const reorganisedPromises = reorganisedHeads.map((head) => getBlockFromMetadataOrChain(head));
 
 				const [canonicalBlock, ...reorganisedBlocks] = await Promise.all([
 					getBlockFromMetadataOrChain(canonicalHead), //
 					...reorganisedPromises,
 				]);
-
-				if (canonicalBlock === null) {
-					throw new Error("Expected to load block from metadata or chain");
-				}
-
 				log.debug("Re-processing heads");
 
 				await Promise.all([
@@ -1783,25 +1725,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		// Load the requested block
-		const block = await getBlockFromChain(params.head);
-
-		if (block === null) {
-			return {
-				keys: [],
-
-				results: relevant_events.map<Result>((event) => {
-					return {
-						event_id: event.id,
-						status: "block_error",
-						chain: params.head.chain,
-						hash: params.head.hash,
-						number: params.head.number,
-						parent_hash: params.head.parent_hash,
-						created_at: Date.now(),
-					};
-				}),
-			};
-		}
+		const block = await getBlockFromChain(params.head).catch(() => {
+			return null;
+		});
 
 		const keys = new Set<string>();
 		const results: Record<string, Result> = {};
