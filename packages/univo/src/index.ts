@@ -317,8 +317,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
 	// events that share the same storage adapter to be combined into the same batch for upsert.
 
-	const all_events: Event<any, any>[] = [];
-	const events_grouped_by_storage_map = new Map<Event<any, any>["storage"], Event<any, any>[]>();
+	const allEvents: Event<any, any>[] = [];
+	const eventsGroupedByStorageMap = new Map<Event<any, any>["storage"], Event<any, any>[]>();
 
 	// Actions
 
@@ -674,7 +674,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		const events_start = Date.now();
 
-		const events = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
+		const events = eventsGroupedByStorageMap.entries().map(async ([storage, grouped_events]) => {
 			const batch: any[] = [];
 
 			for (const event of grouped_events) {
@@ -821,7 +821,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	async function deleteReorganisedBlocksAndWriteCanonicalBlock(reorganised: TBlock[], canonical: TBlock) {
-		const deletes = all_events.map(async (event) => {
+		const deletes = allEvents.map(async (event) => {
 			// TODO
 			// We intentionally ignore filters and basically perform an optimistic delete on events that might
 			// have never been upserted. I make this choice because there is a time delay between upsert and delete,
@@ -865,7 +865,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// perform a delete of the reorganised events _before_ we perform an upsert of the canonical events.
 		// To solve this, we also write the canonical events _after_ deleting the reorganised events.
 
-		const upserts = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
+		const upserts = eventsGroupedByStorageMap.entries().map(async ([storage, grouped_events]) => {
 			const batch: any[] = [];
 
 			for (const event of grouped_events) {
@@ -1574,7 +1574,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	};
 
 	const private_getEvents: IndexerRpc["request"]["private_getEvents"] = async () => {
-		return all_events.map((event) => {
+		return allEvents.map((event) => {
 			const filters = event.filters.map((filter) => {
 				return {
 					chain: filter.chain,
@@ -1649,10 +1649,10 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 	const private_writeEvents: IndexerRpc["request"]["private_writeEvents"] = async (params) => {
 		// TODO: Return an error
-		if (all_events.length === 0) return { failures: [] };
+		if (allEvents.length === 0) return { failures: [] };
 
 		// TODO: Return errors
-		const relevant_events = all_events.filter((event) => params.events.includes(event.id));
+		const relevant_events = allEvents.filter((event) => params.events.includes(event.id));
 		if (relevant_events.length === 0) return { failures: [] };
 
 		// TODO: This is likely an error and we could inform the client somehow.
@@ -1673,7 +1673,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error(IncompleteBlockError);
 		});
 
-		const promises = events_grouped_by_storage_map.entries().map(async ([storage, grouped_events]) => {
+		const promises = eventsGroupedByStorageMap.entries().map(async ([storage, grouped_events]) => {
 			// For all events that share the same storage adapter we push to the batch
 			const batch: any[] = [];
 
@@ -1765,7 +1765,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// over all blocks that match the defined filters.
 
 	const private_writeEventsAndGetKeys: IndexerRpc["request"]["private_writeEventsAndGetKeys"] = async (params) => {
-		if (all_events.length === 0) {
+		if (allEvents.length === 0) {
 			return { results: [], keys: [] };
 		}
 
@@ -1774,7 +1774,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 
 		// Filter for relevant events
-		const relevant_events = all_events.filter((event) => params.events.includes(event.id));
+		const relevant_events = allEvents.filter((event) => params.events.includes(event.id));
 
 		if (relevant_events.length === 0) {
 			return { results: [], keys: [] };
@@ -1944,11 +1944,11 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error(`Invalid event id \`${event.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
 		}
 
-		all_events.push(event);
+		allEvents.push(event);
 
-		const group = events_grouped_by_storage_map.get(event.storage) ?? [];
+		const group = eventsGroupedByStorageMap.get(event.storage) ?? [];
 		group.push(event);
-		events_grouped_by_storage_map.set(event.storage, group);
+		eventsGroupedByStorageMap.set(event.storage, group);
 
 		return event;
 	};
