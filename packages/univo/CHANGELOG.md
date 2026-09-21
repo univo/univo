@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.2.24...v0.3.0
+
+[compare changes](https://github.com/univo/univo/compare/v0.2.24...v0.3.0)
+
+### 🚀 Enhancements
+
+- **metadata:** Implement object storage interface and adapters ([#75](https://github.com/univo/univo/pull/75))
+- **indexer:** Limit concurrency when processing unfinalized heads ([#76](https://github.com/univo/univo/pull/76))
+- **actions:** Execute all actions on finalization ([#77](https://github.com/univo/univo/pull/77))
+- **indexer:** Simplify finalization mechanism ([#78](https://github.com/univo/univo/pull/78))
+- **indexer:** Verify RPC response integrity ([#79](https://github.com/univo/univo/pull/79))
+- **indexer:** Migrate exports ([#80](https://github.com/univo/univo/pull/80))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.2.23...v0.2.24
 
 [compare changes](https://github.com/univo/univo/compare/v0.2.23...v0.2.24)
