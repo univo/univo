@@ -601,7 +601,7 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 	expect(deleted).toBe(false);
 });
 
-test.concurrent("public_finalize writes heads that were not processed", async () => {
+test.concurrent("public_finalize writes heads that were never processed", async () => {
 	let chainFinalizedHeight = 0;
 
 	const univo = indexer({
@@ -619,15 +619,32 @@ test.concurrent("public_finalize writes heads that were not processed", async ()
 
 	const upserted: number[] = [];
 
-	univo.event({
-		id: "test",
+	const event = univo.event({
+		id: "event",
+
 		filters: [{ chain: 1, fromBlock: 0 }],
+
 		handler: (block) => [hexToNumber(block.eth_getBlockByNumber.number)],
+
 		storage: {
 			async upsert(events) {
 				upserted.push(...events);
 			},
-			async delete() {},
+			async delete() {
+				//
+			},
+		},
+	});
+
+	let invocations = 0;
+
+	univo.action({
+		id: "action",
+
+		event,
+
+		handler: () => {
+			invocations++;
 		},
 	});
 
@@ -644,7 +661,7 @@ test.concurrent("public_finalize writes heads that were not processed", async ()
 
 	chainFinalizedHeight = 10;
 
-	// 3. Finalize 10 new heads
+	// 3. Finalize indexer
 
 	await local(univo).request({ method: "public_finalize", params: ["0x1"] });
 
@@ -656,6 +673,8 @@ test.concurrent("public_finalize writes heads that were not processed", async ()
 	});
 
 	expect(finalIndexerFinalizedHeight).toBe(10);
+
+	expect(invocations).toBe(10);
 });
 
 // We define an event and an action, process them as unfinalized, and then expect
