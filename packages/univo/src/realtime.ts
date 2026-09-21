@@ -1,6 +1,8 @@
+import { hexToNumber } from "viem";
+
 import { IndexerRpc, NodeRpc } from "./rpc";
 import type { Transport } from "./transport";
-import { createLogger, hexToNumber, iife, isHexEqual, mutex, retry } from "./utils";
+import { createLogger, iife, isHexEqual, mutex, retry } from "./utils";
 
 /**
  * Blockchain -----------------------------------------------------------------------------------------------------------------------------------

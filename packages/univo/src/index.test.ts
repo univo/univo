@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
+import { hexToNumber, numberToHex } from "viem";
 
 import { indexer } from ".";
 import { local } from "./transport";
 import type { Event, Head } from ".";
-import { hexToNumber, numberToHex } from "./utils";
 import { test_Block, test_getBlock, test_metadataStorage } from "../tests/utils";
 
 test.concurrent("correctly infers the event type", () => {

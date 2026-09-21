@@ -1,8 +1,8 @@
 import { join } from "node:path";
+import { hexToNumber } from "viem";
 import { promises as fs } from "node:fs";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
-import { hexToNumber } from "../src/utils";
 import { defineStorage } from "../src/metadata";
 import { memory } from "../src/metadata/adapters/memory";
 

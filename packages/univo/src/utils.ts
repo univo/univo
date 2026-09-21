@@ -58,14 +58,6 @@ export type Prettify<T> = unknown & {
 	[K in keyof T]: T[K];
 };
 
-export function hexToNumber(hex: string) {
-	return Number.parseInt(hex, 16);
-}
-
-export function numberToHex(number: number) {
-	return `0x${number.toString(16)}` as `0x${string}`;
-}
-
 export function mutex(fn: (...args: any[]) => void | Promise<void>) {
 	let locked = false;
 

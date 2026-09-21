@@ -1,3 +1,5 @@
+import * as viem from "viem";
+
 import { local } from "./transport";
 import { createServer } from "./server";
 import type { IndexerRpc } from "./rpc";
@@ -5,7 +7,7 @@ import { version } from "../package.json";
 import type { Storage } from "./metadata";
 import { AdapterError } from "./metadata/adapters";
 import { catchException, createException } from "./exceptions";
-import { compress, createLogger, decoder, decompress, hexToNumber, isHexEqual, normalizeHex, numberToHex, retry } from "./utils";
+import { compress, createLogger, decoder, decompress, normalizeHex, retry, isHexEqual } from "./utils";
 
 /**
  * Block -----------------------------------------------------------------------------------------------------------------------------------
@@ -18,22 +20,92 @@ import { compress, createLogger, decoder, decompress, hexToNumber, isHexEqual, n
 
 type Block = {
 	eth_chainId: `0x${string}`;
-
-	eth_getBlockByNumber: {
-		hash: `0x${string}`;
-		number: `0x${string}`;
-		parentHash: `0x${string}`;
-	};
-
-	eth_getBlockReceipts: Array<{
-		blockHash: `0x${string}`;
-
-		logs: Array<{
-			address: `0x${string}`;
-			topics: `0x${string}`[];
-		}>;
-	}>;
+	eth_getBlockByNumber: viem.RpcBlock<"latest", true>;
+	eth_getBlockReceipts: viem.RpcTransactionReceipt[];
 };
+
+type TrieEntry = { key: number[]; value: Uint8Array };
+type RlpValue = Uint8Array | RlpValue[];
+
+const EMPTY_BYTES = new Uint8Array();
+
+function quantityToBytes(value: viem.Hex | bigint) {
+	const number = typeof value === "bigint" ? value : viem.hexToBigInt(value);
+	return number === 0n ? EMPTY_BYTES : viem.numberToBytes(number);
+}
+
+function bytesToNibbles(value: Uint8Array) {
+	return Array.from(value).flatMap((byte) => [byte >> 4, byte & 0x0f]);
+}
+
+function encodePath(path: number[], leaf: boolean) {
+	const odd = path.length % 2 === 1;
+	const nibbles = odd ? [leaf ? 3 : 1, ...path] : [leaf ? 2 : 0, 0, ...path];
+	const bytes = new Uint8Array(nibbles.length / 2);
+	for (let index = 0; index < nibbles.length; index += 2) bytes[index / 2] = (nibbles[index]! << 4) | nibbles[index + 1]!;
+	return bytes;
+}
+
+function trieNodeReference(node: RlpValue[]): RlpValue {
+	const encoded = viem.toRlp(node, "bytes");
+	return encoded.length < 32 ? node : viem.hexToBytes(viem.keccak256(encoded));
+}
+
+function encodeTrieNode(entries: TrieEntry[], depth = 0): RlpValue[] {
+	if (entries.length === 1) {
+		const entry = entries[0]!;
+		return [encodePath(entry.key.slice(depth), true), entry.value];
+	}
+
+	let shared = 0;
+	while (entries.every((entry) => entry.key[depth + shared] === entries[0]!.key[depth + shared])) shared++;
+	if (shared > 0) {
+		const child = encodeTrieNode(entries, depth + shared);
+		return [encodePath(entries[0]!.key.slice(depth, depth + shared), false), trieNodeReference(child)];
+	}
+
+	const children: RlpValue[] = Array.from({ length: 17 }, () => EMPTY_BYTES);
+	for (let nibble = 0; nibble < 16; nibble++) {
+		const matching = entries.filter((entry) => entry.key[depth] === nibble);
+		if (matching.length > 0) children[nibble] = trieNodeReference(encodeTrieNode(matching, depth + 1));
+	}
+	const value = entries.find((entry) => entry.key.length === depth)?.value;
+	if (value !== undefined) children[16] = value;
+	return children;
+}
+
+function calculateTrieRoot(values: Uint8Array[]): viem.Hex {
+	if (values.length === 0) return viem.keccak256(viem.toRlp(EMPTY_BYTES, "bytes"));
+	const entries = values.map((value, index) => ({
+		key: bytesToNibbles(viem.toRlp(quantityToBytes(BigInt(index)), "bytes")),
+		value,
+	}));
+	return viem.keccak256(viem.toRlp(encodeTrieNode(entries), "bytes"));
+}
+
+function _serializeTransaction(transaction: viem.RpcTransaction<false>) {
+	const { input, ...formatted } = viem.formatTransaction(transaction);
+	const signature = (
+		formatted.type === "legacy"
+			? { r: formatted.r, s: formatted.s, v: formatted.v }
+			: { r: formatted.r, s: formatted.s, yParity: formatted.yParity }
+	) as viem.Signature;
+	return viem.serializeTransaction({ ...formatted, data: input } as viem.TransactionSerializable, signature);
+}
+
+function serializeReceipt(receipt: viem.RpcTransactionReceipt) {
+	const outcome = receipt.status === undefined ? viem.hexToBytes(receipt.root!) : quantityToBytes(receipt.status);
+	const fields = [
+		outcome,
+		quantityToBytes(receipt.cumulativeGasUsed),
+		viem.hexToBytes(receipt.logsBloom),
+		receipt.logs.map((log) => [viem.hexToBytes(log.address), log.topics.map(viem.hexToBytes), viem.hexToBytes(log.data)]),
+	];
+	const encoded = viem.toRlp(fields, "bytes");
+	if (!viem.isHex(receipt.type)) throw new Error(`Unsupported receipt type ${receipt.type}`);
+	const type = viem.hexToBigInt(receipt.type);
+	return type === 0n ? encoded : viem.concatBytes([Uint8Array.of(Number(type)), encoded]);
+}
 
 /**
  * Filters -----------------------------------------------------------------------------------------------------------------------------------
@@ -64,18 +136,18 @@ function matchFilter(block: Block, filter: Filter) {
 type MatchFilter = (block: Block, filter: Filter) => boolean;
 
 const chainValid: MatchFilter = (block, filter) => {
-	if (hexToNumber(block.eth_chainId) === filter.chain) return true;
+	if (viem.hexToNumber(block.eth_chainId) === filter.chain) return true;
 	return false;
 };
 
 const fromBlockValid: MatchFilter = (block, filter) => {
-	if (hexToNumber(block.eth_getBlockByNumber.number) >= filter.fromBlock) return true;
+	if (viem.hexToNumber(block.eth_getBlockByNumber.number) >= filter.fromBlock) return true;
 	return false;
 };
 
 const toBlockValid: MatchFilter = (block, filter) => {
 	if (filter.toBlock === undefined) return true;
-	if (hexToNumber(block.eth_getBlockByNumber.number) <= filter.toBlock) return true;
+	if (viem.hexToNumber(block.eth_getBlockByNumber.number) <= filter.toBlock) return true;
 	return false;
 };
 
@@ -388,24 +460,57 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	function verifyReceiptsRoot(block: TBlock) {
-		//
+		const receiptsRoot = calculateTrieRoot(block.eth_getBlockReceipts.map(serializeReceipt));
+		if (!isHexEqual(block.eth_getBlockByNumber.receiptsRoot, receiptsRoot)) {
+			throw new Error("Method `eth_getBlockReceipts` returned receipts that do not match the block receipts root");
+		}
 	}
 
 	function verifyTransactionsRoot(block: TBlock) {
-		//
+		const transactions = block.eth_getBlockByNumber.transactions.map((transaction) => {
+			const serialized = _serializeTransaction(transaction);
+			if (!isHexEqual(transaction.hash, viem.keccak256(serialized))) {
+				throw new Error("Method `eth_getBlockByNumber` returned transaction with unexpected transaction hash");
+			}
+			return viem.hexToBytes(serialized);
+		});
+		const transactionsRoot = calculateTrieRoot(transactions);
+		if (!isHexEqual(block.eth_getBlockByNumber.transactionsRoot, transactionsRoot)) {
+			throw new Error("Method `eth_getBlockByNumber` returned transactions that do not match the block transactions root");
+		}
 	}
 
 	/**
 	 * Accepts an RPC block and verifies that all block hashes on the response are consistent.
 	 */
 	function verifyBlockHashes(block: Block) {
-		// TODO: Verify transactions. Must update the type
+		const blockHash = block.eth_getBlockByNumber.hash;
+		const transactions = block.eth_getBlockByNumber.transactions;
 
-		// Verify receipts
+		for (const transaction of transactions) {
+			if (!isHexEqual(blockHash, transaction.blockHash)) {
+				throw new Error("Method `eth_getBlockByNumber` returned transaction with unexpected block hash");
+			}
+		}
 
 		for (const receipt of block.eth_getBlockReceipts) {
 			if (!isHexEqual(block.eth_getBlockByNumber.hash, receipt.blockHash)) {
 				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected block hash");
+			}
+
+			const transactionIndex = viem.hexToNumber(receipt.transactionIndex);
+			const transaction = transactions[transactionIndex];
+			if (transaction === undefined || !isHexEqual(transaction.hash, receipt.transactionHash)) {
+				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected transaction hash");
+			}
+
+			for (const entry of receipt.logs) {
+				if (!isHexEqual(blockHash, entry.blockHash)) {
+					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected block hash");
+				}
+				if (!isHexEqual(receipt.transactionHash, entry.transactionHash)) {
+					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected transaction hash");
+				}
 			}
 		}
 	}
@@ -414,14 +519,42 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	 * Accepts an RPC block and verifies all log indicies are contiguous
 	 */
 	function verifyLogIndicies(block: TBlock) {
-		//
+		let expectedLogIndex = 0n;
+		for (const receipt of block.eth_getBlockReceipts) {
+			for (const entry of receipt.logs) {
+				if (viem.hexToBigInt(entry.logIndex) !== expectedLogIndex) {
+					throw new Error("Method `eth_getBlockReceipts` returned non-contiguous log indices");
+				}
+				expectedLogIndex++;
+			}
+		}
 	}
 
 	/**
 	 * Accepts an RPC block and verifies all transaction indicies are contiguous
 	 */
 	function verifyTransactionIndicies(block: TBlock) {
-		//
+		const transactions = block.eth_getBlockByNumber.transactions;
+		const receipts = block.eth_getBlockReceipts;
+		if (transactions.length !== receipts.length) {
+			throw new Error("Methods `eth_getBlockByNumber` and `eth_getBlockReceipts` returned different transaction counts");
+		}
+
+		for (let index = 0; index < transactions.length; index++) {
+			const expectedIndex = BigInt(index);
+			if (viem.hexToBigInt(transactions[index]!.transactionIndex) !== expectedIndex) {
+				throw new Error("Method `eth_getBlockByNumber` returned non-contiguous transaction indices");
+			}
+			if (viem.hexToBigInt(receipts[index]!.transactionIndex) !== expectedIndex) {
+				throw new Error("Method `eth_getBlockReceipts` returned non-contiguous transaction indices");
+			}
+
+			for (const entry of receipts[index]!.logs) {
+				if (viem.hexToBigInt(entry.transactionIndex) !== expectedIndex) {
+					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected transaction index");
+				}
+			}
+		}
 	}
 
 	/**
@@ -429,7 +562,26 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	 * and never exceeds the gas limit
 	 */
 	function verifyTransactionGasUsage(block: TBlock) {
-		//
+		const gasLimit = viem.hexToBigInt(block.eth_getBlockByNumber.gasLimit);
+		const blockGasUsed = viem.hexToBigInt(block.eth_getBlockByNumber.gasUsed);
+		if (blockGasUsed > gasLimit) {
+			throw new Error("Method `eth_getBlockByNumber` returned gas used greater than the block gas limit");
+		}
+
+		let cumulativeGasUsed = 0n;
+		for (const receipt of block.eth_getBlockReceipts) {
+			cumulativeGasUsed += viem.hexToBigInt(receipt.gasUsed);
+			if (viem.hexToBigInt(receipt.cumulativeGasUsed) !== cumulativeGasUsed) {
+				throw new Error("Method `eth_getBlockReceipts` returned inconsistent cumulative gas used");
+			}
+			if (cumulativeGasUsed > gasLimit) {
+				throw new Error("Method `eth_getBlockReceipts` returned cumulative gas used greater than the block gas limit");
+			}
+		}
+
+		if (cumulativeGasUsed !== blockGasUsed) {
+			throw new Error("Methods `eth_getBlockByNumber` and `eth_getBlockReceipts` returned inconsistent gas used");
+		}
 	}
 
 	async function getOrInitManifest(chain: `0x${string}`) {
@@ -446,7 +598,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				throw new Error("Failed to fetch finalized block and unable to determine finalized height, aborting...");
 			}
 
-			const chainFinalizedHeight = hexToNumber(block.eth_getBlockByNumber.number);
+			const chainFinalizedHeight = viem.hexToNumber(block.eth_getBlockByNumber.number);
 
 			const newManifest: Manifest = {
 				finalized_block_height: chainFinalizedHeight,
@@ -576,7 +728,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
 		// stall indexing. We filter them out here and continue operating on unfinalized heads
 
-		if (hexToNumber(head.number) <= indexerFinalizedHeight) {
+		if (viem.hexToNumber(head.number) <= indexerFinalizedHeight) {
 			return log.debug("Receiving finalized head, ignoring...");
 		}
 
@@ -703,7 +855,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	}
 
 	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
-		log.debug(`Received reorganised head ${hexToNumber(head.number)}`);
+		log.debug(`Received reorganised head ${viem.hexToNumber(head.number)}`);
 
 		// We load blocks via their block number. If this block was truly reorganised and is no longer part of the
 		// canonical chain than this request should yield a block with a different block hash. This is our proof
@@ -833,9 +985,9 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			return log.error("Failed to determine finalized height when processing finalized head, aborting...");
 		}
 
-		const receivedHeight = hexToNumber(head.number);
+		const receivedHeight = viem.hexToNumber(head.number);
 		const indexerFinalizedHeight = manifest.finalized_block_height;
-		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
+		const chainFinalizedHeight = viem.hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
 
 		if (receivedHeight <= indexerFinalizedHeight) {
 			return log.debug(`Received finalized head (${receivedHeight}) below indexer height (${indexerFinalizedHeight})`);
@@ -908,7 +1060,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const garbageCollectionKeys = blocks.keys.filter((key) => {
 				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
 
-				return hexToNumber(number) <= finalizedHeight;
+				return viem.hexToNumber(number) <= finalizedHeight;
 			});
 
 			if (garbageCollectionKeys.length === 0) {
@@ -956,7 +1108,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			const garbageCollectionKeys = commits.keys.filter((key) => {
 				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
 
-				return hexToNumber(number) <= finalizedHeight;
+				return viem.hexToNumber(number) <= finalizedHeight;
 			});
 
 			if (garbageCollectionKeys.length === 0) {
@@ -1015,7 +1167,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			throw new Error("Failed to load chain finalized block");
 		}
 
-		const chainFinalizedHeight = hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
+		const chainFinalizedHeight = viem.hexToNumber(chainFinalizedBlock.eth_getBlockByNumber.number);
 
 		if (manifestGetRes === null) {
 			log.debug("No manifest file found");
@@ -1112,7 +1264,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// this in the common case and prevent duplicate loading
 
 			const [nextFinalizedBlock, blocksProcessed] = await Promise.all([
-				getBlockFromChain({ chain, number: numberToHex(nextFinalizedHeight) }),
+				getBlockFromChain({ chain, number: viem.numberToHex(nextFinalizedHeight) }),
 				getBlocksProcessedAndGarbageCollect(chain, indexerFinalizedBlockHeight),
 			]);
 
@@ -1135,7 +1287,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				return (
 					isHexEqual(block.hash, nextFinalizedHead.hash) &&
 					isHexEqual(block.parent_hash, nextFinalizedHead.parent_hash) &&
-					hexToNumber(block.number) === hexToNumber(nextFinalizedHead.number)
+					viem.hexToNumber(block.number) === viem.hexToNumber(nextFinalizedHead.number)
 				);
 			});
 
@@ -1159,7 +1311,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				// Load processed blocks by number
 				const blocksProcessedForHeight = blocksProcessed.filter((block) => {
-					return hexToNumber(block.number) === number;
+					return viem.hexToNumber(block.number) === number;
 				});
 
 				// If we have the canonical block we can abort early
@@ -1179,7 +1331,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 				// Otherwise we load and process the canonical block from the chain
 
-				const canonicalBlock = await getBlockFromChain({ chain, number: numberToHex(number) });
+				const canonicalBlock = await getBlockFromChain({ chain, number: viem.numberToHex(number) });
 
 				if (canonicalBlock === null) {
 					throw new Error("Failed to load canonical block");
@@ -1242,7 +1394,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				// - There exists a commit for this canonical block for all events/actions
 
 				const blocksProcessedForHeight = blocksProcessed.filter((head) => {
-					return hexToNumber(canonicalHead.number) === hexToNumber(head.number);
+					return viem.hexToNumber(canonicalHead.number) === viem.hexToNumber(head.number);
 				});
 
 				const processedOnlyCanonicalBlock = blocksProcessedForHeight.every((head) => {
@@ -1254,7 +1406,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 						commit.type === undefined &&
 						isHexEqual(canonicalHead.hash, commit.hash) &&
 						isHexEqual(canonicalHead.parent_hash, commit.parent_hash) &&
-						hexToNumber(canonicalHead.number) === hexToNumber(commit.number)
+						viem.hexToNumber(canonicalHead.number) === viem.hexToNumber(commit.number)
 					);
 				});
 
@@ -1265,7 +1417,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 							commit.type === "action" &&
 							isHexEqual(canonicalHead.hash, commit.hash) &&
 							isHexEqual(canonicalHead.parent_hash, commit.parent_hash) &&
-							hexToNumber(canonicalHead.number) === hexToNumber(commit.number)
+							viem.hexToNumber(canonicalHead.number) === viem.hexToNumber(commit.number)
 						);
 					});
 
