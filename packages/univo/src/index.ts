@@ -376,36 +376,35 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 	}
 
-	type RlpValue = Uint8Array | RlpValue[];
-	type TrieEntry = { key: number[]; value: Uint8Array };
+	function verifyReceiptsRoot(block: TBlock) {
+		const receiptsRoot = calculateTrieRoot(block.eth_getBlockReceipts.map(serializeReceipt));
 
-	function quantityToBytes(value: viem.Hex | bigint) {
-		const number = typeof value === "bigint" ? value : viem.hexToBigInt(value);
-		return number === 0n ? new Uint8Array() : viem.numberToBytes(number);
+		if (!isHexEqual(block.eth_getBlockByNumber.receiptsRoot, receiptsRoot)) {
+			throw new Error("Method `eth_getBlockReceipts` returned receipts that do not match the block receipts root");
+		}
 	}
 
-	function bytesToNibbles(value: Uint8Array) {
-		return Array.from(value).flatMap((byte) => [byte >> 4, byte & 0x0f]);
-	}
-
-	function encodePath(path: number[], leaf: boolean) {
-		const odd = path.length % 2 === 1;
-		const nibbles = odd ? [leaf ? 3 : 1, ...path] : [leaf ? 2 : 0, 0, ...path];
-		const bytes = new Uint8Array(nibbles.length / 2);
-
-		for (let index = 0; index < nibbles.length; index += 2) {
-			bytes[index / 2] = (nibbles[index]! << 4) | nibbles[index + 1]!;
+	function calculateTrieRoot(values: Uint8Array[]): viem.Hex {
+		if (values.length === 0) {
+			return viem.keccak256(viem.toRlp(new Uint8Array(), "bytes"));
 		}
 
-		return bytes;
+		const entries = values.map((value, index) => ({
+			key: bytesToNibbles(viem.toRlp(quantityToBytes(BigInt(index)), "bytes")),
+			value,
+		}));
+
+		return viem.keccak256(viem.toRlp(encodeTrieNode(entries), "bytes"));
 	}
+
+	type RlpValue = Uint8Array | RlpValue[];
 
 	function trieNodeReference(node: RlpValue[]): RlpValue {
 		const encoded = viem.toRlp(node, "bytes");
 		return encoded.length < 32 ? node : viem.hexToBytes(viem.keccak256(encoded));
 	}
 
-	function encodeTrieNode(entries: TrieEntry[], depth = 0): RlpValue[] {
+	function encodeTrieNode(entries: { key: number[]; value: Uint8Array }[], depth = 0): RlpValue[] {
 		if (entries.length === 1) {
 			const entry = entries[0]!;
 			return [encodePath(entry.key.slice(depth), true), entry.value];
@@ -441,25 +440,25 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return children;
 	}
 
-	function verifyReceiptsRoot(block: TBlock) {
-		const receiptsRoot = calculateTrieRoot(block.eth_getBlockReceipts.map(serializeReceipt));
+	function encodePath(path: number[], leaf: boolean) {
+		const odd = path.length % 2 === 1;
+		const nibbles = odd ? [leaf ? 3 : 1, ...path] : [leaf ? 2 : 0, 0, ...path];
+		const bytes = new Uint8Array(nibbles.length / 2);
 
-		if (!isHexEqual(block.eth_getBlockByNumber.receiptsRoot, receiptsRoot)) {
-			throw new Error("Method `eth_getBlockReceipts` returned receipts that do not match the block receipts root");
+		for (let index = 0; index < nibbles.length; index += 2) {
+			bytes[index / 2] = (nibbles[index]! << 4) | nibbles[index + 1]!;
 		}
+
+		return bytes;
 	}
 
-	function calculateTrieRoot(values: Uint8Array[]): viem.Hex {
-		if (values.length === 0) {
-			return viem.keccak256(viem.toRlp(new Uint8Array(), "bytes"));
-		}
+	function quantityToBytes(value: viem.Hex | bigint) {
+		const number = typeof value === "bigint" ? value : viem.hexToBigInt(value);
+		return number === 0n ? new Uint8Array() : viem.numberToBytes(number);
+	}
 
-		const entries = values.map((value, index) => ({
-			key: bytesToNibbles(viem.toRlp(quantityToBytes(BigInt(index)), "bytes")),
-			value,
-		}));
-
-		return viem.keccak256(viem.toRlp(encodeTrieNode(entries), "bytes"));
+	function bytesToNibbles(value: Uint8Array) {
+		return Array.from(value).flatMap((byte) => [byte >> 4, byte & 0x0f]);
 	}
 
 	function serializeReceipt(receipt: viem.RpcTransactionReceipt) {
