@@ -633,7 +633,12 @@ test.concurrent("public_finalize writes heads that were not processed", async ()
 
 	// 1. Chain and indexer are finalised at 0
 
-	await local(univo).request({ method: "public_finalize", params: ["0x1"] });
+	const initialIndexerFinalizedHeight = await local(univo).request({
+		method: "public_getFinalizedHeight",
+		params: ["0x1"],
+	});
+
+	expect(initialIndexerFinalizedHeight).toBe(0);
 
 	// 2. Chain finalizes at 10
 
@@ -653,7 +658,7 @@ test.concurrent("public_finalize writes heads that were not processed", async ()
 	expect(finalIndexerFinalizedHeight).toBe(10);
 });
 
-test.concurrent("public_writeFinalizedHeads skips unfinalized heads processed", async () => {
+test.concurrent("public_finalize skips heads already processed", async () => {
 	let chainFinalizedHeight = 0;
 
 	const univo = indexer({
@@ -725,10 +730,7 @@ test.concurrent("public_writeFinalizedHeads skips unfinalized heads processed", 
 
 	// 4. Finalize 10 new heads
 
-	await local(univo).request({
-		method: "public_writeFinalizedHeads",
-		params: [newHeads],
-	});
+	await local(univo).request({ method: "public_finalize", params: ["0x1"] });
 
 	expect(upserted).toStrictEqual(result);
 
@@ -740,7 +742,7 @@ test.concurrent("public_writeFinalizedHeads skips unfinalized heads processed", 
 	expect(finalIndexerFinalizedHeight).toBe(10);
 });
 
-test.concurrent("public_writeFinalizedHeads removes events for reorganised heads processed", async () => {
+test.concurrent("public_finalize deletes reorganised events", async () => {
 	let chainFinalizedHeight = 25_082_720;
 
 	let count = 0;
@@ -904,73 +906,7 @@ test.concurrent("public_writeFinalizedHeads removes events for reorganised heads
 
 	// 4. Finalize 10 canonical heads
 
-	const canonical: Head[] = [
-		{
-			chain: "0x1",
-			number: numberToHex(25_082_721),
-			hash: "0xeeb1dff82c4cd6f20e9c3740737001fd6610f9da4c2003df34c07886905429c6",
-			parent_hash: "0x917ce379bcfd1724070ce89e31150c73267210950ddcaac2c5b3453e0c6e73ce",
-		},
-		{
-			chain: "0x1",
-			number: numberToHex(25_082_722),
-			hash: "0x6167fd8ad254f543329e4be9c71de8824718c396e95876ce3fbc275579b8aa28",
-			parent_hash: "0xeeb1dff82c4cd6f20e9c3740737001fd6610f9da4c2003df34c07886905429c6",
-		},
-		{
-			chain: "0x1",
-			number: numberToHex(25_082_723),
-			hash: "0x7adfaead68e07104ef2a5c842e476ccf00eb2aa914d7fbd461e48d23bc183468",
-			parent_hash: "0x6167fd8ad254f543329e4be9c71de8824718c396e95876ce3fbc275579b8aa28",
-		},
-		{
-			chain: "0x1",
-			number: numberToHex(25_082_724),
-			hash: "0xdaf1f6162394588529a7cc02a066dd4163abe272e6782174a601a8deb08b29cd",
-			parent_hash: "0x7adfaead68e07104ef2a5c842e476ccf00eb2aa914d7fbd461e48d23bc183468",
-		},
-		{
-			chain: "0x1",
-			number: numberToHex(25_082_725),
-			hash: "0x1a1fd7dd288a28833e253a0262b87a588f8f272ee12ba6554ede57abc8a83cb3",
-			parent_hash: "0xdaf1f6162394588529a7cc02a066dd4163abe272e6782174a601a8deb08b29cd",
-		},
-		{
-			chain: "0x1",
-			number: numberToHex(25_082_726),
-			hash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
-			parent_hash: "0x1a1fd7dd288a28833e253a0262b87a588f8f272ee12ba6554ede57abc8a83cb3",
-		},
-		{
-			chain: "0x1",
-			number: numberToHex(25_082_727),
-			hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
-			parent_hash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
-		},
-		{
-			chain: "0x1",
-			number: numberToHex(25_082_728),
-			hash: "0x2581e5dc54658492c5aabb947d1ad730727a1434e36871db053420f9ea924d40",
-			parent_hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
-		},
-		{
-			chain: "0x1",
-			number: numberToHex(25_082_729),
-			hash: "0x279fc265186afa168bbe75a775ba62bef9a763a53cece8d286b33ca00ea4aa96",
-			parent_hash: "0x2581e5dc54658492c5aabb947d1ad730727a1434e36871db053420f9ea924d40",
-		},
-		{
-			chain: "0x1",
-			number: numberToHex(25_082_730),
-			hash: "0x3c940d9e6315044c579c9b0b5167b453c3319b505b2360b08804719d73cb3b88",
-			parent_hash: "0x279fc265186afa168bbe75a775ba62bef9a763a53cece8d286b33ca00ea4aa96",
-		},
-	];
-
-	await local(univo).request({
-		method: "public_writeFinalizedHeads",
-		params: [canonical],
-	});
+	await local(univo).request({ method: "public_finalize", params: ["0x1"] });
 
 	expect(Object.keys(processed)).toStrictEqual([
 		"0xeeb1dff82c4cd6f20e9c3740737001fd6610f9da4c2003df34c07886905429c6",
@@ -992,124 +928,6 @@ test.concurrent("public_writeFinalizedHeads removes events for reorganised heads
 	});
 
 	expect(finalIndexerFinalizedHeight).toBe(25_082_730);
-});
-
-test.concurrent("public_writeFinalizedHeads throws when receiving heads from different chains", async () => {
-	const univo = indexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	const promise = local(univo).request({
-		method: "public_writeFinalizedHeads",
-		params: [
-			[
-				{
-					chain: "0x1",
-					number: "0xa",
-					hash: "0x4ff4a38b278ab49f7739d3a4ed4e12714386a9fdf72192f2e8f7da7822f10b4d",
-					parent_hash: "0x997e47bf4cac509c627753c06385ac866641ec6f883734ff7944411000dc576e",
-				},
-				{
-					chain: "0x2",
-					number: "0xb",
-					hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
-					parent_hash: "0x4eaaa6f851ee6686d4fc3cbd5ae740a31fd1431d143c646531bb61ae8965cef3",
-				},
-			],
-		],
-	});
-
-	await expect(promise).rejects.toThrow("Received heads from separate chains");
-});
-
-test.concurrent("public_writeFinalizedHeads calls actions", async () => {
-	let chainFinalizedHeight = 0;
-
-	const univo = indexer({
-		quiet: true,
-		signingKey: "test",
-		metadataStorage: test_metadataStorage(),
-		getBlock: async (block) => {
-			if (block.number === "finalized") {
-				return await test_getBlock({ chain: "0x1", number: numberToHex(chainFinalizedHeight) });
-			}
-
-			return await test_getBlock(block);
-		},
-	});
-
-	const event = univo.event({
-		id: "event",
-
-		filters: [{ chain: 1, fromBlock: 0 }],
-
-		handler: (block) => [hexToNumber(block.eth_getBlockByNumber.number)],
-
-		storage: {
-			async upsert() {
-				//
-			},
-
-			async delete() {
-				//
-			},
-		},
-	});
-
-	let count = 0;
-
-	univo.action({
-		id: "action",
-
-		event,
-
-		handler: async () => {
-			count++;
-		},
-	});
-
-	// 1. Chain and indexer are finalised at 0
-
-	const initialIndexerFinalizedHeight = await local(univo).request({
-		method: "public_getFinalizedHeight",
-		params: ["0x1"],
-	});
-
-	expect(initialIndexerFinalizedHeight).toBe(0);
-
-	// 2. Chain finalizes at 10
-
-	chainFinalizedHeight = 10;
-
-	// 3. Finalize 10 new heads
-
-	const result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-	const newHeads = await Promise.all(
-		result.map(async (number) => {
-			const block = await test_getBlock({
-				chain: "0x1",
-				number: numberToHex(number),
-			});
-
-			return {
-				chain: block.eth_chainId,
-				hash: block.eth_getBlockByNumber.hash,
-				number: block.eth_getBlockByNumber.number,
-				parent_hash: block.eth_getBlockByNumber.parentHash,
-			};
-		}),
-	);
-
-	await local(univo).request({
-		method: "public_writeFinalizedHeads",
-		params: [newHeads],
-	});
-
-	expect(count).toBe(10);
 });
 
 test.concurrent("private_writeEvents indexes only the events requested", async () => {
