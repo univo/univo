@@ -272,7 +272,7 @@ function realtime(opts: RealtimeOptions) {
 
 					await retry(
 						() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
-						4,
+						2,
 					);
 
 					log.debug("Delivered reorganised head");

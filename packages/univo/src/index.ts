@@ -333,6 +333,10 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	 * provided we will ensure that they match the block returned
 	 */
 	async function getBlockFromChain(head: PartialHead) {
+		return await retry(() => retry_getBlockFromChain(head), 2);
+	}
+
+	async function retry_getBlockFromChain(head: PartialHead) {
 		const block = await opts.getBlock({ chain: head.chain, number: head.number });
 
 		if (block === null) {
