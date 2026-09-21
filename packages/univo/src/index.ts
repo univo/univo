@@ -24,89 +24,6 @@ type Block = {
 	eth_getBlockReceipts: viem.RpcTransactionReceipt[];
 };
 
-type TrieEntry = { key: number[]; value: Uint8Array };
-type RlpValue = Uint8Array | RlpValue[];
-
-const EMPTY_BYTES = new Uint8Array();
-
-function quantityToBytes(value: viem.Hex | bigint) {
-	const number = typeof value === "bigint" ? value : viem.hexToBigInt(value);
-	return number === 0n ? EMPTY_BYTES : viem.numberToBytes(number);
-}
-
-function bytesToNibbles(value: Uint8Array) {
-	return Array.from(value).flatMap((byte) => [byte >> 4, byte & 0x0f]);
-}
-
-function encodePath(path: number[], leaf: boolean) {
-	const odd = path.length % 2 === 1;
-	const nibbles = odd ? [leaf ? 3 : 1, ...path] : [leaf ? 2 : 0, 0, ...path];
-	const bytes = new Uint8Array(nibbles.length / 2);
-	for (let index = 0; index < nibbles.length; index += 2) bytes[index / 2] = (nibbles[index]! << 4) | nibbles[index + 1]!;
-	return bytes;
-}
-
-function trieNodeReference(node: RlpValue[]): RlpValue {
-	const encoded = viem.toRlp(node, "bytes");
-	return encoded.length < 32 ? node : viem.hexToBytes(viem.keccak256(encoded));
-}
-
-function encodeTrieNode(entries: TrieEntry[], depth = 0): RlpValue[] {
-	if (entries.length === 1) {
-		const entry = entries[0]!;
-		return [encodePath(entry.key.slice(depth), true), entry.value];
-	}
-
-	let shared = 0;
-	while (entries.every((entry) => entry.key[depth + shared] === entries[0]!.key[depth + shared])) shared++;
-	if (shared > 0) {
-		const child = encodeTrieNode(entries, depth + shared);
-		return [encodePath(entries[0]!.key.slice(depth, depth + shared), false), trieNodeReference(child)];
-	}
-
-	const children: RlpValue[] = Array.from({ length: 17 }, () => EMPTY_BYTES);
-	for (let nibble = 0; nibble < 16; nibble++) {
-		const matching = entries.filter((entry) => entry.key[depth] === nibble);
-		if (matching.length > 0) children[nibble] = trieNodeReference(encodeTrieNode(matching, depth + 1));
-	}
-	const value = entries.find((entry) => entry.key.length === depth)?.value;
-	if (value !== undefined) children[16] = value;
-	return children;
-}
-
-function calculateTrieRoot(values: Uint8Array[]): viem.Hex {
-	if (values.length === 0) return viem.keccak256(viem.toRlp(EMPTY_BYTES, "bytes"));
-	const entries = values.map((value, index) => ({
-		key: bytesToNibbles(viem.toRlp(quantityToBytes(BigInt(index)), "bytes")),
-		value,
-	}));
-	return viem.keccak256(viem.toRlp(encodeTrieNode(entries), "bytes"));
-}
-
-function _serializeTransaction(transaction: viem.RpcTransaction<false>) {
-	const { input, ...formatted } = viem.formatTransaction(transaction);
-	const signature = (
-		formatted.type === "legacy"
-			? { r: formatted.r, s: formatted.s, v: formatted.v }
-			: { r: formatted.r, s: formatted.s, yParity: formatted.yParity }
-	) as viem.Signature;
-	return viem.serializeTransaction({ ...formatted, data: input } as viem.TransactionSerializable, signature);
-}
-
-function serializeReceipt(receipt: viem.RpcTransactionReceipt) {
-	const outcome = receipt.status === undefined ? viem.hexToBytes(receipt.root!) : quantityToBytes(receipt.status);
-	const fields = [
-		outcome,
-		quantityToBytes(receipt.cumulativeGasUsed),
-		viem.hexToBytes(receipt.logsBloom),
-		receipt.logs.map((log) => [viem.hexToBytes(log.address), log.topics.map(viem.hexToBytes), viem.hexToBytes(log.data)]),
-	];
-	const encoded = viem.toRlp(fields, "bytes");
-	if (!viem.isHex(receipt.type)) throw new Error(`Unsupported receipt type ${receipt.type}`);
-	const type = viem.hexToBigInt(receipt.type);
-	return type === 0n ? encoded : viem.concatBytes([Uint8Array.of(Number(type)), encoded]);
-}
-
 /**
  * Filters -----------------------------------------------------------------------------------------------------------------------------------
  */
@@ -459,25 +376,143 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		}
 	}
 
+	type RlpValue = Uint8Array | RlpValue[];
+	type TrieEntry = { key: number[]; value: Uint8Array };
+
+	function quantityToBytes(value: viem.Hex | bigint) {
+		const number = typeof value === "bigint" ? value : viem.hexToBigInt(value);
+		return number === 0n ? new Uint8Array() : viem.numberToBytes(number);
+	}
+
+	function bytesToNibbles(value: Uint8Array) {
+		return Array.from(value).flatMap((byte) => [byte >> 4, byte & 0x0f]);
+	}
+
+	function encodePath(path: number[], leaf: boolean) {
+		const odd = path.length % 2 === 1;
+		const nibbles = odd ? [leaf ? 3 : 1, ...path] : [leaf ? 2 : 0, 0, ...path];
+		const bytes = new Uint8Array(nibbles.length / 2);
+
+		for (let index = 0; index < nibbles.length; index += 2) {
+			bytes[index / 2] = (nibbles[index]! << 4) | nibbles[index + 1]!;
+		}
+
+		return bytes;
+	}
+
+	function trieNodeReference(node: RlpValue[]): RlpValue {
+		const encoded = viem.toRlp(node, "bytes");
+		return encoded.length < 32 ? node : viem.hexToBytes(viem.keccak256(encoded));
+	}
+
+	function encodeTrieNode(entries: TrieEntry[], depth = 0): RlpValue[] {
+		if (entries.length === 1) {
+			const entry = entries[0]!;
+			return [encodePath(entry.key.slice(depth), true), entry.value];
+		}
+
+		let shared = 0;
+
+		while (entries.every((entry) => entry.key[depth + shared] === entries[0]!.key[depth + shared])) {
+			shared++;
+		}
+
+		if (shared > 0) {
+			const child = encodeTrieNode(entries, depth + shared);
+			return [encodePath(entries[0]!.key.slice(depth, depth + shared), false), trieNodeReference(child)];
+		}
+
+		const children: RlpValue[] = Array.from({ length: 17 }, () => new Uint8Array());
+
+		for (let nibble = 0; nibble < 16; nibble++) {
+			const matching = entries.filter((entry) => entry.key[depth] === nibble);
+
+			if (matching.length > 0) {
+				children[nibble] = trieNodeReference(encodeTrieNode(matching, depth + 1));
+			}
+		}
+
+		const value = entries.find((entry) => entry.key.length === depth)?.value;
+
+		if (value !== undefined) {
+			children[16] = value;
+		}
+
+		return children;
+	}
+
 	function verifyReceiptsRoot(block: TBlock) {
 		const receiptsRoot = calculateTrieRoot(block.eth_getBlockReceipts.map(serializeReceipt));
+
 		if (!isHexEqual(block.eth_getBlockByNumber.receiptsRoot, receiptsRoot)) {
 			throw new Error("Method `eth_getBlockReceipts` returned receipts that do not match the block receipts root");
 		}
 	}
 
+	function calculateTrieRoot(values: Uint8Array[]): viem.Hex {
+		if (values.length === 0) {
+			return viem.keccak256(viem.toRlp(new Uint8Array(), "bytes"));
+		}
+
+		const entries = values.map((value, index) => ({
+			key: bytesToNibbles(viem.toRlp(quantityToBytes(BigInt(index)), "bytes")),
+			value,
+		}));
+
+		return viem.keccak256(viem.toRlp(encodeTrieNode(entries), "bytes"));
+	}
+
+	function serializeReceipt(receipt: viem.RpcTransactionReceipt) {
+		const outcome = receipt.status === undefined ? viem.hexToBytes(receipt.root!) : quantityToBytes(receipt.status);
+
+		const fields = [
+			outcome,
+			quantityToBytes(receipt.cumulativeGasUsed),
+			viem.hexToBytes(receipt.logsBloom),
+			receipt.logs.map((log) => [viem.hexToBytes(log.address), log.topics.map(viem.hexToBytes), viem.hexToBytes(log.data)]),
+		];
+
+		const encoded = viem.toRlp(fields, "bytes");
+
+		if (!viem.isHex(receipt.type)) {
+			throw new Error(`Unsupported receipt type ${receipt.type}`);
+		}
+
+		const type = viem.hexToBigInt(receipt.type);
+
+		return type === 0n ? encoded : viem.concatBytes([Uint8Array.of(Number(type)), encoded]);
+	}
+
 	function verifyTransactionsRoot(block: TBlock) {
 		const transactions = block.eth_getBlockByNumber.transactions.map((transaction) => {
 			const serialized = _serializeTransaction(transaction);
+
 			if (!isHexEqual(transaction.hash, viem.keccak256(serialized))) {
 				throw new Error("Method `eth_getBlockByNumber` returned transaction with unexpected transaction hash");
 			}
+
 			return viem.hexToBytes(serialized);
 		});
+
 		const transactionsRoot = calculateTrieRoot(transactions);
+
 		if (!isHexEqual(block.eth_getBlockByNumber.transactionsRoot, transactionsRoot)) {
 			throw new Error("Method `eth_getBlockByNumber` returned transactions that do not match the block transactions root");
 		}
+	}
+
+	function _serializeTransaction(transaction: viem.RpcTransaction<false>) {
+		const { input, ...formatted } = viem.formatTransaction(transaction);
+
+		const signature =
+			formatted.type === "legacy"
+				? { r: formatted.r, s: formatted.s, v: formatted.v }
+				: { r: formatted.r, s: formatted.s, yParity: formatted.yParity };
+
+		return viem.serializeTransaction(
+			{ ...formatted, data: input } as viem.TransactionSerializable, //
+			signature as viem.Signature,
+		);
 	}
 
 	/**
@@ -500,6 +535,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			const transactionIndex = viem.hexToNumber(receipt.transactionIndex);
 			const transaction = transactions[transactionIndex];
+
 			if (transaction === undefined || !isHexEqual(transaction.hash, receipt.transactionHash)) {
 				throw new Error("Method `eth_getBlockReceipts` returned receipt with unexpected transaction hash");
 			}
@@ -508,6 +544,7 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				if (!isHexEqual(blockHash, entry.blockHash)) {
 					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected block hash");
 				}
+
 				if (!isHexEqual(receipt.transactionHash, entry.transactionHash)) {
 					throw new Error("Method `eth_getBlockReceipts` returned log with unexpected transaction hash");
 				}
@@ -520,11 +557,13 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	 */
 	function verifyLogIndicies(block: TBlock) {
 		let expectedLogIndex = 0n;
+
 		for (const receipt of block.eth_getBlockReceipts) {
 			for (const entry of receipt.logs) {
 				if (viem.hexToBigInt(entry.logIndex) !== expectedLogIndex) {
 					throw new Error("Method `eth_getBlockReceipts` returned non-contiguous log indices");
 				}
+
 				expectedLogIndex++;
 			}
 		}
@@ -536,15 +575,18 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	function verifyTransactionIndicies(block: TBlock) {
 		const transactions = block.eth_getBlockByNumber.transactions;
 		const receipts = block.eth_getBlockReceipts;
+
 		if (transactions.length !== receipts.length) {
 			throw new Error("Methods `eth_getBlockByNumber` and `eth_getBlockReceipts` returned different transaction counts");
 		}
 
 		for (let index = 0; index < transactions.length; index++) {
 			const expectedIndex = BigInt(index);
+
 			if (viem.hexToBigInt(transactions[index]!.transactionIndex) !== expectedIndex) {
 				throw new Error("Method `eth_getBlockByNumber` returned non-contiguous transaction indices");
 			}
+
 			if (viem.hexToBigInt(receipts[index]!.transactionIndex) !== expectedIndex) {
 				throw new Error("Method `eth_getBlockReceipts` returned non-contiguous transaction indices");
 			}
@@ -564,16 +606,20 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	function verifyTransactionGasUsage(block: TBlock) {
 		const gasLimit = viem.hexToBigInt(block.eth_getBlockByNumber.gasLimit);
 		const blockGasUsed = viem.hexToBigInt(block.eth_getBlockByNumber.gasUsed);
+
 		if (blockGasUsed > gasLimit) {
 			throw new Error("Method `eth_getBlockByNumber` returned gas used greater than the block gas limit");
 		}
 
 		let cumulativeGasUsed = 0n;
+
 		for (const receipt of block.eth_getBlockReceipts) {
 			cumulativeGasUsed += viem.hexToBigInt(receipt.gasUsed);
+
 			if (viem.hexToBigInt(receipt.cumulativeGasUsed) !== cumulativeGasUsed) {
 				throw new Error("Method `eth_getBlockReceipts` returned inconsistent cumulative gas used");
 			}
+
 			if (cumulativeGasUsed > gasLimit) {
 				throw new Error("Method `eth_getBlockReceipts` returned cumulative gas used greater than the block gas limit");
 			}
