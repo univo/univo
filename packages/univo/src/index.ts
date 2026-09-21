@@ -575,8 +575,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	 * Accepts an RPC block and verifies all transaction indicies are contiguous
 	 */
 	function verifyTransactionIndicies(block: TBlock) {
-		const transactions = block.eth_getBlockByNumber.transactions;
 		const receipts = block.eth_getBlockReceipts;
+		const transactions = block.eth_getBlockByNumber.transactions;
 
 		if (transactions.length !== receipts.length) {
 			throw new Error("Methods `eth_getBlockByNumber` and `eth_getBlockReceipts` returned different transaction counts");
