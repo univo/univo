@@ -543,6 +543,13 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const transactions = block.eth_getBlockByNumber.transactions.map((transaction) => {
 			const { input, ...formatted } = viem.formatTransaction(transaction);
 
+			// Some RPC providers attach the network chain ID to pre-EIP-155 transactions. Their v value
+			// remains authoritative; retaining chainId would incorrectly replay-protect the serialization.
+
+			if (formatted.type === "legacy" && (formatted.v === 27n || formatted.v === 28n)) {
+				formatted.chainId = undefined;
+			}
+
 			const signature =
 				formatted.type === "legacy"
 					? { r: formatted.r, s: formatted.s, v: formatted.v }

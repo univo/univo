@@ -86,6 +86,61 @@ test.concurrent("throws an error if an action id is duplicated", () => {
 	expect(() => univo.action({ id: "action", event, handler: async () => {} })).toThrowError;
 });
 
+test.concurrent("accepts provider chain id on pre-EIP-155 transactions", async () => {
+	const block = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
+	const transaction = block.eth_getBlockByNumber.transactions.find((transaction) => {
+		return transaction.hash === "0xf931968671b52266f35beb799cc37e97cface21b624ff937044457ada3d1009d";
+	});
+
+	if (transaction === undefined) {
+		throw new Error("Expected pre-EIP-155 transaction in fixture");
+	}
+
+	transaction.chainId = "0x1";
+
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: async () => block,
+		metadataStorage: test_metadataStorage(),
+	});
+
+	univo.event({
+		id: "event",
+		handler: () => [],
+		filters: [{ chain: 1, fromBlock: 0 }],
+		storage: { upsert: async () => {}, delete: async () => {} },
+	});
+
+	const response = await local(univo).request({
+		method: "private_writeEventsAndGetKeys",
+		params: [
+			{
+				events: ["event"],
+				head: {
+					chain: block.eth_chainId,
+					hash: block.eth_getBlockByNumber.hash,
+					number: block.eth_getBlockByNumber.number,
+					parent_hash: block.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
+	});
+
+	expect(response.results).toStrictEqual([
+		{
+			status: "ok",
+			chain: "0x1",
+			event_id: "event",
+			number: "0x15edd39",
+			parent_hash: expect.any(String),
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
+			created_at: expect.any(Number),
+		},
+	]);
+});
+
 test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same block", async ({ expect }) => {
 	const chainFinalizedHeight = 0;
 
