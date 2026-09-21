@@ -494,9 +494,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
 
 		const commitsKey = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
-		const commitsValue = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
 
-		await opts.metadataStorage.adapter.put(commitsKey, commitsValue);
+		await opts.metadataStorage.adapter.put(commitsKey, "commitsValue");
 	}
 
 	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
@@ -747,9 +746,8 @@ function indexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 			// event but that could dramatically increase the cost of the metadata layer from increased writes
 
 			const commitsKey = `${prefix}/action/${action.id}`;
-			const commitsValue = JSON.stringify({ hello: "world" }); // Doesn't matter what this is
 
-			await opts.metadataStorage.adapter.put(commitsKey, commitsValue);
+			await opts.metadataStorage.adapter.put(commitsKey, "");
 		});
 
 		await Promise.all(promises);
