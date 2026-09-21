@@ -272,7 +272,7 @@ function realtime(opts: RealtimeOptions) {
 
 					await retry(
 						() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
-						4,
+						2,
 					);
 
 					log.debug("Delivered reorganised head");
@@ -313,7 +313,7 @@ function realtime(opts: RealtimeOptions) {
 				log.debug("Indexer finalized");
 			} catch (error) {
 				if (error instanceof Error) {
-					log.warn(`Failed to finalize ${error.message}`);
+					log.warn(`Failed to finalize: ${error.message}`);
 				}
 			}
 		}
