@@ -141,6 +141,44 @@ test.concurrent("accepts provider chain id on pre-EIP-155 transactions", async (
 	]);
 });
 
+test.concurrent("skips transaction verification for unsupported transaction types", async () => {
+	const block = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+
+	// @ts-expect-error modifying possibly undefined type
+	block.eth_getBlockByNumber.transactions[0]!.type = "0x6a";
+
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: async () => block,
+		metadataStorage: test_metadataStorage(),
+	});
+
+	univo.event({
+		id: "event",
+		handler: () => [],
+		filters: [{ chain: 1, fromBlock: 0 }],
+		storage: { upsert: async () => {}, delete: async () => {} },
+	});
+
+	const response = await local(univo).request({
+		method: "private_writeEventsAndGetKeys",
+		params: [
+			{
+				events: ["event"],
+				head: {
+					chain: block.eth_chainId,
+					hash: block.eth_getBlockByNumber.hash,
+					number: block.eth_getBlockByNumber.number,
+					parent_hash: block.eth_getBlockByNumber.parentHash,
+				},
+			},
+		],
+	});
+
+	expect(response.results[0]?.status).toBe("ok");
+});
+
 test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same block", async ({ expect }) => {
 	const chainFinalizedHeight = 0;
 
