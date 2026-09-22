@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.2...v0.3.3
+
+### 🩹 Fixes
+
+- **indexer:** Allow unsupported tx types during RPC verification ([#87](https://github.com/univo/univo/pull/87))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.3.1...v0.3.2
 
 [compare changes](https://github.com/univo/univo/compare/v0.3.1...v0.3.2)
