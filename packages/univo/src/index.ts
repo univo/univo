@@ -24,6 +24,8 @@ type Block = {
 	eth_getBlockReceipts: viem.RpcTransactionReceipt[];
 };
 
+const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n]);
+
 /**
  * Filters -----------------------------------------------------------------------------------------------------------------------------------
  */
@@ -536,8 +538,25 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	 * Reconstructs the transactions trie and verifies it matches the block's transactions root.
 	 */
 	function verifyTransactionsRoot(block: TBlock) {
-		const transactions = block.eth_getBlockByNumber.transactions.map((transaction) => {
-			const { input, ...formatted } = viem.formatTransaction(transaction);
+		const unsupportedTxs = block.eth_getBlockByNumber.transactions.filter((tx) => {
+			return !SUPPORTED_TRANSACTION_TYPES.has(viem.hexToBigInt(tx.type));
+		});
+
+		// If we encounter a block that includes an unknown tx type that we do not know how to serialize
+		// we cannot verify the transactions root. Rather than having to define a serializer for every
+		// possible new transaction type, we silently return success and log a warning that we were
+		// unable to verify the transactions root. Then, support can be added for this new tx type later.
+
+		for (const tx of unsupportedTxs) {
+			log.warn(`Encountered unsupported tx type for ${tx.hash} on ${block.eth_chainId}`);
+		}
+
+		if (unsupportedTxs.length > 0) {
+			return log.warn("Unable to verify block `transactionsRoot` because of unsupported tx type");
+		}
+
+		const transactions = block.eth_getBlockByNumber.transactions.map((tx) => {
+			const { input, ...formatted } = viem.formatTransaction(tx);
 
 			// Some RPC providers attach the network chain ID to pre-EIP-155 transactions. Their v value
 			// remains authoritative; retaining chainId would incorrectly replay-protect the serialization.
@@ -556,8 +575,8 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				signature as viem.Signature,
 			);
 
-			if (!isHexEqual(transaction.hash, viem.keccak256(serialized))) {
-				throw new Error(`Transaction ${transaction.hash} failed serialization check`);
+			if (!isHexEqual(tx.hash, viem.keccak256(serialized))) {
+				throw new Error(`Transaction ${tx.hash} failed serialization check`);
 			}
 
 			return viem.hexToBytes(serialized);
