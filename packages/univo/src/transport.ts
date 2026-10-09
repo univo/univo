@@ -3,8 +3,7 @@ import { WebSocket } from "partysocket";
 import type { ErrorEvent } from "partysocket/ws";
 
 import type { Rpc } from "./rpc";
-import { createException } from "./exceptions";
-import { compress, createLogger, mutex, raise } from "./utils";
+import { compress, createLogger, mutex } from "./utils";
 
 /**
  * Config -----------------------------------------------------------------------------------------------------------------------------------
@@ -45,14 +44,12 @@ type Transport<R extends Rpc, P extends Protocol = Protocol> = {
  * Local -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-const UnknownMethodError = createException("The requested RPC method does not exist on the provided implementation");
-
 function local<R extends Rpc>(rpc: R): Transport<R, "local"> {
 	const request: Transport<Rpc>["request"] = async (opts) => {
 		const method = rpc.request[opts.method];
 
 		if (method === undefined) {
-			throw new Error(UnknownMethodError);
+			throw new Error("RPC method doesn't exist on implementation");
 		}
 
 		return await method(...opts.params);
@@ -243,7 +240,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 				socket.send(JSON.stringify(body));
 			} catch (cause) {
 				cleanup();
-				reject(new Error(ClientConnectionError, { cause }));
+				reject(new Error("Failed to fetch", { cause }));
 			}
 		});
 	};
@@ -328,11 +325,13 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 		if (options.method.startsWith("private_")) {
 			// Authenticate request
 			if (opts.signingKey === undefined) {
-				throw new Error(ClientUnauthorizedError);
+				throw new Error("Authentication failed for private RPC method");
 			}
 
 			// Compress request
-			body = await compress(body).catch((cause) => raise(ClientCompressionError, { cause }));
+			body = await compress(body).catch((cause) => {
+				throw new Error("Failed to compress request body", { cause });
+			});
 
 			// Set headers
 			headers.set("Content-Encoding", "gzip");
@@ -346,15 +345,15 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 				throw signal.reason;
 			}
 
-			throw new Error(ClientConnectionError, { cause });
+			throw new Error("Failed to fetch rpc", { cause });
 		});
 
 		if (!res.ok || res.status < 200 || res.status >= 300) {
-			throw new Error(ClientConnectionError);
+			throw new Error("Received non-200 status rpc response");
 		}
 
 		const json = await res.json().catch((cause) => {
-			throw new Error(ClientResponseError, { cause });
+			throw new Error("Failed to parse json rpc response", { cause });
 		});
 
 		if (json.error) {
@@ -370,11 +369,6 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
 
 	return { protocol: "http", request, subscribe };
 }
-
-const ClientCompressionError = createException("An error occurred when compressing the request");
-const ClientConnectionError = createException("An errored occurred when connecting to the server");
-const ClientResponseError = createException("An error occurred when reading the servers response");
-const ClientUnauthorizedError = createException("Attempted to execute a private method without providing a request signing key");
 
 /**
  * Exports -----------------------------------------------------------------------------------------------------------------------------------

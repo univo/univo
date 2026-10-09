@@ -1620,26 +1620,30 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	const IncompleteBlockError = createException("Received block with missing required property");
 
 	const private_writeEvents: IndexerRpc["request"]["private_writeEvents"] = async (params) => {
-		// TODO: Return an error
-		if (allEvents.length === 0) return { failures: [] };
+		if (allEvents.length === 0) {
+			return { failures: [] };
+		}
 
-		// TODO: Return errors
-		const relevant_events = allEvents.filter((event) => params.events.includes(event.id));
-		if (relevant_events.length === 0) return { failures: [] };
+		const relevantEvents = allEvents.filter((event) => params.events.includes(event.id));
 
-		// TODO: This is likely an error and we could inform the client somehow.
-		if (params.events.length === 0) return { failures: [] };
+		if (relevantEvents.length === 0) {
+			return { failures: [] };
+		}
+
+		if (params.events.length === 0) {
+			return { failures: [] };
+		}
 
 		const failures: Record<string, Result> = {};
 
 		// Proxy the object so we can safely determine whenever the user accesses a key that wasn't provided
-		let accessed_undefined_key = false;
+		let accessedUndefinedKey = false;
 
-		const proxied_blocks = getWriteEventsProxy(params.blocks, () => {
+		const proxiedBlocks = getWriteEventsProxy(params.blocks, () => {
 			// Setting this flag is designed as a back up to detect undefined key access.
 			// In userspace it is possible to wrap a handler or upsert function in a try/catch
 			// block that would prevent the below error from propagating
-			accessed_undefined_key = true;
+			accessedUndefinedKey = true;
 
 			// We throw to prevent any further execution in the handler/upsert fn
 			throw new Error(IncompleteBlockError);
@@ -1651,15 +1655,26 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			for (const event of grouped_events) {
 				// Ensure event is requested for write
-				if (!params.events.includes(event.id)) continue;
+				if (!params.events.includes(event.id)) {
+					continue;
+				}
 
-				for (const block of proxied_blocks) {
+				for (const block of proxiedBlocks) {
 					try {
 						// Ignore blocks that don't match any of the defined event filters
-						if (!event.filters.some((filter) => matchFilter(block, filter))) continue;
+						if (!event.filters.some((filter) => matchFilter(block, filter))) {
+							continue;
+						}
+
 						const events = event.handler(block);
-						if (accessed_undefined_key) throw new Error(IncompleteBlockError);
-						for (const event of events) batch.push(event);
+
+						if (accessedUndefinedKey) {
+							throw new Error(IncompleteBlockError);
+						}
+
+						for (const event of events) {
+							batch.push(event);
+						}
 					} catch (error) {
 						const status = catchException(error, IncompleteBlockError) ? "incomplete_error" : "handler_error";
 
@@ -1683,13 +1698,18 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 				}
 			}
 
-			if (batch.length === 0) return;
+			if (batch.length === 0) {
+				return;
+			}
 
 			const start = Date.now();
 
 			try {
 				await retry(() => storage.upsert(batch), 2);
-				if (accessed_undefined_key) throw new Error(IncompleteBlockError);
+
+				if (accessedUndefinedKey) {
+					throw new Error(IncompleteBlockError);
+				}
 			} catch (error) {
 				const status = catchException(error, IncompleteBlockError) ? "incomplete_error" : "upsert_error";
 
@@ -1700,10 +1720,12 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 					}
 				}
 
-				for (const event of relevant_events) {
-					for (const block of proxied_blocks) {
+				for (const event of relevantEvents) {
+					for (const block of proxiedBlocks) {
 						// Ignore blocks that don't match any of the defined event filters
-						if (!event.filters.some((filter) => matchFilter(block, filter))) continue;
+						if (!event.filters.some((filter) => matchFilter(block, filter))) {
+							continue;
+						}
 
 						failures[event.id + block.eth_getBlockByNumber.number] ??= {
 							status,
@@ -1720,16 +1742,16 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 			const stop = Date.now() - start;
 
-			for (const event of relevant_events) {
+			for (const event of relevantEvents) {
 				log.debug(`Recorded ${batch.length} ${event.id} in ${stop}ms`);
 			}
 		});
 
 		await Promise.all(promises);
 
-		const failures_array = Object.values(failures);
+		const failuresArray = Object.values(failures);
 
-		return { failures: failures_array };
+		return { failures: failuresArray };
 	};
 
 	// Important to note this method doesn't return an exhaustive list of every key read. It is always possible for the user
