@@ -103,15 +103,6 @@ export type Flatten<T> = {
 	[K in keyof T as CamelToSnake<Extract<K, string>>]: T[K];
 };
 
-export function raise(...args: [Error] | Parameters<typeof Error>): never {
-	if (args[0] instanceof Error) throw args[0];
-	throw new Error(...(args as Parameters<typeof Error>));
-}
-
-export function nonNullable<Type>(value: Type): value is NonNullable<Type> {
-	return value !== null && value !== undefined;
-}
-
 export async function compress(input: string): Promise<ArrayBuffer> {
 	const compressed = new Blob([input]).stream().pipeThrough(new CompressionStream("gzip"));
 	return new Response(compressed).arrayBuffer();
