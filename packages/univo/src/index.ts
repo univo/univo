@@ -24,8 +24,6 @@ type Block = {
 	eth_getBlockReceipts: viem.RpcTransactionReceipt[];
 };
 
-const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n]);
-
 /**
  * Filters -----------------------------------------------------------------------------------------------------------------------------------
  */
@@ -533,6 +531,8 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 
 		return type === 0n ? encoded : viem.concatBytes([Uint8Array.of(Number(type)), encoded]);
 	}
+
+	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n]);
 
 	/**
 	 * Reconstructs the transactions trie and verifies it matches the block's transactions root.
