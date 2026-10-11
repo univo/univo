@@ -338,6 +338,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 
 		const group = eventsGroupedByStorageMap.get(event.storage) ?? [];
 		group.push(event);
+
 		eventsGroupedByStorageMap.set(event.storage, group);
 	}
 
