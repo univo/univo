@@ -23,7 +23,7 @@ export function test_promiseWithResolvers() {
 
 export type test_Block = {
 	eth_chainId: `0x${string}`;
-	eth_getBlockByNumber: RpcBlock<"finalized", true>;
+	eth_getBlockByNumber: RpcBlock<"latest", true>;
 	eth_getBlockReceipts: RpcTransactionReceipt[];
 };
 

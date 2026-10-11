@@ -257,10 +257,6 @@ type Manifest = {
 	updated_at: number;
 };
 
-// TODO
-// - Improve the NodeRpc types
-// - Handle null response from getBlock method
-
 // Erase event payload types only at the collection boundary, including `never` for empty handlers.
 // Keep block handlers contravariant so getBlock must satisfy every event's block requirements.
 
