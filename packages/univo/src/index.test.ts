@@ -83,6 +83,96 @@ test.concurrent("throws an error if an action id is duplicated", () => {
 	).toThrowError("Duplicate action id `action`.");
 });
 
+test.concurrent("safely handles getBlock returning null for eth_getBlockByNumber", async () => {
+	const block = await test_getBlock({ chain: "0x1", number: "0x1" });
+	let attempts = 0;
+
+	async function getBlock() {
+		attempts++;
+		return attempts === 1 ? { ...block, eth_getBlockByNumber: null } : block;
+	}
+
+	const event = defineEvent({
+		id: "event",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: () => [],
+		storage: { upsert: async () => {}, delete: async () => {} },
+	});
+	const indexer = defineIndexer({
+		quiet: true,
+		getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
+	const head: Head = {
+		chain: block.eth_chainId,
+		hash: block.eth_getBlockByNumber.hash,
+		number: block.eth_getBlockByNumber.number,
+		parent_hash: block.eth_getBlockByNumber.parentHash,
+	};
+
+	const response = await indexer.request({
+		method: "private_writeEventsAndGetKeys",
+		params: [{ events: [event.id], head }],
+	});
+
+	expect(attempts).toBe(2);
+	expect(response.results).toStrictEqual([
+		{
+			status: "ok",
+			event_id: event.id,
+			...head,
+			created_at: expect.any(Number),
+		},
+	]);
+});
+
+test.concurrent("safely handles getBlock returning null for eth_getBlockReceipts", async () => {
+	const block = await test_getBlock({ chain: "0x1", number: "0x1" });
+	let attempts = 0;
+
+	async function getBlock() {
+		attempts++;
+		return attempts === 1 ? { ...block, eth_getBlockReceipts: null } : block;
+	}
+
+	const event = defineEvent({
+		id: "event",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: () => [],
+		storage: { upsert: async () => {}, delete: async () => {} },
+	});
+	const indexer = defineIndexer({
+		quiet: true,
+		getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
+	const head: Head = {
+		chain: block.eth_chainId,
+		hash: block.eth_getBlockByNumber.hash,
+		number: block.eth_getBlockByNumber.number,
+		parent_hash: block.eth_getBlockByNumber.parentHash,
+	};
+
+	const response = await indexer.request({
+		method: "private_writeEventsAndGetKeys",
+		params: [{ events: [event.id], head }],
+	});
+
+	expect(attempts).toBe(2);
+	expect(response.results).toStrictEqual([
+		{
+			status: "ok",
+			event_id: event.id,
+			...head,
+			created_at: expect.any(Number),
+		},
+	]);
+});
+
 test.concurrent("accepts provider chain id on pre-EIP-155 transactions", async () => {
 	const block = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 

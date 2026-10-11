@@ -387,6 +387,14 @@ function defineIndexer(opts: Indexer) {
 	async function retry_getBlockFromChain(head: PartialHead) {
 		const block = await opts.getBlock({ chain: head.chain, number: head.number });
 
+		if (block.eth_getBlockByNumber === null) {
+			throw new Error("eth_getBlockByNumber returned null response");
+		}
+
+		if (block.eth_getBlockReceipts === null) {
+			throw new Error("eth_getBlockReceipts returned null response");
+		}
+
 		// Verify the returned block matches the expected hash and/or parent hash requested
 
 		if (typeof head.hash === "string") {
