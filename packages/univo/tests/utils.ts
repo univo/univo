@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
 import { NodeRpc } from "../src/rpc";
-import { wss } from "../src/transport";
+import { http } from "../src/transport";
 import { defineStorage } from "../src/metadata";
 import { memory } from "../src/metadata/adapters/memory";
 
@@ -27,7 +27,7 @@ export type test_Block = {
 	eth_getBlockReceipts: RpcTransactionReceipt[];
 };
 
-const node = wss<NodeRpc>(process.env.TEST_ETHEREUM_RPC_URL);
+const node = http<NodeRpc>(process.env.TEST_ETHEREUM_RPC_URL);
 
 export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${string}` | "finalized"; hash?: `0x${string}` }) {
 	if (!block.number.startsWith("0x")) {
