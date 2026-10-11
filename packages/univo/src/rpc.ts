@@ -25,8 +25,23 @@ type NodeRpc = {
 			...params: Method["Parameters"] extends readonly unknown[] ? Method["Parameters"] : []
 		) => Promise<Method["ReturnType"]>;
 	} & {
+		/**
+		 * Fetches transaction receipts for a block.
+		 * @param block A hexadecimal block number or block tag.
+		 * @returns All transaction receipts for the block, or null if the block is not found.
+		 */
 		eth_getBlockReceipts: (block: RpcBlockNumber | BlockTag) => Promise<RpcTransactionReceipt[] | null>;
-		eth_getBlockByNumber: (block: RpcBlockNumber | BlockTag, includeTransactionObjects: true) => Promise<RpcBlock<BlockTag, true> | null>;
+
+		/**
+		 * Fetches a non-pending block with full transaction objects.
+		 * @param block A hexadecimal block number or block tag other than "pending".
+		 * @param includeTransactionObjects Must be true to load full transaction objects instead of hashes.
+		 * @returns A block with non-nullable hash and number fields, or null if the block is not found.
+		 */
+		eth_getBlockByNumber: (
+			block: RpcBlockNumber | Exclude<BlockTag, "pending">,
+			includeTransactionObjects: true,
+		) => Promise<RpcBlock<Exclude<BlockTag, "pending">, true> | null>;
 	};
 
 	subscribe: {
