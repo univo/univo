@@ -17,11 +17,27 @@ import { compress, createLogger, decoder, decompress, normalizeHex, retry, isHex
 // the block, and log address and events. We also expect some methods so that we can verify these known methods
 // originate from the intended block hash.
 
-type Block = {
+/**
+ * The minimum RPC data required to process a block.
+ * Extend this interface in your application to expose additional RPC methods to every event:
+ *
+ * ```ts
+ * import "univo";
+ *
+ * declare module "univo" {
+ *   interface Block {
+ *     eth_getBalance: `0x${string}`;
+ *   }
+ * }
+ * ```
+ *
+ * Your `getBlock` function must also return any required fields added by the augmentation.
+ */
+interface Block {
 	eth_chainId: `0x${string}`;
 	eth_getBlockByNumber: viem.RpcBlock<"latest", true>;
 	eth_getBlockReceipts: viem.RpcTransactionReceipt[];
-};
+}
 
 /**
  * Filters -----------------------------------------------------------------------------------------------------------------------------------
@@ -95,7 +111,7 @@ const includesLogEvent: MatchFilter = (block, filter) => {
  * Events -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-type Event<TBlock, TEvent> = {
+type Event<TEvent> = {
 	/**
 	 * A human-readable identifier for the event.
 	 */
@@ -133,15 +149,15 @@ type Event<TBlock, TEvent> = {
 	 * When a block matches any of filters defined by your event it will be passed to this function to be synchronously
 	 * transformed into a list of structured events.
 	 *
-	 * The input defaults to the base `Block` type. Annotate the handler's block parameter to use a custom block type;
-	 * the `getBlock` function provided to your indexer must return a compatible type.
+	 * The input uses the shared `Block` interface. Extend it with `declare module "univo"` in your application
+	 * to expose additional RPC methods returned by your indexer's `getBlock` function.
 	 *
 	 * The returned output value should be an array containg any valid JavaScript values. Each event that you return from
 	 * your handler should not depend on any information outside of the input block data. It should directly map a given
 	 * input (the raw block) to a given output (structured events). This ensures that handler remains idempotent and that
 	 * repeated calls with the same input block produce the same output events.
 	 */
-	handler: (block: TBlock) => TEvent[];
+	handler: (block: Block) => TEvent[];
 
 	/**
 	 * Storage adapter to persist events in your off-chain storage.
@@ -169,7 +185,7 @@ type Event<TBlock, TEvent> = {
 	};
 };
 
-function defineEvent<TBlock = Block, TEvent = unknown>(event: Event<TBlock, TEvent>) {
+function defineEvent<TEvent = unknown>(event: Event<TEvent>) {
 	return event;
 }
 
@@ -177,7 +193,7 @@ function defineEvent<TBlock = Block, TEvent = unknown>(event: Event<TBlock, TEve
  * Actions -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-type Action<TBlock, TEvent> = {
+type Action<TEvent> = {
 	/**
 	 * A human-readable identifier for the action.
 	 */
@@ -186,7 +202,7 @@ type Action<TBlock, TEvent> = {
 	/**
 	 * The on-chain event that should invoke this action.
 	 */
-	event: Event<TBlock, TEvent>;
+	event: Event<TEvent>;
 
 	/**
 	 * The action you want to execute when the event _finalizes_ on-chain.
@@ -213,7 +229,7 @@ type Action<TBlock, TEvent> = {
 	handler: (event: TEvent) => Promise<void> | void;
 };
 
-function defineAction<TBlock, TEvent>(action: Action<TBlock, TEvent>) {
+function defineAction<TEvent>(action: Action<TEvent>) {
 	return action;
 }
 
@@ -258,21 +274,20 @@ type Manifest = {
 };
 
 // Erase event payload types only at the collection boundary, including `never` for empty handlers.
-// Keep block handlers contravariant so getBlock must satisfy every event's block requirements.
 
-type AnyEvent<TBlock> = Omit<Event<TBlock, any>, "storage"> & {
+type AnyEvent = Omit<Event<any>, "storage"> & {
 	storage: {
 		upsert(events: any[]): Promise<void>;
 		delete(events: any[]): Promise<void>;
 	};
 };
 
-type AnyAction<TBlock> = Omit<Action<TBlock, any>, "event" | "handler"> & {
-	event: AnyEvent<TBlock>;
+type AnyAction = Omit<Action<any>, "event" | "handler"> & {
+	event: AnyEvent;
 	handler(event: any): Promise<void> | void;
 };
 
-type Indexer<TBlock> = {
+type Indexer = {
 	/**
 	 * Silences all logs including errors.
 	 *
@@ -284,12 +299,12 @@ type Indexer<TBlock> = {
 	/**
 	 * Events
 	 */
-	events: AnyEvent<TBlock>[];
+	events: AnyEvent[];
 
 	/**
 	 * Actions
 	 */
-	actions: AnyAction<TBlock>[];
+	actions: AnyAction[];
 
 	/**
 	 * Storage interface for durably persisting indexer metadata.
@@ -312,24 +327,25 @@ type Indexer<TBlock> = {
 	 *
 	 * Note that there is a minimum set of RPC methods expected on the response notably `eth_chainId`,
 	 * `eth_getBlockByNumber` and `eth_getBlockReceipts`. These are expected so that we can safely match
-	 * each block processed against your event filters.
+	 * each block processed against your event filters. Additional methods may be returned. Remember to
+	 * extend the shared `Block` interface using `declare module "univo"` in your application.
 	 *
 	 * Note that we provide only the block number to look up block data. During a chain reorganisation, this
 	 * makes it possible for different RPC calls to return data for different block hashes. We manually verify
 	 * that all methods return the expected block hash. However, for any custom methods you add you must manually
 	 * verify the block hash is consistent with the other known methods.
 	 */
-	getBlock: (block: { chain: `0x${string}`; number: `0x${string}` | "finalized" }) => Promise<TBlock>;
+	getBlock: (block: { chain: `0x${string}`; number: `0x${string}` | "finalized" }) => Promise<Block>;
 };
 
-function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
+function defineIndexer(opts: Indexer) {
 	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[indexer]" });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
 	// events that share the same storage adapter to be combined into the same batch for upsert.
 
-	const allEvents: Event<any, any>[] = [...opts.events];
-	const eventsGroupedByStorageMap = new Map<Event<any, any>["storage"], Event<any, any>[]>();
+	const allEvents: AnyEvent[] = [...opts.events];
+	const eventsGroupedByStorageMap = new Map<AnyEvent["storage"], AnyEvent[]>();
 
 	for (const event of allEvents) {
 		if (!/^[A-Za-z0-9_-]+$/.test(event.id)) {
@@ -344,7 +360,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 
 	// Actions
 
-	const allActions: Action<any, any>[] = [...opts.actions];
+	const allActions: AnyAction[] = [...opts.actions];
 	const actionIds = new Set<string>();
 
 	for (const action of allActions) {
@@ -436,7 +452,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 	/**
 	 * Accepts an RPC block and verifies all log indicies are contiguous
 	 */
-	function verifyLogIndicies(block: TBlock) {
+	function verifyLogIndicies(block: Block) {
 		let expectedLogIndex = 0n;
 
 		for (const receipt of block.eth_getBlockReceipts) {
@@ -453,7 +469,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 	/**
 	 * Reconstructs the receipts trie and verifies it matches the block's receipts root.
 	 */
-	function verifyReceiptsRoot(block: TBlock) {
+	function verifyReceiptsRoot(block: Block) {
 		const receiptsRoot = calculateTrieRoot(block.eth_getBlockReceipts.map(serializeReceipt));
 
 		if (!isHexEqual(block.eth_getBlockByNumber.receiptsRoot, receiptsRoot)) {
@@ -564,7 +580,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 	/**
 	 * Reconstructs the transactions trie and verifies it matches the block's transactions root.
 	 */
-	function verifyTransactionsRoot(block: TBlock) {
+	function verifyTransactionsRoot(block: Block) {
 		const unsupportedTxs = block.eth_getBlockByNumber.transactions.filter((tx) => {
 			return !SUPPORTED_TRANSACTION_TYPES.has(viem.hexToBigInt(tx.type));
 		});
@@ -619,7 +635,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 	/**
 	 * Accepts an RPC block and verifies all transaction indicies are contiguous
 	 */
-	function verifyTransactionIndicies(block: TBlock) {
+	function verifyTransactionIndicies(block: Block) {
 		const receipts = block.eth_getBlockReceipts;
 		const transactions = block.eth_getBlockByNumber.transactions;
 
@@ -650,7 +666,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 	 * Accepts an RPC block and verifies the cumulative used adds up transaction by transaction,
 	 * and never exceeds the gas limit
 	 */
-	function verifyTransactionGasUsage(block: TBlock) {
+	function verifyTransactionGasUsage(block: Block) {
 		const gasLimit = viem.hexToBigInt(block.eth_getBlockByNumber.gasLimit);
 		const blockGasUsed = viem.hexToBigInt(block.eth_getBlockByNumber.gasUsed);
 
@@ -712,7 +728,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 		return manifest.finalized_block_height;
 	};
 
-	async function writeUnfinalizedBlock(block: TBlock) {
+	async function writeUnfinalizedBlock(block: Block) {
 		// Process the unfinalized block
 
 		const events_start = Date.now();
@@ -852,7 +868,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 		await writeUnfinalizedBlock(block);
 	};
 
-	async function deleteReorganisedBlocksAndWriteCanonicalBlock(reorganised: TBlock[], canonical: TBlock) {
+	async function deleteReorganisedBlocksAndWriteCanonicalBlock(reorganised: Block[], canonical: Block) {
 		const deletes = allEvents.map(async (event) => {
 			// TODO
 			// We intentionally ignore filters and basically perform an optimistic delete on events that might
@@ -975,7 +991,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 		// record of events will leave the canonical set and not the reorganised set.
 	};
 
-	async function writeFinalizedBlock(block: TBlock, actions: Action<any, any>[]) {
+	async function writeFinalizedBlock(block: Block, actions: AnyAction[]) {
 		// If the indexer hasn't defined any actions then there isn't actually any work to complete
 		// on finalization, so this is an optimistic abort case to reduce costs.
 
@@ -1218,8 +1234,7 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 		if (object !== null) {
 			const block = await decompress(object.body);
 			const parsed = JSON.parse(block);
-
-			return parsed as TBlock;
+			return parsed as Block;
 		}
 
 		return await getBlockFromChain(head);

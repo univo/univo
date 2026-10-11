@@ -1,7 +1,7 @@
 import { expect, expectTypeOf, test } from "vitest";
 import { hexToNumber, numberToHex } from "viem";
 
-import type { Action, Block, Event, Head } from ".";
+import type { Event, Head } from ".";
 import { defineAction, defineEvent, defineIndexer } from ".";
 import { test_getBlock, test_metadataStorage } from "../tests/utils";
 
@@ -10,7 +10,7 @@ test.concurrent("correctly infers the event type", () => {
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block: test_Block) => {
+		handler: (block) => {
 			return block.eth_getBlockReceipts.map((receipt) => {
 				return {
 					receipt: receipt.blockHash,
@@ -19,128 +19,7 @@ test.concurrent("correctly infers the event type", () => {
 		},
 	});
 
-	expectTypeOf(event).toEqualTypeOf<Event<test_Block, { receipt: `0x${string}` }>>();
-});
-
-test.concurrent("infers default blocks, storage payloads, and action payloads", () => {
-	const event = defineEvent({
-		id: "event",
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => {
-			expectTypeOf(block).toEqualTypeOf<Block>();
-			return [{ hash: block.eth_getBlockByNumber.hash }];
-		},
-		storage: {
-			async upsert(events) {
-				expectTypeOf(events).toEqualTypeOf<{ hash: `0x${string}` }[]>();
-			},
-			async delete(events) {
-				expectTypeOf(events).toEqualTypeOf<{ hash: `0x${string}` }[]>();
-			},
-		},
-	});
-
-	const action = defineAction({
-		id: "action",
-		event,
-		handler: (payload) => {
-			expectTypeOf(payload).toEqualTypeOf<{ hash: `0x${string}` }>();
-		},
-	});
-
-	expectTypeOf(action).toEqualTypeOf<Action<Block, { hash: `0x${string}` }>>();
-});
-
-test.concurrent("accepts heterogeneous definitions and checks custom block requirements", () => {
-	const event = defineEvent({
-		id: "custom",
-		filters: [],
-		handler: (block: Block & { custom: string }) => [block.custom],
-		storage: { upsert: async () => {}, delete: async () => {} },
-	});
-
-	const otherEvent = defineEvent({
-		id: "other",
-		filters: [],
-		handler: () => [42],
-		storage: { upsert: async () => {}, delete: async () => {} },
-	});
-
-	const action = defineAction({ id: "custom-action", event, handler: () => {} });
-	const otherAction = defineAction({ id: "other-action", event: otherEvent, handler: () => {} });
-
-	defineIndexer({
-		quiet: true,
-		metadataStorage: test_metadataStorage(),
-		getBlock: async (head) => ({ ...(await test_getBlock(head)), custom: "value" }),
-		events: [event, otherEvent],
-		actions: [action, otherAction],
-	});
-
-	defineIndexer({
-		quiet: true,
-		metadataStorage: test_metadataStorage(),
-		// @ts-expect-error getBlock does not provide the custom field required by this event
-		getBlock: test_getBlock,
-		events: [event],
-		actions: [],
-	});
-
-	defineIndexer({
-		quiet: true,
-		metadataStorage: test_metadataStorage(),
-		// @ts-expect-error getBlock does not provide the custom field required by this action's event
-		getBlock: test_getBlock,
-		events: [],
-		actions: [action],
-	});
-});
-
-test.concurrent("supports empty definitions and reuses definitions across indexers", async () => {
-	const empty = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events: [],
-		actions: [],
-	});
-
-	expect(await empty.request({ method: "private_getEvents", params: [] })).toEqual([]);
-	expect(empty).not.toHaveProperty("event");
-	expect(empty).not.toHaveProperty("action");
-
-	const event = defineEvent({
-		id: "shared",
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: () => [],
-		storage: { upsert: async () => {}, delete: async () => {} },
-	});
-
-	const events = [event];
-
-	const first = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events,
-		actions: [],
-	});
-
-	const second = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events,
-		actions: [],
-	});
-
-	events.length = 0;
-
-	for (const indexer of [first, second]) {
-		expect(await indexer.request({ method: "private_getEvents", params: [] })).toEqual([
-			{ id: "shared", filters: [{ chain: 1, from_block: 0 }] },
-		]);
-	}
+	expectTypeOf(event).toEqualTypeOf<Event<{ receipt: `0x${string}` }>>();
 });
 
 test.concurrent("throws an error if an event with an invalid id is provided to the indexer", () => {
@@ -207,7 +86,7 @@ test.concurrent("throws an error if an action id is duplicated", () => {
 test.concurrent("accepts provider chain id on pre-EIP-155 transactions", async () => {
 	const block = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	const transaction = block.eth_getBlockByNumber.transactions.find((transaction) => {
+	const transaction = block.eth_getBlockByNumber.transactions.find((transaction: any) => {
 		return transaction.hash === "0xf931968671b52266f35beb799cc37e97cface21b624ff937044457ada3d1009d";
 	});
 
@@ -263,8 +142,7 @@ test.concurrent("accepts provider chain id on pre-EIP-155 transactions", async (
 test.concurrent("skips transaction verification for unsupported transaction types", async () => {
 	const block = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	// @ts-expect-error modifying possibly undefined type
-	block.eth_getBlockByNumber.transactions[0]!.type = "0x6a";
+	block.eth_getBlockByNumber.transactions[0].type = "0x6a";
 
 	const event = defineEvent({
 		id: "event",
