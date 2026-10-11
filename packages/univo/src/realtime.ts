@@ -1,6 +1,6 @@
 import { hexToNumber } from "viem";
 
-import { IndexerRpc, NodeRpc } from "./rpc";
+import { IndexerRpc, Rpc } from "./rpc";
 import type { Transport } from "./transport";
 import { createLogger, iife, isHexEqual, mutex, retry } from "./utils";
 
@@ -202,7 +202,7 @@ type RealtimeOptions = {
 	 *
 	 * Must use the `wss` transport protocol from `univo/transport`.
 	 */
-	node: Transport<NodeRpc, "wss">;
+	node: Transport<Rpc, "wss">;
 
 	/**
 	 * Connection to a univo indexer.
@@ -219,7 +219,7 @@ function realtime(opts: RealtimeOptions) {
 	async function getBlockByHash(hash: `0x${string}`) {
 		const block = await opts.node.request({ method: "eth_getBlockByHash", params: [hash, false] });
 
-		if (block === null || block.hash === null || block.number === null) {
+		if (block === null) {
 			return null;
 		}
 
@@ -239,8 +239,8 @@ function realtime(opts: RealtimeOptions) {
 		// limit on our time-to-recovery and makes operational management simple.
 
 		const [chainLatestBlock, chainFinalizedBlock] = await Promise.all([
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false as true] }), //
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["finalized", false as true] }),
+			opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }), //
+			opts.node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
 		]);
 
 		if (chainLatestBlock === null) {

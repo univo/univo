@@ -3,7 +3,7 @@ import { hexToNumber, numberToHex } from "viem";
 
 import type { Action, Block, Event, Head } from ".";
 import { defineAction, defineEvent, defineIndexer } from ".";
-import { test_Block, test_getBlock, test_metadataStorage } from "../tests/utils";
+import { test_getBlock, test_metadataStorage } from "../tests/utils";
 
 test.concurrent("correctly infers the event type", () => {
 	const event = defineEvent({

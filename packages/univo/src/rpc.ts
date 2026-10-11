@@ -1,5 +1,3 @@
-import type { BlockTag, PublicRpcSchema, RpcBlock, RpcBlockNumber, RpcTransactionReceipt } from "viem";
-
 import type { Flatten } from "./utils";
 import type { Block, Filter, Head, Metadata, Result } from ".";
 
@@ -13,40 +11,6 @@ type Rpc = {
 	 * All available event types to subscribe to a stream of values
 	 */
 	subscribe: Record<string, any>;
-};
-
-/**
- * Node -----------------------------------------------------------------------------------------------------------------------------------
- */
-
-type NodeRpc = {
-	request: {
-		[Method in PublicRpcSchema[number] as Exclude<Method["Method"], "eth_getBlockByNumber">]: (
-			...params: Method["Parameters"] extends readonly unknown[] ? Method["Parameters"] : []
-		) => Promise<Method["ReturnType"]>;
-	} & {
-		/**
-		 * Fetches transaction receipts for a block.
-		 * @param block A hexadecimal block number or block tag.
-		 * @returns All transaction receipts for the block, or null if the block is not found.
-		 */
-		eth_getBlockReceipts: (block: RpcBlockNumber | BlockTag) => Promise<RpcTransactionReceipt[] | null>;
-
-		/**
-		 * Fetches a non-pending block with full transaction objects.
-		 * @param block A hexadecimal block number or block tag other than "pending".
-		 * @param includeTransactionObjects Must be true to load full transaction objects instead of hashes.
-		 * @returns A block with non-nullable hash and number fields, or null if the block is not found.
-		 */
-		eth_getBlockByNumber: (
-			block: RpcBlockNumber | Exclude<BlockTag, "pending">,
-			includeTransactionObjects: true,
-		) => Promise<RpcBlock<Exclude<BlockTag, "pending">, true> | null>;
-	};
-
-	subscribe: {
-		newHeads: RpcBlock<"latest", boolean>;
-	};
 };
 
 /**
@@ -111,4 +75,4 @@ type IndexerRpc = {
  * Exports -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-export type { Rpc, NodeRpc, IndexerRpc };
+export type { Rpc, IndexerRpc };
