@@ -1,24 +1,17 @@
-import { expect, test } from "vitest";
+import { expect, expectTypeOf, test } from "vitest";
 import { hexToNumber, numberToHex } from "viem";
 
-import { defineIndexer } from ".";
+import { defineAction, defineEvent, defineIndexer } from ".";
 import { local } from "./transport";
-import type { Event, Head } from ".";
+import type { Action, Block, Event, Head } from ".";
 import { test_Block, test_getBlock, test_metadataStorage } from "../tests/utils";
 
 test.concurrent("correctly infers the event type", () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	const event = univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => {
+		handler: (block: test_Block) => {
 			return block.eth_getBlockReceipts.map((receipt) => {
 				return {
 					receipt: receipt.blockHash,
@@ -27,63 +20,188 @@ test.concurrent("correctly infers the event type", () => {
 		},
 	});
 
-	expectTypeOf(event).toEqualTypeOf<Event<test_Block, { receipt: `0x${string}` }>>;
+	expectTypeOf(event).toEqualTypeOf<Event<test_Block, { receipt: `0x${string}` }>>();
 });
 
-test.concurrent("throws an error if an event with an invalid id is defined", () => {
-	const univo = defineIndexer({
+test.concurrent("infers default blocks, storage payloads, and action payloads", () => {
+	const event = defineEvent({
+		id: "event",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => {
+			expectTypeOf(block).toEqualTypeOf<Block>();
+			return [{ hash: block.eth_getBlockByNumber.hash }];
+		},
+		storage: {
+			async upsert(events) {
+				expectTypeOf(events).toEqualTypeOf<{ hash: `0x${string}` }[]>();
+			},
+			async delete(events) {
+				expectTypeOf(events).toEqualTypeOf<{ hash: `0x${string}` }[]>();
+			},
+		},
+	});
+	const action = defineAction({
+		id: "action",
+		event,
+		handler: (payload) => {
+			expectTypeOf(payload).toEqualTypeOf<{ hash: `0x${string}` }>();
+		},
+	});
+
+	expectTypeOf(action).toEqualTypeOf<Action<Block, { hash: `0x${string}` }>>();
+});
+
+test.concurrent("accepts heterogeneous definitions and checks custom block requirements", () => {
+	const event = defineEvent({
+		id: "custom",
+		filters: [],
+		handler: (block: Block & { custom: string }) => [block.custom],
+		storage: { upsert: async () => {}, delete: async () => {} },
+	});
+	const otherEvent = defineEvent({
+		id: "other",
+		filters: [],
+		handler: () => [42],
+		storage: { upsert: async () => {}, delete: async () => {} },
+	});
+	const action = defineAction({ id: "custom-action", event, handler: () => {} });
+	const otherAction = defineAction({ id: "other-action", event: otherEvent, handler: () => {} });
+	defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: test_metadataStorage(),
+		getBlock: async (head) => ({ ...(await test_getBlock(head)), custom: "value" }),
+		events: [event, otherEvent],
+		actions: [action, otherAction],
+	});
+
+	defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: test_metadataStorage(),
+		// @ts-expect-error getBlock does not provide the custom field required by this event
+		getBlock: test_getBlock,
+		events: [event],
+		actions: [],
+	});
+	defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: test_metadataStorage(),
+		// @ts-expect-error getBlock does not provide the custom field required by this action's event
+		getBlock: test_getBlock,
+		events: [],
+		actions: [action],
+	});
+});
+
+test.concurrent("supports empty definitions and reuses definitions across indexers", async () => {
+	const empty = defineIndexer({
 		quiet: true,
 		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
+		events: [],
+		actions: [],
 	});
+	expect(await local(empty).request({ method: "private_getEvents", params: [] })).toEqual([]);
+	expect(empty).not.toHaveProperty("event");
+	expect(empty).not.toHaveProperty("action");
 
-	const options = {
+	const event = defineEvent({
+		id: "shared",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: () => [],
+		storage: { upsert: async () => {}, delete: async () => {} },
+	});
+	const events = [event];
+	const first = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events,
+		actions: [],
+	});
+	const second = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events,
+		actions: [],
+	});
+	events.length = 0;
+
+	for (const indexer of [first, second]) {
+		expect(await local(indexer).request({ method: "private_getEvents", params: [] })).toEqual([
+			{ id: "shared", filters: [{ chain: 1, from_block: 0 }] },
+		]);
+	}
+});
+
+test.concurrent("throws an error if an event with an invalid id is provided to the indexer", () => {
+	const event = defineEvent({
 		handler: () => [],
 		id: "invalidchars()$%^#&!*&@!#",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		storage: { upsert: async () => {}, delete: async () => {} },
-	};
+	});
 
-	expect(() => univo.event(options)).toThrowError;
+	expect(() =>
+		defineIndexer({
+			quiet: true,
+			signingKey: "test",
+			getBlock: test_getBlock,
+			metadataStorage: test_metadataStorage(),
+			events: [event],
+			actions: [],
+		}),
+	).toThrowError("Invalid event id");
 });
 
 test.concurrent("throws an error if an action id contains a slash", () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	const event = univo.event({
+	const event = defineEvent({
 		id: "event",
 		handler: () => [],
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	expect(() => univo.action({ id: "invalid/action", event, handler: async () => {} })).toThrowError;
+	const action = defineAction({ id: "invalid/action", event, handler: async () => {} });
+
+	expect(() =>
+		defineIndexer({
+			quiet: true,
+			signingKey: "test",
+			getBlock: test_getBlock,
+			metadataStorage: test_metadataStorage(),
+			events: [event],
+			actions: [action],
+		}),
+	).toThrowError("Invalid action id");
 });
 
 test.concurrent("throws an error if an action id is duplicated", () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	const event = univo.event({
+	const event = defineEvent({
 		id: "event",
 		handler: () => [],
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	univo.action({ id: "action", event, handler: async () => {} });
+	const action = defineAction({ id: "action", event, handler: async () => {} });
 
-	expect(() => univo.action({ id: "action", event, handler: async () => {} })).toThrowError;
+	expect(() =>
+		defineIndexer({
+			quiet: true,
+			signingKey: "test",
+			getBlock: test_getBlock,
+			metadataStorage: test_metadataStorage(),
+			events: [event],
+			actions: [action, defineAction({ id: "action", event, handler: async () => {} })],
+		}),
+	).toThrowError("Duplicate action id `action`.");
 });
 
 test.concurrent("accepts provider chain id on pre-EIP-155 transactions", async () => {
@@ -99,18 +217,19 @@ test.concurrent("accepts provider chain id on pre-EIP-155 transactions", async (
 
 	transaction.chainId = "0x1";
 
+	const event = defineEvent({
+		id: "event",
+		handler: () => [],
+		filters: [{ chain: 1, fromBlock: 0 }],
+		storage: { upsert: async () => {}, delete: async () => {} },
+	});
 	const univo = defineIndexer({
 		quiet: true,
 		signingKey: "test",
 		getBlock: async () => block,
 		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
-		id: "event",
-		handler: () => [],
-		filters: [{ chain: 1, fromBlock: 0 }],
-		storage: { upsert: async () => {}, delete: async () => {} },
+		events: [event],
+		actions: [],
 	});
 
 	const response = await local(univo).request({
@@ -147,18 +266,19 @@ test.concurrent("skips transaction verification for unsupported transaction type
 	// @ts-expect-error modifying possibly undefined type
 	block.eth_getBlockByNumber.transactions[0]!.type = "0x6a";
 
+	const event = defineEvent({
+		id: "event",
+		handler: () => [],
+		filters: [{ chain: 1, fromBlock: 0 }],
+		storage: { upsert: async () => {}, delete: async () => {} },
+	});
 	const univo = defineIndexer({
 		quiet: true,
 		signingKey: "test",
 		getBlock: async () => block,
 		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
-		id: "event",
-		handler: () => [],
-		filters: [{ chain: 1, fromBlock: 0 }],
-		storage: { upsert: async () => {}, delete: async () => {} },
+		events: [event],
+		actions: [],
 	});
 
 	const response = await local(univo).request({
@@ -182,22 +302,9 @@ test.concurrent("skips transaction verification for unsupported transaction type
 test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same block", async ({ expect }) => {
 	const chainFinalizedHeight = 0;
 
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		metadataStorage: test_metadataStorage(),
-		getBlock: async (block) => {
-			if (block.number === "finalized") {
-				return await test_getBlock({ chain: "0x1", number: numberToHex(chainFinalizedHeight) });
-			}
-
-			return await test_getBlock(block);
-		},
-	});
-
 	let count = 0;
 
-	univo.event({
+	const event = defineEvent({
 		id: "event",
 
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -219,6 +326,20 @@ test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same 
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: test_metadataStorage(),
+		getBlock: async (block) => {
+			if (block.number === "finalized") {
+				return await test_getBlock({ chain: "0x1", number: numberToHex(chainFinalizedHeight) });
+			}
+
+			return await test_getBlock(block);
+		},
+		events: [event],
+		actions: [],
+	});
 	const block = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 
 	// 1. Chain and indexer are finalised at 0
@@ -264,6 +385,24 @@ test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same 
 test.concurrent("public_writeFinalizedHead aborts repeated calls for the same block", async ({ expect }) => {
 	let chainFinalizedHeight = 0;
 
+	const event = defineEvent({
+		id: "event",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: { upsert: async () => {}, delete: async () => {} },
+	});
+
+	let count = 0;
+
+	const action = defineAction({
+		id: "action",
+		event,
+		handler: async () => {
+			count++;
+		},
+	});
+
+	// Initialize the manifest before the chain advances.
 	const univo = defineIndexer({
 		quiet: true,
 		signingKey: "test",
@@ -275,26 +414,9 @@ test.concurrent("public_writeFinalizedHead aborts repeated calls for the same bl
 
 			return await test_getBlock(block);
 		},
+		events: [event],
+		actions: [action],
 	});
-
-	const event = univo.event({
-		id: "event",
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByNumber.hash],
-		storage: { upsert: async () => {}, delete: async () => {} },
-	});
-
-	let count = 0;
-
-	univo.action({
-		id: "action",
-		event,
-		handler: async () => {
-			count++;
-		},
-	});
-
-	// Initialize the manifest before the chain advances.
 	await local(univo).request({ method: "public_getFinalizedHeight", params: ["0x1"] });
 
 	chainFinalizedHeight = 1;
@@ -322,6 +444,20 @@ test.concurrent("public_writeUnfinalizedHead upserts events", async () => {
 	const block9 = await test_getBlock({ chain: "0x1", number: numberToHex(9) });
 	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
 
+	const upserted: any[] = [];
+
+	const event = defineEvent({
+		id: "test",
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(events) {
+				upserted.push(...events);
+			},
+			async delete() {},
+		},
+		filters: [{ chain: 1, fromBlock: 0 }],
+	});
+
 	const univo = defineIndexer({
 		quiet: true,
 		signingKey: "test",
@@ -333,20 +469,8 @@ test.concurrent("public_writeUnfinalizedHead upserts events", async () => {
 
 			return block10;
 		},
-	});
-
-	const upserted: any[] = [];
-
-	univo.event({
-		id: "test",
-		handler: (block) => [block.eth_getBlockByNumber.hash],
-		storage: {
-			async upsert(events) {
-				upserted.push(...events);
-			},
-			async delete() {},
-		},
-		filters: [{ chain: 1, fromBlock: 0 }],
+		events: [event],
+		actions: [],
 	});
 
 	await local(univo).request({
@@ -368,22 +492,9 @@ test.concurrent("public_writeUnfinalizedHead retries upsert errors", async () =>
 	const block9 = await test_getBlock({ chain: "0x1", number: numberToHex(9) });
 	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
 
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		metadataStorage: test_metadataStorage(),
-		getBlock: async (block) => {
-			if (block.number === "finalized") {
-				return block9;
-			}
-
-			return block10;
-		},
-	});
-
 	let count = 0;
 
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [block.eth_getBlockByNumber.hash],
@@ -396,6 +507,21 @@ test.concurrent("public_writeUnfinalizedHead retries upsert errors", async () =>
 			},
 			async delete() {},
 		},
+	});
+
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: test_metadataStorage(),
+		getBlock: async (block) => {
+			if (block.number === "finalized") {
+				return block9;
+			}
+
+			return block10;
+		},
+		events: [event],
+		actions: [],
 	});
 
 	await local(univo).request({
@@ -417,19 +543,6 @@ test.concurrent("public_writeUnfinalizedHead deduplicates events with the same s
 	const block9 = await test_getBlock({ chain: "0x1", number: numberToHex(9) });
 	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
 
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		metadataStorage: test_metadataStorage(),
-		getBlock: async (block) => {
-			if (block.number === "finalized") {
-				return block9;
-			}
-
-			return block10;
-		},
-	});
-
 	let count = 0;
 	let batch = [] as any[];
 
@@ -441,18 +554,33 @@ test.concurrent("public_writeUnfinalizedHead deduplicates events with the same s
 		async delete() {},
 	};
 
-	univo.event({
+	const event1 = defineEvent({
 		storage,
 		id: "event1",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [`event1-${block.eth_getBlockByNumber.hash}`],
 	});
 
-	univo.event({
+	const event2 = defineEvent({
 		storage,
 		id: "event2",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [`event2-${block.eth_getBlockByNumber.hash}`],
+	});
+
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: test_metadataStorage(),
+		getBlock: async (block) => {
+			if (block.number === "finalized") {
+				return block9;
+			}
+
+			return block10;
+		},
+		events: [event1, event2],
+		actions: [],
 	});
 
 	await local(univo).request({
@@ -482,6 +610,19 @@ test.concurrent("public_writeUnfinalizedHead ignores finalized heads", async () 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
 
+	let upserted = false;
+
+	const event = defineEvent({
+		id: "test",
+		storage: { upsert: async () => {}, delete: async () => {} },
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: () => {
+			upserted = true;
+
+			return [];
+		},
+	});
+
 	const univo = defineIndexer({
 		quiet: true,
 		signingKey: "test",
@@ -493,19 +634,8 @@ test.concurrent("public_writeUnfinalizedHead ignores finalized heads", async () 
 
 			return block0;
 		},
-	});
-
-	let upserted = false;
-
-	univo.event({
-		id: "test",
-		storage: { upsert: async () => {}, delete: async () => {} },
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: () => {
-			upserted = true;
-
-			return [];
-		},
+		events: [event],
+		actions: [],
 	});
 
 	await local(univo).request({
@@ -541,6 +671,20 @@ test.concurrent("public_deleteReorganisedHead deletes events from reorganised bl
 		hash: "0x7d7a73e8c978b3dab048c9b987c0f505ad8399dddbe705acfe3baef6773d7358",
 	});
 
+	const event = defineEvent({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert() {
+				upserted = true;
+			},
+			async delete() {
+				deleted = true;
+			},
+		},
+	});
+
 	const univo = defineIndexer({
 		quiet: true,
 		signingKey: "test",
@@ -556,20 +700,8 @@ test.concurrent("public_deleteReorganisedHead deletes events from reorganised bl
 
 			return canonical;
 		},
-	});
-
-	univo.event({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByNumber.hash],
-		storage: {
-			async upsert() {
-				upserted = true;
-			},
-			async delete() {
-				deleted = true;
-			},
-		},
+		events: [event],
+		actions: [],
 	});
 
 	await local(univo).request({
@@ -603,16 +735,9 @@ test.concurrent("public_deleteReorganisedHead deletes events from reorganised bl
 test.concurrent("public_deleteReorganisedHead never deletes events from canonical blocks", async () => {
 	const block10 = await test_getBlock({ chain: "0x1", number: numberToHex(10) });
 
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
 	let deleted = false;
 
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [block.eth_getBlockByNumber.hash],
@@ -624,6 +749,15 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 				deleted = true;
 			},
 		},
+	});
+
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
 	});
 
 	await local(univo).request({
@@ -644,22 +778,9 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 test.concurrent("public_finalize writes heads that were never processed", async () => {
 	let chainFinalizedHeight = 0;
 
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		metadataStorage: test_metadataStorage(),
-		getBlock: async (block) => {
-			if (block.number === "finalized") {
-				return await test_getBlock({ chain: "0x1", number: numberToHex(chainFinalizedHeight) });
-			}
-
-			return await test_getBlock(block);
-		},
-	});
-
 	const upserted: number[] = [];
 
-	const event = univo.event({
+	const event = defineEvent({
 		id: "event",
 
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -678,7 +799,7 @@ test.concurrent("public_finalize writes heads that were never processed", async 
 
 	let invocations = 0;
 
-	univo.action({
+	const action = defineAction({
 		id: "action",
 
 		event,
@@ -689,6 +810,20 @@ test.concurrent("public_finalize writes heads that were never processed", async 
 	});
 
 	// 1. Chain and indexer are finalised at 0
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: test_metadataStorage(),
+		getBlock: async (block) => {
+			if (block.number === "finalized") {
+				return await test_getBlock({ chain: "0x1", number: numberToHex(chainFinalizedHeight) });
+			}
+
+			return await test_getBlock(block);
+		},
+		events: [event],
+		actions: [action],
+	});
 
 	const initialIndexerFinalizedHeight = await local(univo).request({
 		method: "public_getFinalizedHeight",
@@ -723,22 +858,9 @@ test.concurrent("public_finalize writes heads that were never processed", async 
 test.concurrent("public_finalize skips heads already processed", async () => {
 	let chainFinalizedHeight = 0;
 
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		metadataStorage: test_metadataStorage(),
-		getBlock: async (block) => {
-			if (block.number === "finalized") {
-				return await test_getBlock({ chain: "0x1", number: numberToHex(chainFinalizedHeight) });
-			}
-
-			return await test_getBlock(block);
-		},
-	});
-
 	const upserted: number[] = [];
 
-	const event = univo.event({
+	const event = defineEvent({
 		id: "event",
 
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -758,7 +880,7 @@ test.concurrent("public_finalize skips heads already processed", async () => {
 
 	let invocations = 0;
 
-	univo.action({
+	const action = defineAction({
 		id: "action",
 
 		event,
@@ -769,6 +891,20 @@ test.concurrent("public_finalize skips heads already processed", async () => {
 	});
 
 	// 1. Chain and indexer are finalised at 0
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		metadataStorage: test_metadataStorage(),
+		getBlock: async (block) => {
+			if (block.number === "finalized") {
+				return await test_getBlock({ chain: "0x1", number: numberToHex(chainFinalizedHeight) });
+			}
+
+			return await test_getBlock(block);
+		},
+		events: [event],
+		actions: [action],
+	});
 
 	const initialIndexerFinalizedHeight = await local(univo).request({
 		method: "public_getFinalizedHeight",
@@ -838,6 +974,27 @@ test.concurrent("public_finalize deletes reorganised events", async () => {
 
 	let count = 0;
 
+	const processed: Record<`0x${string}`, true> = {};
+
+	const event = defineEvent({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		handler: (block) => [block.eth_getBlockByNumber.hash],
+		storage: {
+			async upsert(hashes) {
+				for (const hash of hashes) {
+					processed[hash] = true;
+				}
+			},
+			async delete(hashes) {
+				for (const hash of hashes) {
+					delete processed[hash];
+				}
+			},
+		},
+	});
+
+	// 1. Chain and indexer are finalised at 25_082_720
 	const univo = defineIndexer({
 		quiet: true,
 		signingKey: "test",
@@ -868,29 +1025,9 @@ test.concurrent("public_finalize deletes reorganised events", async () => {
 
 			return await test_getBlock(block);
 		},
+		events: [event],
+		actions: [],
 	});
-
-	const processed: Record<`0x${string}`, true> = {};
-
-	univo.event({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 0 }],
-		handler: (block) => [block.eth_getBlockByNumber.hash],
-		storage: {
-			async upsert(hashes) {
-				for (const hash of hashes) {
-					processed[hash] = true;
-				}
-			},
-			async delete(hashes) {
-				for (const hash of hashes) {
-					delete processed[hash];
-				}
-			},
-		},
-	});
-
-	// 1. Chain and indexer are finalised at 25_082_720
 
 	const initialIndexerFinalizedHeight = await local(univo).request({
 		method: "public_getFinalizedHeight",
@@ -1022,17 +1159,10 @@ test.concurrent("public_finalize deletes reorganised events", async () => {
 });
 
 test.concurrent("private_writeEvents indexes only the events requested", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
 	const upserted: any[] = [];
 	let event2HandlerCalled = false;
 
-	univo.event({
+	const event1 = defineEvent({
 		id: "event1",
 		handler: (block) => [`event1-${block.eth_getBlockByNumber.hash}`],
 		storage: {
@@ -1044,7 +1174,7 @@ test.concurrent("private_writeEvents indexes only the events requested", async (
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	univo.event({
+	const event2 = defineEvent({
 		id: "event2",
 		handler: () => {
 			event2HandlerCalled = true;
@@ -1054,6 +1184,14 @@ test.concurrent("private_writeEvents indexes only the events requested", async (
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event1, event2],
+		actions: [],
+	});
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 
 	const response = await local(univo).request({
@@ -1072,13 +1210,6 @@ test.concurrent("private_writeEvents indexes only the events requested", async (
 });
 
 test.concurrent("private_writeEvents deduplicates events with the same storage adapter", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
 	let count = 0;
 	let batch = [] as any[];
 
@@ -1090,20 +1221,28 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 		async delete() {},
 	};
 
-	univo.event({
+	const event1 = defineEvent({
 		storage,
 		id: "event1",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [`event1-${block.eth_getBlockByNumber.hash}`],
 	});
 
-	univo.event({
+	const event2 = defineEvent({
 		storage,
 		id: "event2",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [`event2-${block.eth_getBlockByNumber.hash}`],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event1, event2],
+		actions: [],
+	});
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 
 	const response = await local(univo).request({
@@ -1124,20 +1263,21 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 });
 
 test.concurrent("private_writeEvents records events", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block)],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -1154,14 +1294,7 @@ test.concurrent("private_writeEvents records events", async () => {
 });
 
 test.concurrent("private_writeEvents ignores events not explicitly requested", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
@@ -1174,6 +1307,14 @@ test.concurrent("private_writeEvents ignores events not explicitly requested", a
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
@@ -1192,14 +1333,7 @@ test.concurrent("private_writeEvents ignores events not explicitly requested", a
 });
 
 test.concurrent("private_writeEvents returns handler errors", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
@@ -1212,6 +1346,14 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
@@ -1240,14 +1382,7 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 });
 
 test.concurrent("private_writeEvents returns errors thrown during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
@@ -1259,6 +1394,14 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
@@ -1305,16 +1448,9 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 });
 
 test.concurrent("private_writeEvents retries upsert errors", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
 	let count = 0;
 
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
@@ -1327,6 +1463,14 @@ test.concurrent("private_writeEvents retries upsert errors", async () => {
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
@@ -1375,14 +1519,7 @@ test.concurrent("private_writeEvents retries upsert errors", async () => {
 });
 
 test.concurrent("private_writeEvents only returns the handler error if both handler and upsert fail", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
 		handler: () => {
@@ -1396,6 +1533,14 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
@@ -1442,14 +1587,7 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 });
 
 test.concurrent("private_writeEvents returns incomplete errors in handler", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => {
@@ -1459,6 +1597,14 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 		storage: { upsert: async () => {}, delete: async () => {} },
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
 
@@ -1512,14 +1658,7 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 });
 
 test.concurrent("private_writeEvents returns swallowed incomplete errors in handler", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => {
@@ -1535,6 +1674,14 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 		storage: { upsert: async () => {}, delete: async () => {} },
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
 
@@ -1588,14 +1735,7 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 });
 
 test.concurrent("private_writeEvents returns incomplete errors in upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [block],
@@ -1610,6 +1750,14 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
 
@@ -1663,14 +1811,7 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 });
 
 test.concurrent("private_writeEvents returns swallowed incomplete errors in upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [block],
@@ -1688,6 +1829,14 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
 
@@ -1741,20 +1890,21 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 });
 
 test.concurrent("private_writeEvents doesn't return an error when accessing a provided null property", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [block.eth_getBlockByNumber.difficulty],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const response = await local(univo).request({
 		method: "private_writeEvents",
 		params: [
@@ -1786,14 +1936,7 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 });
 
 test.concurrent("private_writeEvents never upserts if handler returns empty event list", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: () => [],
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
@@ -1805,6 +1948,14 @@ test.concurrent("private_writeEvents never upserts if handler returns empty even
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
 	const block2 = await test_getBlock({ chain: "0x1", number: numberToHex(2) });
@@ -1823,17 +1974,10 @@ test.concurrent("private_writeEvents never upserts if handler returns empty even
 });
 
 test.concurrent("private_writeEventsAndGetKeys indexes only the events requested", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
 	const upserted: any[] = [];
 	let event2HandlerCalled = false;
 
-	univo.event({
+	const event1 = defineEvent({
 		id: "event1",
 		handler: (block) => [`event1-${block.eth_getBlockByNumber.hash}`],
 		storage: {
@@ -1845,7 +1989,7 @@ test.concurrent("private_writeEventsAndGetKeys indexes only the events requested
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
-	univo.event({
+	const event2 = defineEvent({
 		id: "event2",
 		handler: () => {
 			event2HandlerCalled = true;
@@ -1855,6 +1999,14 @@ test.concurrent("private_writeEventsAndGetKeys indexes only the events requested
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event1, event2],
+		actions: [],
+	});
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 
 	const response = await local(univo).request({
@@ -1889,14 +2041,7 @@ test.concurrent("private_writeEventsAndGetKeys indexes only the events requested
 });
 
 test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns empty event list", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: () => [],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -1908,6 +2053,14 @@ test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns 
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
 
 	const response = await local(univo).request({
@@ -1939,20 +2092,21 @@ test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns 
 });
 
 test.concurrent("private_writeEventsAndGetKeys records minimum keys from matching filters", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: () => [],
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -1991,20 +2145,21 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 });
 
 test.concurrent("private_writeEventsAndGetKeys records block keys during handler", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [block.eth_getBlockByNumber.baseFeePerGas],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2044,14 +2199,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 });
 
 test.concurrent("private_writeEventsAndGetKeys records transaction keys during handler", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -2062,6 +2210,14 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2101,14 +2257,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 });
 
 test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during handler", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -2119,6 +2268,14 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2158,14 +2315,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 });
 
 test.concurrent("private_writeEventsAndGetKeys records receipt keys during handler", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -2176,6 +2326,14 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2215,14 +2373,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 });
 
 test.concurrent("private_writeEventsAndGetKeys records log keys during handler", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -2235,6 +2386,14 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2274,14 +2433,7 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 });
 
 test.concurrent("private_writeEventsAndGetKeys records block keys during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -2295,6 +2447,14 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2333,14 +2493,7 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 });
 
 test.concurrent("private_writeEventsAndGetKeys records transaction keys during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -2356,6 +2509,14 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2395,14 +2556,7 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 });
 
 test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -2418,6 +2572,14 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2457,14 +2619,7 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 });
 
 test.concurrent("private_writeEventsAndGetKeys records receipt keys during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -2480,6 +2635,14 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2519,14 +2682,7 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 });
 
 test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -2544,6 +2700,14 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2583,20 +2747,21 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full block when using JSON.stringify", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block)],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2708,20 +2873,21 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full transactions when using JSON.stringify", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block.eth_getBlockByNumber.transactions)],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2783,20 +2949,21 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full withdrawals when using JSON.stringify", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block.eth_getBlockByNumber.withdrawals)],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2839,20 +3006,21 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full receipts when using JSON.stringify", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block.eth_getBlockReceipts)],
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2916,14 +3084,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full receipt logs when using JSON.stringify", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -2934,6 +3095,14 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -2982,14 +3151,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -3003,6 +3165,14 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -3114,14 +3284,7 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full transactions during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -3135,6 +3298,14 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -3196,14 +3367,7 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full withdrawals during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -3217,6 +3381,14 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -3259,14 +3431,7 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full receipts during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -3280,6 +3445,14 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -3343,14 +3516,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 });
 
 test.concurrent("private_writeEventsAndGetKeys records full receipt logs during upsert", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -3366,6 +3532,14 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({
@@ -3414,14 +3588,7 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 });
 
 test.concurrent("private_writeEventsAndGetKeys returns accessed properties that are undefined", async () => {
-	const univo = defineIndexer({
-		quiet: true,
-		signingKey: "test",
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-	});
-
-	univo.event({
+	const event = defineEvent({
 		id: "test",
 		handler: (block) => [block],
 		filters: [{ chain: 1, fromBlock: 0 }],
@@ -3436,6 +3603,14 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 		},
 	});
 
+	const univo = defineIndexer({
+		quiet: true,
+		signingKey: "test",
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+		events: [event],
+		actions: [],
+	});
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
 	const response = await local(univo).request({

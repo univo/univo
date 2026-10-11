@@ -134,7 +134,8 @@ type Event<TBlock, TEvent> = {
 	 * When a block matches any of filters defined by your event it will be passed to this function to be synchronously
 	 * transformed into a list of structured events.
 	 *
-	 * The shape of the input `block` is determined by the return value of `getBlock` function provided to your `indexer`.
+	 * The input defaults to the base `Block` type. Annotate the handler's block parameter to use a custom block type;
+	 * the `getBlock` function provided to your indexer must return a compatible type.
 	 *
 	 * The returned output value should be an array containg any valid JavaScript values. Each event that you return from
 	 * your handler should not depend on any information outside of the input block data. It should directly map a given
@@ -168,6 +169,10 @@ type Event<TBlock, TEvent> = {
 		delete: (events: TEvent[]) => Promise<void>;
 	};
 };
+
+function defineEvent<TBlock = Block, TEvent = unknown>(event: Event<TBlock, TEvent>) {
+	return event;
+}
 
 /**
  * Actions -----------------------------------------------------------------------------------------------------------------------------------
@@ -209,6 +214,10 @@ type Action<TBlock, TEvent> = {
 	handler: (event: TEvent) => Promise<void> | void;
 };
 
+function defineAction<TBlock, TEvent>(action: Action<TBlock, TEvent>) {
+	return action;
+}
+
 /**
  * Indexer -----------------------------------------------------------------------------------------------------------------------------------
  */
@@ -249,6 +258,28 @@ type Manifest = {
 	updated_at: number;
 };
 
+// TODO
+// - Remove the server fetch handler inlined into defineIndexer
+// - Inline the `local` transport into defineIndexer
+// - Infer the IndexerRpc type from the indexer itself
+// - Improve the NodeRpc types
+// - Handle null response from getBlock method
+
+// Erase event payload types only at the collection boundary, including `never` for empty handlers.
+// Keep block handlers contravariant so getBlock must satisfy every event's block requirements.
+
+type AnyEvent<TBlock> = Omit<Event<TBlock, any>, "storage"> & {
+	storage: {
+		upsert(events: any[]): Promise<void>;
+		delete(events: any[]): Promise<void>;
+	};
+};
+
+type AnyAction<TBlock> = Omit<Action<TBlock, any>, "event" | "handler"> & {
+	event: AnyEvent<TBlock>;
+	handler(event: any): Promise<void> | void;
+};
+
 type IndexerOptions<TBlock> = {
 	/**
 	 * Silences all logs including errors.
@@ -257,6 +288,16 @@ type IndexerOptions<TBlock> = {
 	 * Available log options are `DEBUG`, `INFO`, `WARN`, and `ERROR`.
 	 */
 	quiet?: boolean;
+
+	/**
+	 * Events
+	 */
+	events: AnyEvent<TBlock>[];
+
+	/**
+	 * Actions
+	 */
+	actions: AnyAction<TBlock>[];
 
 	/**
 	 * Request signing key
@@ -296,22 +337,12 @@ type IndexerOptions<TBlock> = {
 	getBlock: (block: { chain: `0x${string}`; number: string }) => Promise<TBlock | null>;
 };
 
-type Indexer<TBlock> = {
+type Indexer = {
 	/**
 	 * A web standard HTTP request handler. This is the entrypoint to your indexer and allows it to be deployed
 	 * to your framework of choice so that it can receive requests and process responses.
 	 */
 	fetch: (req: Request) => Promise<Response>;
-
-	/**
-	 * Define on-chain events you want to record in your off-chain storage system.
-	 */
-	event: <TEvent>(event: Event<TBlock, TEvent>) => Event<TBlock, TEvent>;
-
-	/**
-	 * Perform fire-and-forget effects in response to on-chain events.
-	 */
-	action: <TEvent>(action: Action<TBlock, TEvent>) => Action<TBlock, TEvent>;
 };
 
 function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
@@ -320,12 +351,34 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
 	// events that share the same storage adapter to be combined into the same batch for upsert.
 
-	const allEvents: Event<any, any>[] = [];
+	const allEvents: Event<any, any>[] = [...opts.events];
 	const eventsGroupedByStorageMap = new Map<Event<any, any>["storage"], Event<any, any>[]>();
+
+	for (const event of allEvents) {
+		if (!/^[A-Za-z0-9_-]+$/.test(event.id)) {
+			throw new Error(`Invalid event id \`${event.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
+		}
+
+		const group = eventsGroupedByStorageMap.get(event.storage) ?? [];
+		group.push(event);
+		eventsGroupedByStorageMap.set(event.storage, group);
+	}
 
 	// Actions
 
-	const allActions: Action<any, any>[] = [];
+	const allActions: Action<any, any>[] = [...opts.actions];
+	const actionIds = new Set<string>();
+
+	for (const action of allActions) {
+		if (!/^[A-Za-z0-9_-]+$/.test(action.id)) {
+			throw new Error(`Invalid action id \`${action.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
+		}
+
+		if (actionIds.has(action.id)) {
+			throw new Error(`Duplicate action id \`${action.id}\`.`);
+		}
+		actionIds.add(action.id);
+	}
 
 	/**
 	 * Fetches a block using the provided `getBlock` function. Handles retries. We accept a partial head,
@@ -1917,34 +1970,6 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		return { results: results_array, keys: filtered_keys };
 	};
 
-	const event: Indexer<TBlock>["event"] = (event) => {
-		if (!/^[A-Za-z0-9_-]+$/.test(event.id)) {
-			throw new Error(`Invalid event id \`${event.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
-		}
-
-		allEvents.push(event);
-
-		const group = eventsGroupedByStorageMap.get(event.storage) ?? [];
-		group.push(event);
-		eventsGroupedByStorageMap.set(event.storage, group);
-
-		return event;
-	};
-
-	const action: Indexer<TBlock>["action"] = (action) => {
-		if (!/^[A-Za-z0-9_-]+$/.test(action.id)) {
-			throw new Error(`Invalid action id \`${action.id}\`. Only characters A-Z, a-z, 0-9, underscores, and hyphens are permitted.`);
-		}
-
-		if (allActions.some((existing) => existing.id === action.id)) {
-			throw new Error(`Duplicate action id \`${action.id}\`.`);
-		}
-
-		allActions.push(action);
-
-		return action;
-	};
-
 	const rpc: IndexerRpc = {
 		request: {
 			public_finalize,
@@ -1968,10 +1993,8 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		signingKey: opts.signingKey,
 	});
 
-	const indexer: Indexer<TBlock> & IndexerRpc = {
+	const indexer: Indexer & IndexerRpc = {
 		...rpc,
-		event,
-		action,
 		fetch: server.http,
 	};
 
@@ -1982,5 +2005,5 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
  * Exports -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-export { defineIndexer };
-export type { Indexer, Event, Filter, Block, Head, Metadata, Result };
+export { defineIndexer, defineEvent, defineAction };
+export type { Indexer, IndexerOptions, Event, Action, Filter, Block, Head, Metadata, Result };
