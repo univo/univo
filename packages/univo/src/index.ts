@@ -323,7 +323,7 @@ type Indexer<TBlock> = {
 	 * that all methods return the expected block hash. However, for any custom methods you add you must manually
 	 * verify the block hash is consistent with the other known methods.
 	 */
-	getBlock: (block: { chain: `0x${string}`; number: `0x${string}` | "finalized" }) => Promise<TBlock>;
+	getBlock: (block: { chain: `0x${string}`; number: `0x${string}` | viem.BlockTag }) => Promise<TBlock>;
 };
 
 function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
