@@ -1,7 +1,6 @@
 import * as viem from "viem";
 
 import { local } from "./transport";
-import { createServer } from "./server";
 import type { IndexerRpc } from "./rpc";
 import { version } from "../package.json";
 import type { Storage } from "./metadata";
@@ -280,7 +279,7 @@ type AnyAction<TBlock> = Omit<Action<TBlock, any>, "event" | "handler"> & {
 	handler(event: any): Promise<void> | void;
 };
 
-type IndexerOptions<TBlock> = {
+type Indexer<TBlock> = {
 	/**
 	 * Silences all logs including errors.
 	 *
@@ -337,15 +336,7 @@ type IndexerOptions<TBlock> = {
 	getBlock: (block: { chain: `0x${string}`; number: string }) => Promise<TBlock | null>;
 };
 
-type Indexer = {
-	/**
-	 * A web standard HTTP request handler. This is the entrypoint to your indexer and allows it to be deployed
-	 * to your framework of choice so that it can receive requests and process responses.
-	 */
-	fetch: (req: Request) => Promise<Response>;
-};
-
-function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
+function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[indexer]" });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
@@ -1987,18 +1978,7 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
 		subscribe: {},
 	};
 
-	const server = createServer({
-		transport: local(rpc),
-		quiet: opts.quiet ?? false,
-		signingKey: opts.signingKey,
-	});
-
-	const indexer: Indexer & IndexerRpc = {
-		...rpc,
-		fetch: server.http,
-	};
-
-	return indexer;
+	return local(rpc);
 }
 
 /**
@@ -2006,4 +1986,4 @@ function defineIndexer<TBlock extends Block>(opts: IndexerOptions<TBlock>) {
  */
 
 export { defineIndexer, defineEvent, defineAction };
-export type { Indexer, IndexerOptions, Event, Action, Filter, Block, Head, Metadata, Result };
+export type { Indexer, Event, Action, Filter, Block, Head, Metadata, Result };
