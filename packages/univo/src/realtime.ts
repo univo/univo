@@ -342,7 +342,7 @@ function realtime(opts: RealtimeOptions) {
 
 				const finalizedBlock = await opts.node.request({
 					method: "eth_getBlockByNumber",
-					params: ["finalized", true],
+					params: ["finalized", false],
 				});
 
 				if (finalizedBlock === null) {
