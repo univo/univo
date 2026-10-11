@@ -9,16 +9,8 @@ import { catchException, createException } from "./exceptions";
 import { compress, createLogger, decoder, decompress, normalizeHex, retry, isHexEqual } from "./utils";
 
 /**
- * Block -----------------------------------------------------------------------------------------------------------------------------------
- */
-
-// This is the minimum set of block fields univo needs to function. These are mostly required to allow to perform
-// filter matching on a given block. We need to have _some_ agreed contract to able to understand the chain,
-// the block, and log address and events. We also expect some methods so that we can verify these known methods
-// originate from the intended block hash.
-
-/**
  * The minimum RPC data required to process a block.
+ *
  * Extend this interface in your application to expose additional RPC methods to every event:
  *
  * ```ts
