@@ -323,7 +323,7 @@ type Indexer<TBlock> = {
 	 * that all methods return the expected block hash. However, for any custom methods you add you must manually
 	 * verify the block hash is consistent with the other known methods.
 	 */
-	getBlock: (block: { chain: `0x${string}`; number: string }) => Promise<TBlock | null>;
+	getBlock: (block: { chain: `0x${string}`; number: string }) => Promise<TBlock>;
 };
 
 function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
@@ -372,10 +372,6 @@ function defineIndexer<TBlock extends Block>(opts: Indexer<TBlock>) {
 
 	async function retry_getBlockFromChain(head: PartialHead) {
 		const block = await opts.getBlock({ chain: head.chain, number: head.number });
-
-		if (block === null) {
-			throw new Error("Provided `getBlock` function returned null");
-		}
 
 		// Verify the returned block matches the expected hash and/or parent hash requested
 
