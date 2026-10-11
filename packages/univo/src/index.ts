@@ -371,6 +371,7 @@ function defineIndexer(opts: Indexer) {
 		if (actionIds.has(action.id)) {
 			throw new Error(`Duplicate action id \`${action.id}\`.`);
 		}
+
 		actionIds.add(action.id);
 	}
 
