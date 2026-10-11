@@ -239,8 +239,8 @@ function realtime(opts: RealtimeOptions) {
 		// limit on our time-to-recovery and makes operational management simple.
 
 		const [chainLatestBlock, chainFinalizedBlock] = await Promise.all([
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }), //
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
+			opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false as true] }), //
+			opts.node.request({ method: "eth_getBlockByNumber", params: ["finalized", false as true] }),
 		]);
 
 		if (chainLatestBlock === null) {

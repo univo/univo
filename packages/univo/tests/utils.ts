@@ -3,6 +3,8 @@ import { hexToNumber } from "viem";
 import { promises as fs } from "node:fs";
 import type { RpcBlock, RpcTransactionReceipt } from "viem";
 
+import { NodeRpc } from "../src/rpc";
+import { wss } from "../src/transport";
 import { defineStorage } from "../src/metadata";
 import { memory } from "../src/metadata/adapters/memory";
 
@@ -21,15 +23,17 @@ export function test_promiseWithResolvers() {
 
 export type test_Block = {
 	eth_chainId: `0x${string}`;
-	eth_getBlockByNumber: RpcBlock<"latest", true>;
+	eth_getBlockByNumber: RpcBlock<"finalized", true>;
 	eth_getBlockReceipts: RpcTransactionReceipt[];
 };
 
-export async function test_getBlock(block: { chain: `0x${string}`; number: string; hash?: `0x${string}` }) {
+const node = wss<NodeRpc>(process.env.TEST_ETHEREUM_RPC_URL);
+
+export async function test_getBlock(block: { chain: `0x${string}`; number: `0x${string}` | "finalized"; hash?: `0x${string}` }) {
 	if (!block.number.startsWith("0x")) {
 		const [eth_getBlockByNumber, eth_getBlockReceipts] = await Promise.all([
-			rpc({ id: 1, method: "eth_getBlockByNumber", params: [block.number, true] }),
-			rpc({ id: 2, method: "eth_getBlockReceipts", params: [block.number] }),
+			node.request({ method: "eth_getBlockByNumber", params: [block.number, true] }),
+			node.request({ method: "eth_getBlockReceipts", params: [block.number] }),
 		]);
 
 		if (eth_getBlockByNumber === null) {
@@ -40,13 +44,11 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 			throw new Error("eth_getBlockReceipts is null");
 		}
 
-		const blockData: test_Block = {
+		return {
 			eth_chainId: block.chain,
 			eth_getBlockByNumber,
 			eth_getBlockReceipts,
 		};
-
-		return blockData;
 	}
 
 	const cacheDir = "tests/blocks";
@@ -69,8 +71,8 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 	}
 
 	const [eth_getBlockByNumber, eth_getBlockReceipts] = await Promise.all([
-		rpc({ id: 1, method: "eth_getBlockByNumber", params: [block.number, true] }),
-		rpc({ id: 2, method: "eth_getBlockReceipts", params: [block.number] }),
+		node.request({ method: "eth_getBlockByNumber", params: [block.number, true] }),
+		node.request({ method: "eth_getBlockReceipts", params: [block.number] }),
 	]);
 
 	if (eth_getBlockByNumber === null) {
@@ -81,7 +83,7 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 		throw new Error("eth_getBlockReceipts is null");
 	}
 
-	const blockData: test_Block = {
+	const blockData = {
 		eth_chainId: block.chain,
 		eth_getBlockByNumber,
 		eth_getBlockReceipts,
@@ -90,34 +92,6 @@ export async function test_getBlock(block: { chain: `0x${string}`; number: strin
 	saveToCache(cacheDir, cacheFile, blockData); // Save to cache without blocking
 
 	return blockData;
-}
-
-async function rpc(opts: { id: number; method: string; params: any[] }) {
-	const url = process.env.TEST_ETHEREUM_RPC_URL;
-
-	if (url === undefined) {
-		throw new Error("Please set a process.env.TEST_ETHEREUM_RPC_URL");
-	}
-
-	const res = await fetch(url, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ jsonrpc: "2.0", ...opts }),
-	});
-
-	if (!res.ok || res.status < 200 || res.status >= 3000) {
-		throw new Error("Failed to get rpc response");
-	}
-
-	const json: any = await res.json().catch((cause) => {
-		throw new Error("Unable to parse rpc response to json", { cause });
-	});
-
-	if (json.error) {
-		throw new Error(json.error.message);
-	}
-
-	return json.result;
 }
 
 async function saveToCache(cacheDir: string, cacheFile: string, blockData: any) {

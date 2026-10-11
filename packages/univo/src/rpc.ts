@@ -1,3 +1,5 @@
+import type { BlockTag, PublicRpcSchema, RpcBlock, RpcBlockNumber, RpcTransactionReceipt } from "viem";
+
 import type { Flatten } from "./utils";
 import type { Block, Filter, Head, Metadata, Result } from ".";
 
@@ -19,33 +21,17 @@ type Rpc = {
 
 type NodeRpc = {
 	request: {
-		/**
-		 * @returns The chain identifier of the node
-		 */
-		eth_chainId: () => Promise<`0x${string}`>;
-
-		/**
-		 * Accepts a block tag and boolean for including receipts
-		 * @returns A block with optional receipts
-		 */
-		eth_getBlockByNumber: (number: string, receipts: boolean) => Promise<NodeBlock>;
-
-		/**
-		 * Accepts a block hash and boolean for including receipts
-		 * @returns A block with optional receipts
-		 */
-		eth_getBlockByHash: (hash: `0x${string}`, receipts: boolean) => Promise<NodeBlock>;
+		[Method in PublicRpcSchema[number] as Exclude<Method["Method"], "eth_getBlockByNumber">]: (
+			...params: Method["Parameters"] extends readonly unknown[] ? Method["Parameters"] : []
+		) => Promise<Method["ReturnType"]>;
+	} & {
+		eth_getBlockReceipts: (block: RpcBlockNumber | BlockTag) => Promise<RpcTransactionReceipt[] | null>;
+		eth_getBlockByNumber: (block: RpcBlockNumber | BlockTag, includeTransactionObjects: true) => Promise<RpcBlock<BlockTag, true> | null>;
 	};
 
 	subscribe: {
-		newHeads: NodeBlock;
+		newHeads: RpcBlock<"latest", boolean>;
 	};
-};
-
-type NodeBlock = {
-	hash: `0x${string}`;
-	number: `0x${string}`;
-	parentHash: `0x${string}`;
 };
 
 /**
