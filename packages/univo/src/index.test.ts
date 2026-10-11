@@ -71,7 +71,6 @@ test.concurrent("accepts heterogeneous definitions and checks custom block requi
 
 	defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (head) => ({ ...(await test_getBlock(head)), custom: "value" }),
 		events: [event, otherEvent],
@@ -80,7 +79,6 @@ test.concurrent("accepts heterogeneous definitions and checks custom block requi
 
 	defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		// @ts-expect-error getBlock does not provide the custom field required by this event
 		getBlock: test_getBlock,
@@ -90,7 +88,6 @@ test.concurrent("accepts heterogeneous definitions and checks custom block requi
 
 	defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		// @ts-expect-error getBlock does not provide the custom field required by this action's event
 		getBlock: test_getBlock,
@@ -102,7 +99,6 @@ test.concurrent("accepts heterogeneous definitions and checks custom block requi
 test.concurrent("supports empty definitions and reuses definitions across indexers", async () => {
 	const empty = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [],
@@ -124,7 +120,6 @@ test.concurrent("supports empty definitions and reuses definitions across indexe
 
 	const first = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events,
@@ -133,7 +128,6 @@ test.concurrent("supports empty definitions and reuses definitions across indexe
 
 	const second = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events,
@@ -160,7 +154,6 @@ test.concurrent("throws an error if an event with an invalid id is provided to t
 	expect(() =>
 		defineIndexer({
 			quiet: true,
-			signingKey: "test",
 			getBlock: test_getBlock,
 			metadataStorage: test_metadataStorage(),
 			events: [event],
@@ -182,7 +175,6 @@ test.concurrent("throws an error if an action id contains a slash", () => {
 	expect(() =>
 		defineIndexer({
 			quiet: true,
-			signingKey: "test",
 			getBlock: test_getBlock,
 			metadataStorage: test_metadataStorage(),
 			events: [event],
@@ -204,7 +196,6 @@ test.concurrent("throws an error if an action id is duplicated", () => {
 	expect(() =>
 		defineIndexer({
 			quiet: true,
-			signingKey: "test",
 			getBlock: test_getBlock,
 			metadataStorage: test_metadataStorage(),
 			events: [event],
@@ -235,7 +226,6 @@ test.concurrent("accepts provider chain id on pre-EIP-155 transactions", async (
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: async () => block,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -285,7 +275,6 @@ test.concurrent("skips transaction verification for unsupported transaction type
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: async () => block,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -339,7 +328,6 @@ test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same 
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
@@ -417,7 +405,6 @@ test.concurrent("public_writeFinalizedHead aborts repeated calls for the same bl
 	// Initialize the manifest before the chain advances.
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
@@ -473,7 +460,6 @@ test.concurrent("public_writeUnfinalizedHead upserts events", async () => {
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
@@ -524,7 +510,6 @@ test.concurrent("public_writeUnfinalizedHead retries upsert errors", async () =>
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
@@ -583,7 +568,6 @@ test.concurrent("public_writeUnfinalizedHead deduplicates events with the same s
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
@@ -638,7 +622,6 @@ test.concurrent("public_writeUnfinalizedHead ignores finalized heads", async () 
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
@@ -700,7 +683,6 @@ test.concurrent("public_deleteReorganisedHead deletes events from reorganised bl
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
@@ -766,7 +748,6 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -825,7 +806,6 @@ test.concurrent("public_finalize writes heads that were never processed", async 
 	// 1. Chain and indexer are finalised at 0
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
@@ -906,7 +886,6 @@ test.concurrent("public_finalize skips heads already processed", async () => {
 	// 1. Chain and indexer are finalised at 0
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
@@ -1010,7 +989,6 @@ test.concurrent("public_finalize deletes reorganised events", async () => {
 	// 1. Chain and indexer are finalised at 25_082_720
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
@@ -1199,7 +1177,6 @@ test.concurrent("private_writeEvents indexes only the events requested", async (
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event1, event2],
@@ -1251,7 +1228,6 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event1, event2],
@@ -1287,7 +1263,6 @@ test.concurrent("private_writeEvents records events", async () => {
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1325,7 +1300,6 @@ test.concurrent("private_writeEvents ignores events not explicitly requested", a
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1365,7 +1339,6 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1414,7 +1387,6 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1484,7 +1456,6 @@ test.concurrent("private_writeEvents retries upsert errors", async () => {
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1555,7 +1526,6 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1620,7 +1590,6 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1698,7 +1667,6 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1775,7 +1743,6 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1855,7 +1822,6 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1924,7 +1890,6 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -1976,7 +1941,6 @@ test.concurrent("private_writeEvents never upserts if handler returns empty even
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2028,7 +1992,6 @@ test.concurrent("private_writeEventsAndGetKeys indexes only the events requested
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event1, event2],
@@ -2083,7 +2046,6 @@ test.concurrent("private_writeEventsAndGetKeys never upserts if handler returns 
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2130,7 +2092,6 @@ test.concurrent("private_writeEventsAndGetKeys records minimum keys from matchin
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2184,7 +2145,6 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during handler
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2243,7 +2203,6 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during h
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2302,7 +2261,6 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawals keys during h
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2361,7 +2319,6 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during handl
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2422,7 +2379,6 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during handler",
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2484,7 +2440,6 @@ test.concurrent("private_writeEventsAndGetKeys records block keys during upsert"
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2547,7 +2502,6 @@ test.concurrent("private_writeEventsAndGetKeys records transaction keys during u
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2611,7 +2565,6 @@ test.concurrent("private_writeEventsAndGetKeys records withdrawal keys during up
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2675,7 +2628,6 @@ test.concurrent("private_writeEventsAndGetKeys records receipt keys during upser
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2741,7 +2693,6 @@ test.concurrent("private_writeEventsAndGetKeys records log keys during upsert", 
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2796,7 +2747,6 @@ test.concurrent("private_writeEventsAndGetKeys records full block when using JSO
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -2923,7 +2873,6 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions when us
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -3000,7 +2949,6 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals when usi
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -3058,7 +3006,6 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts when using 
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -3141,7 +3088,6 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs when us
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -3212,7 +3158,6 @@ test.concurrent("private_writeEventsAndGetKeys records full blocks during upsert
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -3346,7 +3291,6 @@ test.concurrent("private_writeEventsAndGetKeys records full transactions during 
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -3430,7 +3374,6 @@ test.concurrent("private_writeEventsAndGetKeys records full withdrawals during u
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -3495,7 +3438,6 @@ test.concurrent("private_writeEventsAndGetKeys records full receipts during upse
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -3583,7 +3525,6 @@ test.concurrent("private_writeEventsAndGetKeys records full receipt logs during 
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],
@@ -3655,7 +3596,6 @@ test.concurrent("private_writeEventsAndGetKeys returns accessed properties that 
 
 	const indexer = defineIndexer({
 		quiet: true,
-		signingKey: "test",
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
 		events: [event],

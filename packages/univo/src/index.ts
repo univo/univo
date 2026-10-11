@@ -258,9 +258,6 @@ type Manifest = {
 };
 
 // TODO
-// - Remove the server fetch handler inlined into defineIndexer
-// - Inline the `local` transport into defineIndexer
-// - Infer the IndexerRpc type from the indexer itself
 // - Improve the NodeRpc types
 // - Handle null response from getBlock method
 
@@ -297,13 +294,6 @@ type Indexer<TBlock> = {
 	 * Actions
 	 */
 	actions: AnyAction<TBlock>[];
-
-	/**
-	 * Request signing key
-	 *
-	 * Facilitates secure communication with a trusted source like the univo dashboard.
-	 */
-	signingKey: string;
 
 	/**
 	 * Storage interface for durably persisting indexer metadata.
