@@ -258,6 +258,12 @@ type Result = {
 	created_at: number;
 };
 
+type Cache = {
+	chain_finalized_height: number;
+	chain_finalized_block_hash: `0x${string}`;
+	chain_finalized_parent_hash: `0x${string}`;
+};
+
 type Manifest = {
 	finalized_block_height: number;
 	finalized_block_hash: `0x${string}`;
@@ -1053,13 +1059,14 @@ function defineIndexer(opts: Indexer) {
 		const path = `cache/v1/${normalizeHex(chain)}`;
 
 		const [cached, block] = await Promise.all([
-			getFinalizedChainCache(chain),
+			getChainCache(chain),
 			getBlockFromChain({ chain, number: "finalized" }), //
 		]);
 
-		const cache = {
+		const cache: Cache = {
 			chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number),
 			chain_finalized_block_hash: block.eth_getBlockByNumber.hash,
+			chain_finalized_parent_hash: block.eth_getBlockByNumber.parentHash,
 		};
 
 		if (cached.chain_finalized_height >= cache.chain_finalized_height) {
@@ -1069,16 +1076,17 @@ function defineIndexer(opts: Indexer) {
 		await opts.metadataStorage.adapter.put(path, JSON.stringify(cache));
 	};
 
-	async function getFinalizedChainCache(chain: `0x${string}`) {
+	async function getChainCache(chain: `0x${string}`) {
 		const path = `cache/v1/${normalizeHex(chain)}`;
 		const cacheRes = await opts.metadataStorage.adapter.get(path);
 
 		if (cacheRes === null) {
 			const block = await getBlockFromChain({ chain, number: "finalized" });
 
-			const cache = {
+			const cache: Cache = {
 				chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number),
 				chain_finalized_block_hash: block.eth_getBlockByNumber.hash,
+				chain_finalized_parent_hash: block.eth_getBlockByNumber.parentHash,
 			};
 
 			await opts.metadataStorage.adapter.put(path, JSON.stringify(cache));
@@ -1086,10 +1094,7 @@ function defineIndexer(opts: Indexer) {
 			return cache;
 		}
 
-		const cache = JSON.parse(decoder.decode(cacheRes.body)) as {
-			chain_finalized_height: number;
-			chain_finalized_block_hash: `0x${string}`;
-		};
+		const cache = JSON.parse(decoder.decode(cacheRes.body)) as Cache;
 
 		return cache;
 	}
@@ -1108,10 +1113,10 @@ function defineIndexer(opts: Indexer) {
 
 		const blocksStart = Date.now();
 
-		const [block, manifest, cache] = await Promise.all([
-			getBlockFromChain(head),
+		const [block, cache, manifest] = await Promise.all([
+			getBlockFromChain(head), //
+			getChainCache(head.chain),
 			getOrInitManifest(head.chain),
-			getFinalizedChainCache(head.chain),
 		]);
 
 		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
