@@ -1050,11 +1050,24 @@ function defineIndexer(opts: Indexer) {
 	}
 
 	const public_writeFinalizedHeight: IndexerRpc["request"]["public_writeFinalizedHeight"] = async (chain) => {
-		const block = await getBlockFromChain({ chain, number: "finalized" });
+		const path = `cache/v1/${normalizeHex(chain)}`;
+
+		const [block, cacheRes] = await Promise.all([
+			getBlockFromChain({ chain, number: "finalized" }),
+			opts.metadataStorage.adapter.get(path),
+		]);
 
 		const cache = { chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number) };
 
-		await opts.metadataStorage.adapter.put(`cache/v1/${normalizeHex(chain)}`, JSON.stringify(cache));
+		if (cacheRes !== null) {
+			const stored = JSON.parse(decoder.decode(cacheRes.body)) as { chain_finalized_height: number };
+
+			if (stored.chain_finalized_height >= cache.chain_finalized_height) {
+				return;
+			}
+		}
+
+		await opts.metadataStorage.adapter.put(path, JSON.stringify(cache));
 	};
 
 	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
