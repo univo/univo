@@ -1052,36 +1052,46 @@ function defineIndexer(opts: Indexer) {
 	const public_writeFinalizedHeight: IndexerRpc["request"]["public_writeFinalizedHeight"] = async (chain) => {
 		const path = `cache/v1/${normalizeHex(chain)}`;
 
-		const [block, storedHeight] = await Promise.all([
+		const [cached, block] = await Promise.all([
+			getFinalizedChainCache(chain),
 			getBlockFromChain({ chain, number: "finalized" }), //
-			getChainFinalizedHeight(chain),
 		]);
 
-		const cache = { chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number) };
+		const cache = {
+			chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number),
+			chain_finalized_block_hash: block.eth_getBlockByNumber.hash,
+		};
 
-		if (storedHeight >= cache.chain_finalized_height) {
+		if (cached.chain_finalized_height >= cache.chain_finalized_height) {
 			return;
 		}
 
 		await opts.metadataStorage.adapter.put(path, JSON.stringify(cache));
 	};
 
-	async function getChainFinalizedHeight(chain: `0x${string}`): Promise<number> {
+	async function getFinalizedChainCache(chain: `0x${string}`) {
 		const path = `cache/v1/${normalizeHex(chain)}`;
 		const cacheRes = await opts.metadataStorage.adapter.get(path);
 
 		if (cacheRes === null) {
 			const block = await getBlockFromChain({ chain, number: "finalized" });
-			const cache = { chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number) };
+
+			const cache = {
+				chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number),
+				chain_finalized_block_hash: block.eth_getBlockByNumber.hash,
+			};
 
 			await opts.metadataStorage.adapter.put(path, JSON.stringify(cache));
 
-			return cache.chain_finalized_height;
+			return cache;
 		}
 
-		const cache = JSON.parse(decoder.decode(cacheRes.body)) as { chain_finalized_height: number };
+		const cache = JSON.parse(decoder.decode(cacheRes.body)) as {
+			chain_finalized_height: number;
+			chain_finalized_block_hash: `0x${string}`;
+		};
 
-		return cache.chain_finalized_height;
+		return cache;
 	}
 
 	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
@@ -1098,10 +1108,10 @@ function defineIndexer(opts: Indexer) {
 
 		const blocksStart = Date.now();
 
-		const [block, manifest, chainFinalizedHeight] = await Promise.all([
+		const [block, manifest, cache] = await Promise.all([
 			getBlockFromChain(head),
 			getOrInitManifest(head.chain),
-			getChainFinalizedHeight(head.chain),
+			getFinalizedChainCache(head.chain),
 		]);
 
 		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
@@ -1113,8 +1123,8 @@ function defineIndexer(opts: Indexer) {
 			return log.debug(`Received finalized head (${receivedHeight}) below indexer height (${indexerFinalizedHeight})`);
 		}
 
-		if (receivedHeight > chainFinalizedHeight) {
-			return log.error(`Received finalized head (${receivedHeight}) that has not finalized (${chainFinalizedHeight})`);
+		if (receivedHeight > cache.chain_finalized_height) {
+			return log.error(`Received finalized head (${receivedHeight}) that has not finalized (${cache.chain_finalized_height})`);
 		}
 
 		const chain = normalizeHex(block.eth_chainId);
