@@ -488,6 +488,8 @@ test.concurrent("public_writeFinalizedHead aborts repeated calls for the same bl
 		parent_hash: block.eth_getBlockByNumber.parentHash,
 	};
 
+	await indexer.request({ method: "public_writeFinalizedHeight", params: ["0x1"] });
+
 	await Promise.all([
 		indexer.request({ method: "public_writeFinalizedHead", params: [head] }),
 		indexer.request({ method: "public_writeFinalizedHead", params: [head] }),
@@ -995,6 +997,8 @@ test.concurrent("public_finalize skips heads already processed", async () => {
 	chainFinalizedHeight = 10;
 
 	// 4. Write 10 finalized heads
+
+	await indexer.request({ method: "public_writeFinalizedHeight", params: ["0x1"] });
 
 	for (const head of newHeads) {
 		await indexer.request({
