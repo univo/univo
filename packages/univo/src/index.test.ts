@@ -173,6 +173,96 @@ test.concurrent("safely handles getBlock returning null for eth_getBlockReceipts
 	]);
 });
 
+test.concurrent.each([0, 1, 22994233, 25082720])("verifies block header hash for block %i", async (number) => {
+	const block = await test_getBlock({ chain: "0x1", number: numberToHex(number) });
+	const indexer = defineIndexer({
+		quiet: true,
+		getBlock: async () => block,
+		metadataStorage: test_metadataStorage(),
+		events: [],
+		actions: [],
+	});
+
+	await expect(indexer.request({ method: "public_getFinalizedHeight", params: ["0x1"] })).resolves.toBe(number);
+});
+
+test.concurrent.each([
+	"hash",
+	"parentHash",
+	"sha3Uncles",
+	"miner",
+	"stateRoot",
+	"transactionsRoot",
+	"receiptsRoot",
+	"logsBloom",
+	"difficulty",
+	"number",
+	"gasLimit",
+	"gasUsed",
+	"timestamp",
+	"extraData",
+	"mixHash",
+	"nonce",
+	"baseFeePerGas",
+	"withdrawalsRoot",
+	"blobGasUsed",
+	"excessBlobGas",
+	"parentBeaconBlockRoot",
+	"requestsHash",
+])("rejects a block with tampered header field %s", async (field) => {
+	const block = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+	const value = block.eth_getBlockByNumber[field] as string;
+	block.eth_getBlockByNumber[field] = `${value.slice(0, -1)}${value.endsWith("0") ? "1" : "0"}`;
+	const metadataStorage = test_metadataStorage();
+	const indexer = defineIndexer({
+		quiet: true,
+		getBlock: async () => block,
+		metadataStorage,
+		events: [],
+		actions: [],
+	});
+
+	await expect(indexer.request({ method: "public_getFinalizedHeight", params: ["0x1"] })).rejects.toThrow(
+		"Block returned header that does not match the block hash",
+	);
+	expect(await metadataStorage.adapter.get("manifest/v1/0x1")).toBeNull();
+});
+
+test.concurrent("retries blocks with invalid header hashes", async () => {
+	const block = await test_getBlock({ chain: "0x1", number: "0x0" });
+	let attempts = 0;
+	const indexer = defineIndexer({
+		quiet: true,
+		getBlock: async () => {
+			attempts++;
+			return attempts === 1 ? { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, timestamp: "0x1" } } : block;
+		},
+		metadataStorage: test_metadataStorage(),
+		events: [],
+		actions: [],
+	});
+
+	await expect(indexer.request({ method: "public_getFinalizedHeight", params: ["0x1"] })).resolves.toBe(0);
+	expect(attempts).toBe(2);
+});
+
+test.concurrent("rejects missing fork fields in a block header", async () => {
+	const block = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
+	// biome-ignore lint/performance/noDelete: <explanation>
+	delete block.eth_getBlockByNumber.withdrawalsRoot;
+	const indexer = defineIndexer({
+		quiet: true,
+		getBlock: async () => block,
+		metadataStorage: test_metadataStorage(),
+		events: [],
+		actions: [],
+	});
+
+	await expect(indexer.request({ method: "public_getFinalizedHeight", params: ["0x1"] })).rejects.toThrow(
+		"Block returned incomplete block header",
+	);
+});
+
 test.concurrent("accepts provider chain id on pre-EIP-155 transactions", async () => {
 	const block = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 

@@ -403,6 +403,7 @@ function defineIndexer(opts: Indexer) {
 
 		// Verify integrity of the RPC response
 
+		verifyBlockHash(block);
 		verifyBlockHashes(block);
 		verifyLogIndicies(block);
 		verifyReceiptsRoot(block);
@@ -411,6 +412,62 @@ function defineIndexer(opts: Indexer) {
 		verifyTransactionGasUsage(block);
 
 		return block;
+	}
+
+	/**
+	 * Reconstructs the Ethereum block header and verifies its hash, including fork-specific fields.
+	 */
+	function verifyBlockHash(block: Block) {
+		// requestsHash (EIP-7685) is not yet included in viem's RpcBlock type.
+		const header = block.eth_getBlockByNumber as Block["eth_getBlockByNumber"] & { requestsHash?: viem.Hex };
+
+		const fields = [
+			viem.hexToBytes(header.parentHash),
+			viem.hexToBytes(header.sha3Uncles),
+			viem.hexToBytes(header.miner),
+			viem.hexToBytes(header.stateRoot),
+			viem.hexToBytes(header.transactionsRoot),
+			viem.hexToBytes(header.receiptsRoot),
+			viem.hexToBytes(header.logsBloom),
+			quantityToBytes(header.difficulty),
+			quantityToBytes(header.number),
+			quantityToBytes(header.gasLimit),
+			quantityToBytes(header.gasUsed),
+			quantityToBytes(header.timestamp),
+			viem.hexToBytes(header.extraData),
+			viem.hexToBytes(header.mixHash),
+			viem.hexToBytes(header.nonce),
+		];
+
+		// Header extensions are appended in fork order. Zero quantities must be included as empty
+		// RLP strings, while fixed-width data (including the nonce) retains its leading zero bytes.
+		const extensions = [
+			[header.baseFeePerGas, quantityToBytes],
+			[header.withdrawalsRoot, viem.hexToBytes],
+			[header.blobGasUsed, quantityToBytes],
+			[header.excessBlobGas, quantityToBytes],
+			[header.parentBeaconBlockRoot, viem.hexToBytes],
+			[header.requestsHash, viem.hexToBytes],
+		] as const;
+
+		let missingField = false;
+
+		for (const [value, encode] of extensions) {
+			if (value == null) {
+				missingField = true;
+				continue;
+			}
+
+			if (missingField) {
+				throw new Error("Block returned incomplete block header");
+			}
+
+			fields.push(encode(value));
+		}
+
+		if (!isHexEqual(header.hash, viem.keccak256(viem.toRlp(fields, "bytes")))) {
+			throw new Error("Block returned header that does not match the block hash");
+		}
 	}
 
 	/**
