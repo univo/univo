@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.3.3...v0.4.0
+
+[compare changes](https://github.com/univo/univo/compare/v0.3.3...v0.4.0)
+
+### 🚀 Enhancements
+
+- **indexer:** Introduce defineAction, defineEvent, and http proxy ([#90](https://github.com/univo/univo/pull/90))
+- **indexer:** Verify incoming block hash ([#91](https://github.com/univo/univo/pull/91))
+- **rpc:** Add method public_writeFinalizedHeight ([#92](https://github.com/univo/univo/pull/92))
+- **indexer:** Use metadata blocks when writing finalized heads ([#93](https://github.com/univo/univo/pull/93))
+
+### 🏡 Chore
+
+- **indexer:** Simplify error messages ([#89](https://github.com/univo/univo/pull/89))
+- **indexer:** Import viem fns directly ([#94](https://github.com/univo/univo/pull/94))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.3.2...v0.3.3
 
 ### 🩹 Fixes
