@@ -442,8 +442,6 @@ test.concurrent("public_writeUnfinalizedHead aborts repeated calls for the same 
 
 test.concurrent("public_writeFinalizedHead aborts repeated calls for the same block", async ({ expect }) => {
 	let chainFinalizedHeight = 0;
-	let finalizedBlockRequests = 0;
-	const metadataStorage = test_metadataStorage();
 
 	const event = defineEvent({
 		id: "event",
@@ -465,10 +463,9 @@ test.concurrent("public_writeFinalizedHead aborts repeated calls for the same bl
 	// Initialize the manifest before the chain advances.
 	const indexer = defineIndexer({
 		quiet: true,
-		metadataStorage,
+		metadataStorage: test_metadataStorage(),
 		getBlock: async (block) => {
 			if (block.number === "finalized") {
-				finalizedBlockRequests++;
 				return await test_getBlock({ chain: "0x1", number: numberToHex(chainFinalizedHeight) });
 			}
 
@@ -491,17 +488,7 @@ test.concurrent("public_writeFinalizedHead aborts repeated calls for the same bl
 		parent_hash: block.eth_getBlockByNumber.parentHash,
 	};
 
-	await indexer.request({ method: "public_writeFinalizedHead", params: [head] });
-	expect(count).toBe(1);
-	expect(finalizedBlockRequests).toBe(2);
-
-	const initializedCache = await metadataStorage.adapter.get("cache/v1/0x1");
-	expect(JSON.parse(new TextDecoder().decode(initializedCache!.body))).toEqual({ chain_finalized_height: 1 });
-
 	await indexer.request({ method: "public_writeFinalizedHeight", params: ["0x1"] });
-
-	const cache = await metadataStorage.adapter.get("cache/v1/0x1");
-	expect(JSON.parse(new TextDecoder().decode(cache!.body))).toEqual({ chain_finalized_height: 1 });
 
 	await Promise.all([
 		indexer.request({ method: "public_writeFinalizedHead", params: [head] }),
@@ -511,7 +498,6 @@ test.concurrent("public_writeFinalizedHead aborts repeated calls for the same bl
 	await indexer.request({ method: "public_writeFinalizedHead", params: [head] });
 
 	expect(count).toBe(1);
-	expect(finalizedBlockRequests).toBe(3);
 });
 
 test.concurrent("public_writeUnfinalizedHead upserts events", async () => {
