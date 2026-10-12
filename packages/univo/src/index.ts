@@ -1132,8 +1132,13 @@ function defineIndexer(opts: Indexer) {
 
 		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
 
-		// We need to determine if the head supplied is canonical. This allows us to trust the block data
-		// loaded from metadata, otherwise we have to load the block from the chain to be sure
+		// We need to determine if the head supplied is canonical and actually finalised onchain. This allows
+		// us to trust the block data loaded from metadata. We can prove this by connecting two points we have
+		// already loaded from the chain: the indexer finalised height, and the chain finalized height. And this
+		// can be done by LISTing all the heads pushed to the metadata layer. If we can prove the entire chain
+		// between these two points AND the supplied head exists on this chain then we know it's canonical and
+		// can safely trust the metadata block. In all other cases, we fallback to re-loading the finalised block
+		// from the chain
 
 		const canonical = iife(() => {
 			let matchesHead = false;
@@ -1203,7 +1208,7 @@ function defineIndexer(opts: Indexer) {
 			return log.debug("Finalized block already persisted to wal, ignoring...");
 		}
 
-		// Given the head is not finalized by the indexer but finalized onchain, perform the associated actions for all events
+		// Given the head is not finalized by the indexer but finalized onchain, perform the finalization work
 
 		await writeFinalizedBlock(block, allActions);
 	};
