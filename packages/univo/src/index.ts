@@ -6,7 +6,7 @@ import { version } from "../package.json";
 import type { Storage } from "./metadata";
 import { AdapterError } from "./metadata/adapters";
 import { catchException, createException } from "./exceptions";
-import { compress, createLogger, decoder, decompress, normalizeHex, retry, isHexEqual } from "./utils";
+import { compress, createLogger, decoder, decompress, normalizeHex, retry, isHexEqual, iife } from "./utils";
 
 /**
  * The minimum RPC data required to process a block.
@@ -256,6 +256,12 @@ type Result = {
 	number: `0x${string}`;
 	parent_hash: `0x${string}`;
 	created_at: number;
+};
+
+type Cache = {
+	chain_finalized_height: number;
+	chain_finalized_block_hash: `0x${string}`;
+	chain_finalized_parent_hash: `0x${string}`;
 };
 
 type Manifest = {
@@ -1052,36 +1058,45 @@ function defineIndexer(opts: Indexer) {
 	const public_writeFinalizedHeight: IndexerRpc["request"]["public_writeFinalizedHeight"] = async (chain) => {
 		const path = `cache/v1/${normalizeHex(chain)}`;
 
-		const [block, storedHeight] = await Promise.all([
+		const [cached, block] = await Promise.all([
+			getChainCache(chain),
 			getBlockFromChain({ chain, number: "finalized" }), //
-			getChainFinalizedHeight(chain),
 		]);
 
-		const cache = { chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number) };
+		const cache: Cache = {
+			chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number),
+			chain_finalized_block_hash: block.eth_getBlockByNumber.hash,
+			chain_finalized_parent_hash: block.eth_getBlockByNumber.parentHash,
+		};
 
-		if (storedHeight >= cache.chain_finalized_height) {
+		if (cached.chain_finalized_height >= cache.chain_finalized_height) {
 			return;
 		}
 
 		await opts.metadataStorage.adapter.put(path, JSON.stringify(cache));
 	};
 
-	async function getChainFinalizedHeight(chain: `0x${string}`): Promise<number> {
+	async function getChainCache(chain: `0x${string}`) {
 		const path = `cache/v1/${normalizeHex(chain)}`;
 		const cacheRes = await opts.metadataStorage.adapter.get(path);
 
 		if (cacheRes === null) {
 			const block = await getBlockFromChain({ chain, number: "finalized" });
-			const cache = { chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number) };
+
+			const cache: Cache = {
+				chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number),
+				chain_finalized_block_hash: block.eth_getBlockByNumber.hash,
+				chain_finalized_parent_hash: block.eth_getBlockByNumber.parentHash,
+			};
 
 			await opts.metadataStorage.adapter.put(path, JSON.stringify(cache));
 
-			return cache.chain_finalized_height;
+			return cache;
 		}
 
-		const cache = JSON.parse(decoder.decode(cacheRes.body)) as { chain_finalized_height: number };
+		const cache = JSON.parse(decoder.decode(cacheRes.body)) as Cache;
 
-		return cache.chain_finalized_height;
+		return cache;
 	}
 
 	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
@@ -1094,19 +1109,17 @@ function defineIndexer(opts: Indexer) {
 			return;
 		}
 
-		// Otherwise, we may have actions to run
-
 		const blocksStart = Date.now();
 
-		const [block, manifest, chainFinalizedHeight] = await Promise.all([
-			getBlockFromChain(head),
+		const [cache, blockFromMetadata, manifest, heads] = await Promise.all([
+			getChainCache(head.chain), //
+			getBlockFromMetadata(head),
 			getOrInitManifest(head.chain),
-			getChainFinalizedHeight(head.chain),
+			listUnfinalizedHeads(head.chain),
 		]);
 
-		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
-
 		const receivedHeight = viem.hexToNumber(head.number);
+		const chainFinalizedHeight = cache.chain_finalized_height;
 		const indexerFinalizedHeight = manifest.finalized_block_height;
 
 		if (receivedHeight <= indexerFinalizedHeight) {
@@ -1114,18 +1127,72 @@ function defineIndexer(opts: Indexer) {
 		}
 
 		if (receivedHeight > chainFinalizedHeight) {
-			return log.error(`Received finalized head (${receivedHeight}) that has not finalized (${chainFinalizedHeight})`);
+			return log.error(`Received finalized head (${receivedHeight}) that has not actually finalized (${chainFinalizedHeight})`);
 		}
 
+		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
+
+		// We need to determine if the head supplied is canonical and actually finalised onchain. This allows
+		// us to trust the block data loaded from metadata. We can prove this by connecting two points we have
+		// already loaded from the chain: the indexer finalised height, and the chain finalized height. And this
+		// can be done by LISTing all the heads pushed to the metadata layer. If we can prove the entire chain
+		// between these two points AND the supplied head exists on this chain then we know it's canonical and
+		// can safely trust the metadata block. In all other cases, we fallback to re-loading the finalised block
+		// from the chain
+
+		const canonical = iife(() => {
+			let matchesHead = false;
+
+			let canonicalHead: Head = {
+				chain: head.chain,
+				hash: cache.chain_finalized_block_hash,
+				parent_hash: cache.chain_finalized_parent_hash,
+				number: viem.numberToHex(cache.chain_finalized_height),
+			};
+
+			const receivedHeight = viem.hexToNumber(head.number);
+
+			for (let number = cache.chain_finalized_height; number > manifest.finalized_block_height; number--) {
+				if (number === receivedHeight) {
+					matchesHead = isHexEqual(head.hash, canonicalHead.hash) && isHexEqual(head.parent_hash, canonicalHead.parent_hash);
+
+					if (!matchesHead) {
+						return false;
+					}
+				}
+
+				if (number === manifest.finalized_block_height + 1) {
+					return matchesHead && isHexEqual(canonicalHead.parent_hash, manifest.finalized_block_hash);
+				}
+
+				const parent = heads.get(`${number - 1}/${normalizeHex(canonicalHead.parent_hash)}`);
+
+				if (parent === undefined) {
+					return false;
+				}
+
+				canonicalHead = parent;
+			}
+
+			return false;
+		});
+
+		const block = await iife(async () => {
+			if (canonical === false || blockFromMetadata === null) {
+				return await getBlockFromChain(head);
+			}
+
+			return blockFromMetadata;
+		});
+
+		// Finally, perform a conditional PUT to ensure only request succeeds for concurrency control
+
 		const chain = normalizeHex(block.eth_chainId);
-		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
 		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
 		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
 		const finalizedKey = `finalized/v1/${chain}/${number}/${hash}/${parentHash}`;
 		const finalizedValue = JSON.stringify({ hello: "world" });
-
-		// Finalized blocks can always be loaded from the chain, so this WAL only needs an empty marker.
-		// The conditional put ensures that only one request can invoke actions for this block.
 
 		const conditional = { ifNoneMatch: "*" } as const;
 
@@ -1141,10 +1208,52 @@ function defineIndexer(opts: Indexer) {
 			return log.debug("Finalized block already persisted to wal, ignoring...");
 		}
 
-		// Given the head is not finalized by the indexer but finalized onchain, perform the associated actions for all events
+		// Given the head is not finalized by the indexer but finalized onchain, perform the finalization work
 
 		await writeFinalizedBlock(block, allActions);
 	};
+
+	async function getBlockFromMetadata(head: Head) {
+		const hash = normalizeHex(head.hash);
+		const chain = normalizeHex(head.chain);
+		const number = normalizeHex(head.number, 16);
+		const parentHash = normalizeHex(head.parent_hash);
+		const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+
+		const object = await opts.metadataStorage.adapter.get(prefix);
+
+		if (object === null) {
+			return null;
+		}
+
+		const block = await decompress(object.body);
+		const parsed = JSON.parse(block);
+		return parsed as Block;
+	}
+
+	async function listUnfinalizedHeads(chain: `0x${string}`) {
+		const blocks = await opts.metadataStorage.adapter.list({
+			prefix: `blocks/v1/${normalizeHex(chain)}/`,
+			limit: 1000,
+		});
+
+		const heads = new Map<string, Head>();
+
+		for (const key of blocks.keys) {
+			const [_, __, chain, number, hash, parent_hash] = key.split("/") as [
+				string,
+				string,
+				`0x${string}`,
+				`0x${string}`,
+				`0x${string}`,
+				`0x${string}`,
+			];
+
+			heads.set(`${viem.hexToNumber(number)}/${normalizeHex(hash)}`, { chain, number, hash, parent_hash });
+		}
+
+		return heads;
+	}
 
 	async function writeFinalizedBlock(block: Block, actions: AnyAction[]) {
 		// If the indexer hasn't defined any actions then there isn't actually any work to complete
@@ -1506,6 +1615,7 @@ function defineIndexer(opts: Indexer) {
 					getBlockFromMetadataOrChain(canonicalHead), //
 					...reorganisedPromises,
 				]);
+
 				log.debug("Re-processing heads");
 
 				await Promise.all([
@@ -1655,21 +1765,13 @@ function defineIndexer(opts: Indexer) {
 	}
 
 	async function getBlockFromMetadataOrChain(head: Head) {
-		const chain = normalizeHex(head.chain);
-		const number = normalizeHex(head.number, 16);
-		const hash = normalizeHex(head.hash);
-		const parentHash = normalizeHex(head.parent_hash);
-		const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const metadata = await getBlockFromMetadata(head);
 
-		const object = await opts.metadataStorage.adapter.get(prefix);
-
-		if (object !== null) {
-			const block = await decompress(object.body);
-			const parsed = JSON.parse(block);
-			return parsed as Block;
+		if (metadata === null) {
+			return await getBlockFromChain(head);
 		}
 
-		return await getBlockFromChain(head);
+		return metadata;
 	}
 
 	const private_getMetadata: IndexerRpc["request"]["private_getMetadata"] = async () => {
