@@ -351,6 +351,12 @@ function realtime(opts: RealtimeOptions) {
 
 				const nextFinalizedHeight = hexToNumber(finalizedBlock.number);
 
+				if (nextFinalizedHeight <= chainFinalizedHeight) {
+					return log.debug("Chain finalized height has not progressed");
+				}
+
+				await opts.indexer.request({ params: [chain], method: "public_writeFinalizedHeight" });
+
 				// Determine new finalized heads
 
 				const newFinalizedHeads = unfinalized.chain
@@ -366,6 +372,8 @@ function realtime(opts: RealtimeOptions) {
 					});
 
 				if (newFinalizedHeads.length === 0) {
+					chainFinalizedHeight = nextFinalizedHeight;
+
 					return log.debug("No new finalized heads to process");
 				}
 

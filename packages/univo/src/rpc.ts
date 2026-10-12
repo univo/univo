@@ -36,6 +36,11 @@ type IndexerRpc = {
 		public_writeUnfinalizedHead: (head: Head) => Promise<void>;
 
 		/**
+		 * Accepts a chain identifier and caches its current finalized height
+		 */
+		public_writeFinalizedHeight: (chain: `0x${string}`) => Promise<void>;
+
+		/**
 		 * Accepts a finalized head and executes all actions
 		 */
 		public_writeFinalizedHead: (head: Head) => Promise<void>;
