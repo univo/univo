@@ -786,6 +786,68 @@ function defineIndexer(opts: Indexer) {
 		return manifest.finalized_block_height;
 	};
 
+	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
+		log.debug("Received unfinalized head...");
+
+		const blocksStart = Date.now();
+
+		const [block, manifest] = await Promise.all([
+			getBlockFromChain(head), //
+			getOrInitManifest(head.chain),
+		]);
+
+		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
+
+		const indexerFinalizedHeight = manifest.finalized_block_height;
+
+		// We must ensure each block is actually unfinalized to prevent an attack vector where a client could submit
+		// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
+		// stall indexing. We filter them out here and continue operating on unfinalized heads
+
+		if (viem.hexToNumber(head.number) <= indexerFinalizedHeight) {
+			return log.debug("Receiving finalized head, ignoring...");
+		}
+
+		// Before any blocks are processed they must be committed to the metadata storage write ahead log. This ensures we
+		// have a record of the events that were upserted to storage so that they can be safely deleted later if the block
+		// is ever reorganised out of the canonical chain.
+
+		const metadata_start = Date.now();
+
+		const chain = normalizeHex(block.eth_chainId);
+		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
+		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
+
+		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+		const blocksValue = await compress(JSON.stringify(block));
+
+		// This upsert is performed as a conditional PUT that will error if a block already exists in the WAL for
+		// this height. This serves two purposes: it prevents overwriting data from other requests, and also acts as a
+		// concurrency control mechanism. When an indexer has multiple realtime clients for the same chain, only the first
+		// request received will succeed and all other requests will error (which we safely return OK to the client)
+
+		const conditional = { ifNoneMatch: "*" } as const;
+
+		const result = await opts.metadataStorage.adapter.put(blocksKey, blocksValue, conditional).catch((error) => {
+			if (error instanceof AdapterError) {
+				if (error.tag === "PreconditionFailed") {
+					return null;
+				}
+			}
+
+			throw error;
+		});
+
+		if (result === null) {
+			return log.debug("Block already persisted to wal, ignoring...");
+		}
+
+		log.debug(`Persisted block to wal in ${Date.now() - metadata_start}ms`);
+
+		await writeUnfinalizedBlock(block);
+	};
+
 	async function writeUnfinalizedBlock(block: Block) {
 		// Process the unfinalized block
 
@@ -864,66 +926,47 @@ function defineIndexer(opts: Indexer) {
 		await opts.metadataStorage.adapter.put(commitsKey, commitsValue);
 	}
 
-	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
-		log.debug("Received unfinalized head...");
+	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
+		log.debug(`Received reorganised head ${viem.hexToNumber(head.number)}`);
 
-		const blocksStart = Date.now();
+		// We load the reorganised block directly from metadata and bypass the `getBlockFromChainOrMetadata` helper
+		// because if the block doesn't exist in metadata it means it was never processed and can safely return
 
-		const [block, manifest] = await Promise.all([
-			getBlockFromChain(head), //
-			getOrInitManifest(head.chain),
+		const chain = normalizeHex(head.chain);
+		const number = normalizeHex(head.number, 16);
+		const hash = normalizeHex(head.hash);
+		const parentHash = normalizeHex(head.parent_hash);
+		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+
+		// We load blocks via their block number. If this block was truly reorganised and is no longer part of the
+		// canonical chain than this request should yield a block with a different block hash. This is our proof
+		// that this block is no longer included in the chain and that it's safe to delete data associated with it
+
+		const [blocksRes, canonicalBlock] = await Promise.all([
+			opts.metadataStorage.adapter.get(blocksKey), //
+			getBlockFromChain({ chain: head.chain, number: head.number }),
 		]);
 
-		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
-
-		const indexerFinalizedHeight = manifest.finalized_block_height;
-
-		// We must ensure each block is actually unfinalized to prevent an attack vector where a client could submit
-		// the genesis block as unfinalized. Forcing our finalized handler to process the entire chain and effectively
-		// stall indexing. We filter them out here and continue operating on unfinalized heads
-
-		if (viem.hexToNumber(head.number) <= indexerFinalizedHeight) {
-			return log.debug("Receiving finalized head, ignoring...");
+		if (blocksRes === null) {
+			return log.debug("Reorganised block never/already processed");
 		}
 
-		// Before any blocks are processed they must be committed to the metadata storage write ahead log. This ensures we
-		// have a record of the events that were upserted to storage so that they can be safely deleted later if the block
-		// is ever reorganised out of the canonical chain.
+		const decompressedBlock = await decompress(blocksRes.body);
+		const storedBlock = JSON.parse(decompressedBlock);
 
-		const metadata_start = Date.now();
-
-		const chain = normalizeHex(block.eth_chainId);
-		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
-		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
-		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
-
-		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
-		const blocksValue = await compress(JSON.stringify(block));
-
-		// This upsert is performed as a conditional PUT that will error if a block already exists in the WAL for
-		// this height. This serves two purposes: it prevents overwriting data from other requests, and also acts as a
-		// concurrency control mechanism. When an indexer has multiple realtime clients for the same chain, only the first
-		// request received will succeed and all other requests will error (which we safely return OK to the client)
-
-		const conditional = { ifNoneMatch: "*" } as const;
-
-		const result = await opts.metadataStorage.adapter.put(blocksKey, blocksValue, conditional).catch((error) => {
-			if (error instanceof AdapterError) {
-				if (error.tag === "PreconditionFailed") {
-					return null;
-				}
-			}
-
-			throw error;
-		});
-
-		if (result === null) {
-			return log.debug("Block already persisted to wal, ignoring...");
+		if (isHexEqual(head.hash, canonicalBlock.eth_getBlockByNumber.hash)) {
+			throw new Error("Attempted to delete canonical block");
 		}
 
-		log.debug(`Persisted block to wal in ${Date.now() - metadata_start}ms`);
+		// We know the block is not included in the canonical chain and we know that our storage system may have upserted
+		// events with this block data. We use the block data to generate the same set of events that could have been
+		// upserted and provide them to each events delete function
 
-		await writeUnfinalizedBlock(block);
+		await deleteReorganisedBlocksAndWriteCanonicalBlock([storedBlock], canonicalBlock);
+
+		// After the above deletion occurs it is impossible for a malicious client to call `public_writeUnfinalizedHead`
+		// with the reorganised block because it won't be retrievable from the chain. This guard guarantees that our
+		// record of events will leave the canonical set and not the reorganised set.
 	};
 
 	async function deleteReorganisedBlocksAndWriteCanonicalBlock(reorganised: Block[], canonical: Block) {
@@ -1006,104 +1049,6 @@ function defineIndexer(opts: Indexer) {
 		await Promise.all(upserts);
 	}
 
-	const public_deleteReorganisedHead: IndexerRpc["request"]["public_deleteReorganisedHead"] = async (head) => {
-		log.debug(`Received reorganised head ${viem.hexToNumber(head.number)}`);
-
-		// We load the reorganised block directly from metadata and bypass the `getBlockFromChainOrMetadata` helper
-		// because if the block doesn't exist in metadata it means it was never processed and can safely return
-
-		const chain = normalizeHex(head.chain);
-		const number = normalizeHex(head.number, 16);
-		const hash = normalizeHex(head.hash);
-		const parentHash = normalizeHex(head.parent_hash);
-		const blocksKey = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
-
-		// We load blocks via their block number. If this block was truly reorganised and is no longer part of the
-		// canonical chain than this request should yield a block with a different block hash. This is our proof
-		// that this block is no longer included in the chain and that it's safe to delete data associated with it
-
-		const [blocksRes, canonicalBlock] = await Promise.all([
-			opts.metadataStorage.adapter.get(blocksKey), //
-			getBlockFromChain({ chain: head.chain, number: head.number }),
-		]);
-
-		if (blocksRes === null) {
-			return log.debug("Reorganised block never/already processed");
-		}
-
-		const decompressedBlock = await decompress(blocksRes.body);
-		const storedBlock = JSON.parse(decompressedBlock);
-
-		if (isHexEqual(head.hash, canonicalBlock.eth_getBlockByNumber.hash)) {
-			throw new Error("Attempted to delete canonical block");
-		}
-
-		// We know the block is not included in the canonical chain and we know that our storage system may have upserted
-		// events with this block data. We use the block data to generate the same set of events that could have been
-		// upserted and provide them to each events delete function
-
-		await deleteReorganisedBlocksAndWriteCanonicalBlock([storedBlock], canonicalBlock);
-
-		// After the above deletion occurs it is impossible for a malicious client to call `public_writeUnfinalizedHead`
-		// with the reorganised block because it won't be retrievable from the chain. This guard guarantees that our
-		// record of events will leave the canonical set and not the reorganised set.
-	};
-
-	async function writeFinalizedBlock(block: Block, actions: AnyAction[]) {
-		// If the indexer hasn't defined any actions then there isn't actually any work to complete
-		// on finalization, so this is an optimistic abort case to reduce costs.
-
-		if (actions.length === 0) {
-			return;
-		}
-
-		const chain = normalizeHex(block.eth_chainId);
-		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
-		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
-		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
-		const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
-
-		const promises = actions.map(async (action) => {
-			// Even if the there were no events for this block that would invoke the action it's important that we still
-			// mark the action as successful with a commit so that we don't cause the block to be processed again
-
-			const events = action.event.filters.some((filter) => matchFilter(block, filter)) ? action.event.handler(block) : [];
-
-			const promises = events.map(async (event) => {
-				await retry(() => action.handler(event), 2).catch((error) => {
-					log.error(`Failed to execute action ${action.id}`);
-
-					throw error;
-				});
-			});
-
-			const results = await Promise.allSettled(promises);
-
-			// If we successfully invoked the action for all events we durably record a commit for this action id.
-			// This acknowledges the work was completed without issue and can be safely skipped at finalization.
-			// The commit will also run if there are no actual events to invoke the action for this block.
-
-			const failure = results.find((result) => result.status === "rejected");
-
-			if (failure !== undefined) {
-				throw failure.reason;
-			}
-
-			// In general, the goal of this commit is to maximally acknowledge work processed at finalization. This
-			// ensures that our finalization handler always remains fast by only having to re-do the minimum amount
-			// of work. However, there are some cost trade-offs to consider here. We commit by block here, either we
-			// invoke the action successfully for all events in this block, or we fail. We could commit by each actual
-			// event but that could dramatically increase the cost of the metadata layer from increased writes
-
-			const commitsKey = `${prefix}/action/${action.id}`;
-			const commitsValue = JSON.stringify({ hello: "world" });
-
-			await opts.metadataStorage.adapter.put(commitsKey, commitsValue);
-		});
-
-		await Promise.all(promises);
-	}
-
 	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
 		log.debug("Received finalized head...");
 
@@ -1167,6 +1112,61 @@ function defineIndexer(opts: Indexer) {
 		await writeFinalizedBlock(block, allActions);
 	};
 
+	async function writeFinalizedBlock(block: Block, actions: AnyAction[]) {
+		// If the indexer hasn't defined any actions then there isn't actually any work to complete
+		// on finalization, so this is an optimistic abort case to reduce costs.
+
+		if (actions.length === 0) {
+			return;
+		}
+
+		const chain = normalizeHex(block.eth_chainId);
+		const number = normalizeHex(block.eth_getBlockByNumber.number, 16);
+		const hash = normalizeHex(block.eth_getBlockByNumber.hash);
+		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
+		const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
+
+		const promises = actions.map(async (action) => {
+			// Even if the there were no events for this block that would invoke the action it's important that we still
+			// mark the action as successful with a commit so that we don't cause the block to be processed again
+
+			const events = action.event.filters.some((filter) => matchFilter(block, filter)) ? action.event.handler(block) : [];
+
+			const promises = events.map(async (event) => {
+				await retry(() => action.handler(event), 2).catch((error) => {
+					log.error(`Failed to execute action ${action.id}`);
+
+					throw error;
+				});
+			});
+
+			const results = await Promise.allSettled(promises);
+
+			// If we successfully invoked the action for all events we durably record a commit for this action id.
+			// This acknowledges the work was completed without issue and can be safely skipped at finalization.
+			// The commit will also run if there are no actual events to invoke the action for this block.
+
+			const failure = results.find((result) => result.status === "rejected");
+
+			if (failure !== undefined) {
+				throw failure.reason;
+			}
+
+			// In general, the goal of this commit is to maximally acknowledge work processed at finalization. This
+			// ensures that our finalization handler always remains fast by only having to re-do the minimum amount
+			// of work. However, there are some cost trade-offs to consider here. We commit by block here, either we
+			// invoke the action successfully for all events in this block, or we fail. We could commit by each actual
+			// event but that could dramatically increase the cost of the metadata layer from increased writes
+
+			const commitsKey = `${prefix}/action/${action.id}`;
+			const commitsValue = JSON.stringify({ hello: "world" });
+
+			await opts.metadataStorage.adapter.put(commitsKey, commitsValue);
+		});
+
+		await Promise.all(promises);
+	}
+
 	// TODO
 	// These should be exposed as configuration options. At the moment the key limit preventing us from finalizing
 	// larger batches of blocks is for the case where we are recovering from downtime. The goal is for us to guarantee
@@ -1178,125 +1178,6 @@ function defineIndexer(opts: Indexer) {
 
 	const FINALIZATION_BATCH_SIZE = 32;
 	const LEASE_DURATION_MS = 60 * 1000;
-
-	// Note that there is only ever a finite amount of metadata garbage collection to perform so there exists no
-	// attack vector where we wouldn't be able to clear enough garbage to ever escape the while loops
-
-	async function getBlocksProcessedAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
-		while (true) {
-			// LIST blocks. Trailing slash is necessary to ensure chain ids 0x1 and 0x10 don't clash.
-
-			// There is technically a correctness issue here where if we process more than 1000 blocks
-			// for the same height we wouldn't return them all here and therefore wouldn't remove the
-			// associated reorganised events. In practice I don't think there will be 1000 different
-			// onchain forks so i'm not going to handle this case.
-
-			const blocksKey = `blocks/v1/${normalizeHex(chain)}/`;
-
-			const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey, limit: 1000 });
-
-			if (blocks.keys.length === 0) {
-				return [];
-			}
-
-			// Perform garbage collection
-
-			const garbageCollectionKeys = blocks.keys.filter((key) => {
-				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
-
-				return viem.hexToNumber(number) <= finalizedHeight;
-			});
-
-			if (garbageCollectionKeys.length === 0) {
-				return blocks.keys.map((key) => {
-					const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
-						string,
-						string,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-					];
-
-					return { chain, number, hash, parent_hash };
-				});
-			}
-
-			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
-				await opts.metadataStorage.adapter.delete(key);
-			});
-
-			await Promise.all(garbageCollectionPromises);
-		}
-	}
-
-	async function getCommitsAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
-		while (true) {
-			// LIST commits. Trailing slash is necessary to ensure chain ids 0x1 and 0x10 don't clash.
-
-			// TODO
-			// It's possible that the number of commits for a given height exceed the 1000 limit if the
-			// indexer has defined thousands of actions. In this case we wouldn't be able to verify that
-			// all actions succeeded and we wouldn't be able to use our fast-path commit optimisation.
-
-			const commitsKey = `commits/v1/${normalizeHex(chain)}/`;
-
-			const commits = await opts.metadataStorage.adapter.list({ prefix: commitsKey, limit: 1000 });
-
-			if (commits.keys.length === 0) {
-				return [];
-			}
-
-			// Perform garbage collection
-
-			const garbageCollectionKeys = commits.keys.filter((key) => {
-				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
-
-				return viem.hexToNumber(number) <= finalizedHeight;
-			});
-
-			if (garbageCollectionKeys.length === 0) {
-				return commits.keys.map((key) => {
-					const [_, __, ___, number, hash, parent_hash, type, id] = key.split("/") as [
-						string,
-						string,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						"action" | undefined,
-						string | undefined,
-					];
-
-					return { chain, number, hash, parent_hash, type, id };
-				});
-			}
-
-			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
-				await opts.metadataStorage.adapter.delete(key);
-			});
-
-			await Promise.all(garbageCollectionPromises);
-		}
-	}
-
-	async function getBlockFromMetadataOrChain(head: Head) {
-		const chain = normalizeHex(head.chain);
-		const number = normalizeHex(head.number, 16);
-		const hash = normalizeHex(head.hash);
-		const parentHash = normalizeHex(head.parent_hash);
-		const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
-
-		const object = await opts.metadataStorage.adapter.get(prefix);
-
-		if (object !== null) {
-			const block = await decompress(object.body);
-			const parsed = JSON.parse(block);
-			return parsed as Block;
-		}
-
-		return await getBlockFromChain(head);
-	}
 
 	const public_finalize: IndexerRpc["request"]["public_finalize"] = async (chain) => {
 		const manifestKey = `manifest/v1/${normalizeHex(chain)}`;
@@ -1637,6 +1518,125 @@ function defineIndexer(opts: Indexer) {
 
 		log.debug("Indexer finalized, returning...");
 	};
+
+	// Note that there is only ever a finite amount of metadata garbage collection to perform so there exists no
+	// attack vector where we wouldn't be able to clear enough garbage to ever escape the while loops
+
+	async function getBlocksProcessedAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
+		while (true) {
+			// LIST blocks. Trailing slash is necessary to ensure chain ids 0x1 and 0x10 don't clash.
+
+			// There is technically a correctness issue here where if we process more than 1000 blocks
+			// for the same height we wouldn't return them all here and therefore wouldn't remove the
+			// associated reorganised events. In practice I don't think there will be 1000 different
+			// onchain forks so i'm not going to handle this case.
+
+			const blocksKey = `blocks/v1/${normalizeHex(chain)}/`;
+
+			const blocks = await opts.metadataStorage.adapter.list({ prefix: blocksKey, limit: 1000 });
+
+			if (blocks.keys.length === 0) {
+				return [];
+			}
+
+			// Perform garbage collection
+
+			const garbageCollectionKeys = blocks.keys.filter((key) => {
+				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
+
+				return viem.hexToNumber(number) <= finalizedHeight;
+			});
+
+			if (garbageCollectionKeys.length === 0) {
+				return blocks.keys.map((key) => {
+					const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
+						string,
+						string,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+					];
+
+					return { chain, number, hash, parent_hash };
+				});
+			}
+
+			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
+				await opts.metadataStorage.adapter.delete(key);
+			});
+
+			await Promise.all(garbageCollectionPromises);
+		}
+	}
+
+	async function getCommitsAndGarbageCollect(chain: `0x${string}`, finalizedHeight: number) {
+		while (true) {
+			// LIST commits. Trailing slash is necessary to ensure chain ids 0x1 and 0x10 don't clash.
+
+			// TODO
+			// It's possible that the number of commits for a given height exceed the 1000 limit if the
+			// indexer has defined thousands of actions. In this case we wouldn't be able to verify that
+			// all actions succeeded and we wouldn't be able to use our fast-path commit optimisation.
+
+			const commitsKey = `commits/v1/${normalizeHex(chain)}/`;
+
+			const commits = await opts.metadataStorage.adapter.list({ prefix: commitsKey, limit: 1000 });
+
+			if (commits.keys.length === 0) {
+				return [];
+			}
+
+			// Perform garbage collection
+
+			const garbageCollectionKeys = commits.keys.filter((key) => {
+				const [_, __, ___, number] = key.split("/") as [string, string, `0x${string}`, `0x${string}`];
+
+				return viem.hexToNumber(number) <= finalizedHeight;
+			});
+
+			if (garbageCollectionKeys.length === 0) {
+				return commits.keys.map((key) => {
+					const [_, __, ___, number, hash, parent_hash, type, id] = key.split("/") as [
+						string,
+						string,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+						`0x${string}`,
+						"action" | undefined,
+						string | undefined,
+					];
+
+					return { chain, number, hash, parent_hash, type, id };
+				});
+			}
+
+			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
+				await opts.metadataStorage.adapter.delete(key);
+			});
+
+			await Promise.all(garbageCollectionPromises);
+		}
+	}
+
+	async function getBlockFromMetadataOrChain(head: Head) {
+		const chain = normalizeHex(head.chain);
+		const number = normalizeHex(head.number, 16);
+		const hash = normalizeHex(head.hash);
+		const parentHash = normalizeHex(head.parent_hash);
+		const prefix = `blocks/v1/${chain}/${number}/${hash}/${parentHash}`;
+
+		const object = await opts.metadataStorage.adapter.get(prefix);
+
+		if (object !== null) {
+			const block = await decompress(object.body);
+			const parsed = JSON.parse(block);
+			return parsed as Block;
+		}
+
+		return await getBlockFromChain(head);
+	}
 
 	const private_getMetadata: IndexerRpc["request"]["private_getMetadata"] = async () => {
 		return {
