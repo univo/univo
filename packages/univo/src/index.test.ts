@@ -492,8 +492,11 @@ test.concurrent("public_writeFinalizedHead aborts repeated calls for the same bl
 	};
 
 	await indexer.request({ method: "public_writeFinalizedHead", params: [head] });
-	expect(count).toBe(0);
-	expect(finalizedBlockRequests).toBe(1);
+	expect(count).toBe(1);
+	expect(finalizedBlockRequests).toBe(2);
+
+	const initializedCache = await metadataStorage.adapter.get("cache/v1/0x1");
+	expect(JSON.parse(new TextDecoder().decode(initializedCache!.body))).toEqual({ chain_finalized_height: 1 });
 
 	await indexer.request({ method: "public_writeFinalizedHeight", params: ["0x1"] });
 
@@ -508,7 +511,7 @@ test.concurrent("public_writeFinalizedHead aborts repeated calls for the same bl
 	await indexer.request({ method: "public_writeFinalizedHead", params: [head] });
 
 	expect(count).toBe(1);
-	expect(finalizedBlockRequests).toBe(2);
+	expect(finalizedBlockRequests).toBe(3);
 });
 
 test.concurrent("public_writeUnfinalizedHead upserts events", async () => {

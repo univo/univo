@@ -1052,23 +1052,37 @@ function defineIndexer(opts: Indexer) {
 	const public_writeFinalizedHeight: IndexerRpc["request"]["public_writeFinalizedHeight"] = async (chain) => {
 		const path = `cache/v1/${normalizeHex(chain)}`;
 
-		const [block, cacheRes] = await Promise.all([
-			getBlockFromChain({ chain, number: "finalized" }),
-			opts.metadataStorage.adapter.get(path),
+		const [block, storedHeight] = await Promise.all([
+			getBlockFromChain({ chain, number: "finalized" }), //
+			getChainFinalizedHeight(chain),
 		]);
 
 		const cache = { chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number) };
 
-		if (cacheRes !== null) {
-			const stored = JSON.parse(decoder.decode(cacheRes.body)) as { chain_finalized_height: number };
-
-			if (stored.chain_finalized_height >= cache.chain_finalized_height) {
-				return;
-			}
+		if (storedHeight >= cache.chain_finalized_height) {
+			return;
 		}
 
 		await opts.metadataStorage.adapter.put(path, JSON.stringify(cache));
 	};
+
+	async function getChainFinalizedHeight(chain: `0x${string}`): Promise<number> {
+		const path = `cache/v1/${normalizeHex(chain)}`;
+		const cacheRes = await opts.metadataStorage.adapter.get(path);
+
+		if (cacheRes === null) {
+			const block = await getBlockFromChain({ chain, number: "finalized" });
+			const cache = { chain_finalized_height: viem.hexToNumber(block.eth_getBlockByNumber.number) };
+
+			await opts.metadataStorage.adapter.put(path, JSON.stringify(cache));
+
+			return cache.chain_finalized_height;
+		}
+
+		const cache = JSON.parse(decoder.decode(cacheRes.body)) as { chain_finalized_height: number };
+
+		return cache.chain_finalized_height;
+	}
 
 	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
 		log.debug("Received finalized head...");
@@ -1084,18 +1098,16 @@ function defineIndexer(opts: Indexer) {
 
 		const blocksStart = Date.now();
 
-		const [block, manifest, cacheRes] = await Promise.all([
+		const [block, manifest, chainFinalizedHeight] = await Promise.all([
 			getBlockFromChain(head),
 			getOrInitManifest(head.chain),
-			opts.metadataStorage.adapter.get(`cache/v1/${normalizeHex(head.chain)}`),
+			getChainFinalizedHeight(head.chain),
 		]);
 
 		log.debug(`Loaded block in ${Date.now() - blocksStart}ms`);
 
 		const receivedHeight = viem.hexToNumber(head.number);
 		const indexerFinalizedHeight = manifest.finalized_block_height;
-		const cache = cacheRes === null ? null : (JSON.parse(decoder.decode(cacheRes.body)) as { chain_finalized_height: number });
-		const chainFinalizedHeight = cache?.chain_finalized_height ?? 0;
 
 		if (receivedHeight <= indexerFinalizedHeight) {
 			return log.debug(`Received finalized head (${receivedHeight}) below indexer height (${indexerFinalizedHeight})`);
