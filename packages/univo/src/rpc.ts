@@ -14,41 +14,6 @@ type Rpc = {
 };
 
 /**
- * Node -----------------------------------------------------------------------------------------------------------------------------------
- */
-
-type NodeRpc = {
-	request: {
-		/**
-		 * @returns The chain identifier of the node
-		 */
-		eth_chainId: () => Promise<`0x${string}`>;
-
-		/**
-		 * Accepts a block tag and boolean for including receipts
-		 * @returns A block with optional receipts
-		 */
-		eth_getBlockByNumber: (number: string, receipts: boolean) => Promise<NodeBlock>;
-
-		/**
-		 * Accepts a block hash and boolean for including receipts
-		 * @returns A block with optional receipts
-		 */
-		eth_getBlockByHash: (hash: `0x${string}`, receipts: boolean) => Promise<NodeBlock>;
-	};
-
-	subscribe: {
-		newHeads: NodeBlock;
-	};
-};
-
-type NodeBlock = {
-	hash: `0x${string}`;
-	number: `0x${string}`;
-	parentHash: `0x${string}`;
-};
-
-/**
  * Indexer -----------------------------------------------------------------------------------------------------------------------------------
  */
 
@@ -110,4 +75,4 @@ type IndexerRpc = {
  * Exports -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-export type { Rpc, NodeRpc, IndexerRpc };
+export type { Rpc, IndexerRpc };

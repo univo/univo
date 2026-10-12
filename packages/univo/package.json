@@ -18,6 +18,10 @@
 			"types": "./dist/rpc.d.ts",
 			"import": "./dist/rpc.mjs"
 		},
+		"./proxy": {
+			"types": "./dist/proxy.d.ts",
+			"import": "./dist/proxy.mjs"
+		},
 		"./transport": {
 			"types": "./dist/transport.d.ts",
 			"import": "./dist/transport.mjs"

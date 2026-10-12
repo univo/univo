@@ -1,15 +1,20 @@
-import type { Rpc } from "./rpc";
+import type { IndexerRpc } from "./rpc";
 import { getException } from "./exceptions";
 import type { Transport } from "./transport";
 import { createLogger, decoder, decompress } from "./utils";
 
 /**
- * Accepts an RPC transport and creates a server responsible for transforming and processing HTTP and WSS RPC requests
+ * Creates a web standard HTTP request handler `(req: Request) => Promise<Response>`.
+ *
+ * You can use this to deploy your indexer over HTTPs using any of your favourite frameworks like
+ * Next.js, Cloudflare Workers, or Bun.
+ *
+ * Note that we use the provided `signingKey` to prevent any unauthorized access.
  */
-function createServer(opts: { quiet: boolean; signingKey: string; transport: Transport<Rpc> }) {
-	const log = createLogger({ quiet: opts.quiet, prefix: "[server]" });
+function http(opts: { quiet?: boolean; indexer: Transport<IndexerRpc>; signingKey: string }) {
+	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[proxy]" });
 
-	const http = async (req: Request): Promise<Response> => {
+	return async function proxy(req: Request): Promise<Response> {
 		// Parse request body
 		let body_buffer: ArrayBuffer;
 
@@ -83,7 +88,7 @@ function createServer(opts: { quiet: boolean; signingKey: string; transport: Tra
 
 		// Perform RPC
 		try {
-			const result = await opts.transport.request({ method: json.method, params: json.params });
+			const result = await opts.indexer.request({ method: json.method, params: json.params });
 
 			return Response.json({ jsonrpc: "2.0", id: json.id, result });
 		} catch (error) {
@@ -109,14 +114,10 @@ function createServer(opts: { quiet: boolean; signingKey: string; transport: Tra
 			);
 		}
 	};
-
-	return {
-		http,
-	};
 }
 
 /**
  * Exports -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-export { createServer };
+export { http };
