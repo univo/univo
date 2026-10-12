@@ -751,6 +751,12 @@ function defineIndexer(opts: Indexer) {
 		}
 	}
 
+	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
+		const manifest = await getOrInitManifest(chain);
+
+		return manifest.finalized_block_height;
+	};
+
 	async function getOrInitManifest(chain: `0x${string}`) {
 		const path = `manifest/v1/${normalizeHex(chain)}`;
 
@@ -779,12 +785,6 @@ function defineIndexer(opts: Indexer) {
 
 		return manifest;
 	}
-
-	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
-		const manifest = await getOrInitManifest(chain);
-
-		return manifest.finalized_block_height;
-	};
 
 	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
 		log.debug("Received unfinalized head...");
