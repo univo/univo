@@ -298,7 +298,7 @@ function realtime(opts: RealtimeOptions) {
 			parent_hash: chainLatestBlock.parentHash,
 		});
 
-		await node.subscribe("newHeads", async (head) => {
+		const unsubscribe = await node.subscribe("newHeads", async (head) => {
 			await unfinalized.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
 				if (error instanceof Error) {
 					log.error(`Failed to reconcile unfinalized head: ${error.message}`);
@@ -417,9 +417,14 @@ function realtime(opts: RealtimeOptions) {
 			}
 		}
 
-		setInterval(poll, POLLING_INTERVAL_MS);
+		const id = setInterval(poll, POLLING_INTERVAL_MS);
 
 		log.debug("Started polling finalized height");
+
+		return async () => {
+			clearInterval(id);
+			await unsubscribe();
+		};
 	}
 
 	const promise = iife(async () => {
@@ -439,7 +444,7 @@ function realtime(opts: RealtimeOptions) {
 				throw new Error("Provided `node` is connected to a chain not indexed by the provided `indexer`");
 			}
 
-			start({ chain, node: opts.node });
+			await start({ chain, node: opts.node });
 		}
 
 		if (opts.node.protocol === "browser") {
@@ -452,16 +457,20 @@ function realtime(opts: RealtimeOptions) {
 			// For each chain, we subscribe to the store. The store gives us the "best" provider for
 			// that chain. This abstracts what chain each announced provider is connected to, and whether
 			// the dapp has been granted RPC access and has connectivity. This allows the wallet to manage
-			// connectivity its own way, knowing that changes will show up here.
+			// connectivity its own way, knowing that changes will show up here. It also abstracts errors
+			// be retrying with a new provider if we encounter an error with a different provider on the
+			// same chain
 
 			for (const chain of metadata.chains) {
-				store.subscribe(chain, (node) => {
-					const interrupt = start({ chain, node });
+				store.subscribe(chain, async (node) => {
+					const interrupt = await start({ chain, node });
 
 					// This return function will be invoked whenever we lose access to a provider with
 					// this chain and must interrupt our indexing
 
-					return () => interrupt();
+					return async () => {
+						await interrupt();
+					};
 				});
 			}
 
@@ -479,6 +488,10 @@ function realtime(opts: RealtimeOptions) {
 	});
 }
 
+/**
+ * createProviderStore ---------------------------------------------------------------------------------------------------------------
+ */
+
 interface EIP6963AnnounceProviderEvent extends CustomEvent {
 	type: "eip6963:announceProvider";
 	detail: EIP6963ProviderDetail;
@@ -495,6 +508,12 @@ interface EIP6963ProviderInfo {
 	icon: string;
 	rdns: string;
 }
+
+// The key purpose of this interface is to abstract some details about accessing browser injected providers.
+// Notably, it registers all the necessary event handlers to discover them. It also abstracts details like
+// whether or not a given provider has been granted RPC access (has connectivity) or is connected to a
+// target chain. Similarly it handles errors and can retry indexing the same chain with a different provider
+// connected to the same chain
 
 function createProviderStore() {
 	const providers: EIP6963ProviderDetail[] = [];
@@ -524,7 +543,7 @@ function createProviderStore() {
 	window.dispatchEvent(new Event("eip6963:requestProvider"));
 
 	return {
-		subscribe(chain: `0x${string}`, listener: (node: Transport<Rpc, "local">) => () => void) {
+		subscribe(chain: `0x${string}`, listener: (node: Transport<Rpc, "local">) => Promise<() => Promise<void>>) {
 			//
 		},
 	};
