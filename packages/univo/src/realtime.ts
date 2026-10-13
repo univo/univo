@@ -411,6 +411,8 @@ function realtime(opts: RealtimeOptions) {
 
 		log.debug("Started polling finalized height");
 
+		// TODO: If this fails we should cancel the previous polling
+
 		const unsubscribe = await node.subscribe("newHeads", async (head) => {
 			await unfinalized.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
 				if (error instanceof Error) {
