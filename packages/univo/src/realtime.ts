@@ -452,6 +452,10 @@ function realtime(opts: RealtimeOptions) {
 		if (opts.node.protocol === "browser") {
 			log.debug("Looking for browser injected node providers");
 
+			if (typeof window === "undefined") {
+				return; // Early return if this is accidentally called on the server
+			}
+
 			const store = createProviderStore();
 
 			const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
