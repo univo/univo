@@ -298,16 +298,6 @@ function realtime(opts: RealtimeOptions) {
 			parent_hash: chainLatestBlock.parentHash,
 		});
 
-		const unsubscribe = await node.subscribe("newHeads", async (head) => {
-			await unfinalized.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
-				if (error instanceof Error) {
-					log.error(`Failed to reconcile unfinalized head: ${error.message}`);
-				}
-			});
-		});
-
-		log.debug("Subscribed unfinalized chain to new heads");
-
 		// We wrap finalization in a mutex. On the indexer finalization is a single-writer process that
 		// operates under 60s leases. This means that any new requests while finalization is in-flight
 		// will fail anyway so this mutex is just an optimisation and doesn't break correctness.
@@ -420,6 +410,16 @@ function realtime(opts: RealtimeOptions) {
 		const id = setInterval(poll, POLLING_INTERVAL_MS);
 
 		log.debug("Started polling finalized height");
+
+		const unsubscribe = await node.subscribe("newHeads", async (head) => {
+			await unfinalized.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
+				if (error instanceof Error) {
+					log.error(`Failed to reconcile unfinalized head: ${error.message}`);
+				}
+			});
+		});
+
+		log.debug("Subscribed unfinalized chain to new heads");
 
 		return async () => {
 			clearInterval(id);
