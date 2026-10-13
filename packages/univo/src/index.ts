@@ -261,7 +261,7 @@ type PartialHead = {
 };
 
 type PublicMetadata = {
-	chains: number[];
+	chains: `0x${string}`[];
 };
 
 type PrivateMetadata = {
@@ -401,7 +401,7 @@ function defineIndexer(opts: Indexer) {
 				new Set(
 					allEvents.flatMap((event) => {
 						return event.filters.flatMap((filter) => {
-							return filter.chain;
+							return numberToHex(filter.chain);
 						});
 					}),
 				),
