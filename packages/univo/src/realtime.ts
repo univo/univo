@@ -1,4 +1,5 @@
 import { hexToNumber } from "viem";
+import type { EIP1193Provider } from "viem";
 
 import { IndexerRpc, Rpc } from "./rpc";
 import type { Transport } from "./transport";
@@ -200,9 +201,9 @@ type RealtimeOptions = {
 	/**
 	 * Connection to a blockchain node.
 	 *
-	 * Must use the `wss` transport protocol from `univo/transport`.
+	 * Must use the `wss` or `browser` transport protocol from `univo/transport`.
 	 */
-	node: Transport<Rpc, "wss">;
+	node: Transport<Rpc, "wss" | "browser">;
 
 	/**
 	 * Connection to a univo indexer.
@@ -216,31 +217,15 @@ type RealtimeOptions = {
 function realtime(opts: RealtimeOptions) {
 	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[realtime]" });
 
-	async function getBlockByHash(hash: `0x${string}`) {
-		const block = await opts.node.request({ method: "eth_getBlockByHash", params: [hash, false] });
-
-		if (block === null) {
-			return null;
-		}
-
-		return { number: block.number, hash: block.hash, parent_hash: block.parentHash };
-	}
-
-	const promise = iife(async () => {
-		log.debug("Initialising realtime client for indexer");
-
-		const chain = await opts.node.request({ method: "eth_chainId", params: [] });
-
-		log.debug(`Determined chain identifier for connected node: ${hexToNumber(chain)}`);
-
+	async function start({ quiet, chain, node, indexer }: { chain: `0x${string}` } & RealtimeOptions) {
 		// First step is to initialise the realtime client so that it immediately begins indexing the tip
 		// of the chain. This is fundamentally important part of recovering from downtime because it means
 		// that the number of blocks we have to process while unavailable is bounded. This puts an upper
 		// limit on our time-to-recovery and makes operational management simple.
 
 		const [chainLatestBlock, chainFinalizedBlock] = await Promise.all([
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }), //
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
+			node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }), //
+			node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
 		]);
 
 		if (chainLatestBlock === null) {
@@ -252,8 +237,18 @@ function realtime(opts: RealtimeOptions) {
 		}
 
 		const unfinalized = defineBlockchain({
-			getBlockByHash,
-			quiet: opts.quiet ?? false,
+			quiet: quiet ?? false,
+
+			getBlockByHash: async (hash: `0x${string}`) => {
+				const block = await node.request({ method: "eth_getBlockByHash", params: [hash, false] });
+
+				if (block === null) {
+					return null;
+				}
+
+				return { number: block.number, hash: block.hash, parent_hash: block.parentHash };
+			},
+
 			onBlockAdded: async (head) => {
 				try {
 					log.debug("Received unfinalized head");
@@ -263,7 +258,7 @@ function realtime(opts: RealtimeOptions) {
 					// attempt to process the latest block. Concurrency control mechanisms on the indexer ensure that
 					// only one of these requests actually write data to storage
 
-					await opts.indexer.request({
+					await indexer.request({
 						method: "public_writeUnfinalizedHead",
 						params: [{ chain, ...head }],
 					});
@@ -275,6 +270,7 @@ function realtime(opts: RealtimeOptions) {
 					}
 				}
 			},
+
 			onBlockReorganised: async (head) => {
 				try {
 					log.debug("Received reorganised head");
@@ -283,7 +279,7 @@ function realtime(opts: RealtimeOptions) {
 					// thundering herd or degradation and maximises the chance our indexer can safely process the reorged head
 
 					await retry(
-						() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
+						() => indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
 						2,
 					);
 
@@ -302,7 +298,7 @@ function realtime(opts: RealtimeOptions) {
 			parent_hash: chainLatestBlock.parentHash,
 		});
 
-		await opts.node.subscribe("newHeads", async (head) => {
+		await node.subscribe("newHeads", async (head) => {
 			await unfinalized.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
 				if (error instanceof Error) {
 					log.error(`Failed to reconcile unfinalized head: ${error.message}`);
@@ -320,7 +316,7 @@ function realtime(opts: RealtimeOptions) {
 			try {
 				log.debug("Finalizing indexer...");
 
-				await opts.indexer.request({ params: [chain], method: "public_finalize" });
+				await indexer.request({ params: [chain], method: "public_finalize" });
 
 				log.debug("Indexer finalized");
 			} catch (error) {
@@ -340,7 +336,7 @@ function realtime(opts: RealtimeOptions) {
 			try {
 				log.debug("Polling for finalized height...");
 
-				const finalizedBlock = await opts.node.request({
+				const finalizedBlock = await node.request({
 					method: "eth_getBlockByNumber",
 					params: ["finalized", false],
 				});
@@ -355,7 +351,7 @@ function realtime(opts: RealtimeOptions) {
 					return log.debug("Chain finalized height has not progressed");
 				}
 
-				await opts.indexer.request({ params: [chain], method: "public_writeFinalizedHeight" });
+				await indexer.request({ params: [chain], method: "public_writeFinalizedHeight" });
 
 				// Determine new finalized heads
 
@@ -389,7 +385,7 @@ function realtime(opts: RealtimeOptions) {
 						// Instead retries should be handled by deploying multiple realtime clients. Any failures will
 						// automatically be resolved by the finalization process
 
-						await opts.indexer.request({ params: [head], method: "public_writeFinalizedHead" });
+						await indexer.request({ params: [head], method: "public_writeFinalizedHead" });
 
 						log.debug("Delivered finalized head");
 					} catch (error) {
@@ -424,13 +420,93 @@ function realtime(opts: RealtimeOptions) {
 		setInterval(poll, POLLING_INTERVAL_MS);
 
 		log.debug("Started polling finalized height");
+	}
+
+	const promise = iife(async () => {
+		log.debug("Initialising realtime client");
+
+		if (opts.node.protocol === "wss") {
+			log.debug("Found user provided node");
+
+			const [chain, metadata] = await Promise.all([
+				opts.node.request({ method: "eth_chainId", params: [] }),
+				opts.indexer.request({ method: "public_getMetadata", params: [] }),
+			]);
+
+			log.debug(`Determined chain identifier for connected node: ${hexToNumber(chain)}`);
+
+			if (!metadata.chains.some((_chain) => _chain === hexToNumber(chain))) {
+				throw new Error("Provided `node` is connected to a chain not indexed by the provided `indexer`");
+			}
+
+			await start(chain);
+		}
+
+		if (opts.node.protocol === "browser") {
+			log.debug("Looking for browser injected node providers");
+
+			// Our provider store is what holds the announced providers. It's important to set up the
+			// event listeners so they can start collecting providers before the async work below
+
+			const store = createProviderStore();
+
+			window.addEventListener("eip6963:announceProvider", (event) => {
+				const typed = event as EIP6963AnnounceProviderEvent;
+				store.add(typed.detail);
+			});
+
+			window.dispatchEvent(new Event("eip6963:requestProvider"));
+
+			const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
+
+			// Maybe we map the eip1193provider to the our own provider? This would allow us to proxy
+			// requests and handle errors as a result of chain changes. We could do this essentially
+			// by passing a local transport
+		}
 	});
 
 	promise.catch((error) => {
 		if (error instanceof Error) {
-			log.error(`Failed to initialise realtime client: ${error.message}`);
+			log.error(error.message);
 		}
 	});
+}
+
+interface EIP6963AnnounceProviderEvent extends CustomEvent {
+	type: "eip6963:announceProvider";
+	detail: EIP6963ProviderDetail;
+}
+
+interface EIP6963ProviderDetail {
+	provider: EIP1193Provider;
+	info: EIP6963ProviderInfo;
+}
+
+interface EIP6963ProviderInfo {
+	uuid: string;
+	name: string;
+	icon: string;
+	rdns: string;
+}
+
+function createProviderStore() {
+	const providers: EIP6963ProviderDetail[] = [];
+
+	return {
+		get() {
+			return providers;
+		},
+
+		add(provider: EIP6963ProviderDetail) {
+			const exists = providers.findIndex((_provider) => _provider.info.uuid === provider.info.uuid);
+
+			if (exists !== -1) {
+				return;
+			}
+
+			providers.push(provider);
+		},
+	};
 }
 
 export { realtime };
