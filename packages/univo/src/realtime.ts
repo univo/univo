@@ -217,7 +217,7 @@ type RealtimeOptions = {
 function realtime(opts: RealtimeOptions) {
 	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[realtime]" });
 
-	async function start({ quiet, chain, node, indexer }: { chain: `0x${string}` } & RealtimeOptions) {
+	async function start({ chain, node }: { chain: `0x${string}`; node: Transport<Rpc> }) {
 		// First step is to initialise the realtime client so that it immediately begins indexing the tip
 		// of the chain. This is fundamentally important part of recovering from downtime because it means
 		// that the number of blocks we have to process while unavailable is bounded. This puts an upper
@@ -237,7 +237,7 @@ function realtime(opts: RealtimeOptions) {
 		}
 
 		const unfinalized = defineBlockchain({
-			quiet: quiet ?? false,
+			quiet: opts.quiet ?? false,
 
 			getBlockByHash: async (hash: `0x${string}`) => {
 				const block = await node.request({ method: "eth_getBlockByHash", params: [hash, false] });
@@ -258,7 +258,7 @@ function realtime(opts: RealtimeOptions) {
 					// attempt to process the latest block. Concurrency control mechanisms on the indexer ensure that
 					// only one of these requests actually write data to storage
 
-					await indexer.request({
+					await opts.indexer.request({
 						method: "public_writeUnfinalizedHead",
 						params: [{ chain, ...head }],
 					});
@@ -279,7 +279,7 @@ function realtime(opts: RealtimeOptions) {
 					// thundering herd or degradation and maximises the chance our indexer can safely process the reorged head
 
 					await retry(
-						() => indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
+						() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
 						2,
 					);
 
@@ -316,7 +316,7 @@ function realtime(opts: RealtimeOptions) {
 			try {
 				log.debug("Finalizing indexer...");
 
-				await indexer.request({ params: [chain], method: "public_finalize" });
+				await opts.indexer.request({ params: [chain], method: "public_finalize" });
 
 				log.debug("Indexer finalized");
 			} catch (error) {
@@ -351,7 +351,7 @@ function realtime(opts: RealtimeOptions) {
 					return log.debug("Chain finalized height has not progressed");
 				}
 
-				await indexer.request({ params: [chain], method: "public_writeFinalizedHeight" });
+				await opts.indexer.request({ params: [chain], method: "public_writeFinalizedHeight" });
 
 				// Determine new finalized heads
 
@@ -385,7 +385,7 @@ function realtime(opts: RealtimeOptions) {
 						// Instead retries should be handled by deploying multiple realtime clients. Any failures will
 						// automatically be resolved by the finalization process
 
-						await indexer.request({ params: [head], method: "public_writeFinalizedHead" });
+						await opts.indexer.request({ params: [head], method: "public_writeFinalizedHead" });
 
 						log.debug("Delivered finalized head");
 					} catch (error) {
@@ -435,33 +435,40 @@ function realtime(opts: RealtimeOptions) {
 
 			log.debug(`Determined chain identifier for connected node: ${hexToNumber(chain)}`);
 
-			if (!metadata.chains.some((_chain) => _chain === hexToNumber(chain))) {
+			if (!metadata.chains.some((_chain) => _chain === chain)) {
 				throw new Error("Provided `node` is connected to a chain not indexed by the provided `indexer`");
 			}
 
-			await start(chain);
+			start({ chain, node: opts.node });
 		}
 
 		if (opts.node.protocol === "browser") {
 			log.debug("Looking for browser injected node providers");
 
-			// Our provider store is what holds the announced providers. It's important to set up the
-			// event listeners so they can start collecting providers before the async work below
-
 			const store = createProviderStore();
-
-			window.addEventListener("eip6963:announceProvider", (event) => {
-				const typed = event as EIP6963AnnounceProviderEvent;
-				store.add(typed.detail);
-			});
-
-			window.dispatchEvent(new Event("eip6963:requestProvider"));
 
 			const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
 
-			// Maybe we map the eip1193provider to the our own provider? This would allow us to proxy
-			// requests and handle errors as a result of chain changes. We could do this essentially
-			// by passing a local transport
+			// For each chain, we subscribe to the store. The store gives us the "best" provider for
+			// that chain. This abstracts what chain each announced provider is connected to, and whether
+			// the dapp has been granted RPC access and has connectivity. This allows the wallet to manage
+			// connectivity its own way, knowing that changes will show up here.
+
+			for (const chain of metadata.chains) {
+				store.subscribe(chain, (node) => {
+					const interrupt = start({ chain, node });
+
+					// This return function will be invoked whenever we lose access to a provider with
+					// this chain and must interrupt our indexing
+
+					return () => interrupt();
+				});
+			}
+
+			// Within each subscription, we create a `local` transport that proxies all the requests. This
+			// is passed to `start` with the respective chain. We also need a way of injecting into each
+			// subscription an event telling it stop. This happens when we lose access to that chain.
+			// when we lose access to that chain.
 		}
 	});
 
@@ -492,19 +499,33 @@ interface EIP6963ProviderInfo {
 function createProviderStore() {
 	const providers: EIP6963ProviderDetail[] = [];
 
+	function onProviderAnnounced(provider: EIP6963ProviderDetail) {
+		const exists = providers.findIndex((_provider) => _provider.info.uuid === provider.info.uuid);
+
+		if (exists !== -1) {
+			return;
+		}
+
+		// Pushing the provider immediately ensures that any subsequent announcements for the same
+		// provider will be dropped by the above duplication check
+
+		providers.push(provider);
+
+		// Now we attach all the necessary provider event listeners and invoke any listeners whenever
+		// a chain provider becomes available that we can use for indexing
+	}
+
+	window.addEventListener("eip6963:announceProvider", (event) => {
+		const typed = event as EIP6963AnnounceProviderEvent;
+
+		onProviderAnnounced(typed.detail);
+	});
+
+	window.dispatchEvent(new Event("eip6963:requestProvider"));
+
 	return {
-		get() {
-			return providers;
-		},
-
-		add(provider: EIP6963ProviderDetail) {
-			const exists = providers.findIndex((_provider) => _provider.info.uuid === provider.info.uuid);
-
-			if (exists !== -1) {
-				return;
-			}
-
-			providers.push(provider);
+		subscribe(chain: `0x${string}`, listener: (node: Transport<Rpc, "local">) => () => void) {
+			//
 		},
 	};
 }
