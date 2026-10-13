@@ -15,7 +15,7 @@ const DEFAULT_TIMEOUT_MS = 60 * 1000;
  * Types -----------------------------------------------------------------------------------------------------------------------------------
  */
 
-type Protocol = "http" | "wss" | "local";
+type Protocol = "http" | "wss" | "local" | "browser";
 
 type Transport<R extends Rpc, P extends Protocol = Protocol> = {
 	/**
@@ -60,6 +60,22 @@ function local<R extends Rpc>(rpc: R): Transport<R, "local"> {
 	};
 
 	return { protocol: "local", request, subscribe };
+}
+
+/**
+ * Browser -----------------------------------------------------------------------------------------------------------------------------------
+ */
+
+function browser(): Transport<Rpc, "browser"> {
+	const request: Transport<Rpc>["request"] = async (_) => {
+		throw new Error("Unable to `request` on `browser` transport");
+	};
+
+	const subscribe: Transport<Rpc>["subscribe"] = async () => {
+		throw new Error("Unable to `subscribe` on `local` transport");
+	};
+
+	return { protocol: "browser", request, subscribe };
 }
 
 /**
@@ -375,4 +391,4 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
  */
 
 export type { Transport };
-export { http, local, wss };
+export { http, local, wss, browser };
