@@ -460,12 +460,7 @@ function realtime(opts: RealtimeOptions) {
 
 			const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
 
-			// For each chain, we subscribe to the store. The store gives us the "best" provider for
-			// that chain. This abstracts what chain each announced provider is connected to, and whether
-			// the dapp has been granted RPC access and has connectivity. This allows the wallet to manage
-			// connectivity its own way, knowing that changes will show up here. It also abstracts errors
-			// be retrying with a new provider if we encounter an error with a different provider on the
-			// same chain
+			// For each chain, we subscribe to the store to receive a node transport
 
 			for (const chain of metadata.chains) {
 				store.subscribe(chain, async (node) => {
@@ -479,11 +474,6 @@ function realtime(opts: RealtimeOptions) {
 					};
 				});
 			}
-
-			// Within each subscription, we create a `local` transport that proxies all the requests. This
-			// is passed to `start` with the respective chain. We also need a way of injecting into each
-			// subscription an event telling it stop. This happens when we lose access to that chain.
-			// when we lose access to that chain.
 		}
 	});
 
