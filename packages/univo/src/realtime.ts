@@ -636,8 +636,6 @@ function realtime(opts: RealtimeOptions) {
 		// Store every provider that is announced
 		const providers = new Map<string, EIP6963ProviderDetail>();
 
-		log.debug("Initialising eip6963 event listeners");
-
 		window.addEventListener("eip6963:announceProvider", async (event) => {
 			const typed = event as EIP6963AnnounceProviderEvent;
 
