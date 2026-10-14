@@ -611,9 +611,9 @@ function realtime(opts: RealtimeOptions) {
 				promises.set(key, promise);
 			},
 
-			interrupt: async (opts: { provider: EIP6963ProviderDetail; chain?: `0x${string}` }) => {
+			interrupt: async (opts: { provider: EIP6963ProviderDetail; chain: `0x${string}` }) => {
 				for (const [key, promise] of promises) {
-					if (key.startsWith(opts.chain === undefined ? opts.provider.info.uuid : `${opts.provider.info.uuid}:${opts.chain}`)) {
+					if (key === `${opts.provider.info.uuid}:${opts.chain}`) {
 						try {
 							log.debug(`Awaiting interrupt for key ${key}`);
 							const interrupt = await promise;
