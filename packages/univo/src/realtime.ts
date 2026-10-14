@@ -636,10 +636,12 @@ function realtime(opts: RealtimeOptions) {
 
 			// Determine if this provider has already been announced
 			if (providers.get(provider.info.uuid) !== undefined) {
-				return;
+				return log.debug(`Found duplicate provider with id ${provider.info.uuid}`);
 			}
 
 			providers.set(provider.info.uuid, provider);
+
+			log.debug(`Found provider with id ${provider.info.uuid}`);
 
 			// Note that over the lifecycle of this application there is no reason to ever
 			// remove these event handlers. There's no method for a provider to un-announce itself
