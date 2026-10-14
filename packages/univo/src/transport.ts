@@ -29,7 +29,7 @@ type Transport<R extends Rpc, P extends Protocol = Protocol> = {
 	 * Subscribes to specific event to receive and invoke a callback for a stream of values
 	 * @returns An async function to unsubscribe from the stream
 	 */
-	subscribe: <M extends keyof R["subscribe"]>(param: M, handler: (message: R["subscribe"][M]) => void) => Promise<() => Promise<void>>;
+	subscribe: <M extends keyof R["subscribe"]>(param: M, listener: (message: R["subscribe"][M]) => void) => Promise<() => Promise<void>>;
 };
 
 /**
