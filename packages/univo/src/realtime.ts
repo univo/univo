@@ -452,8 +452,10 @@ function realtime(opts: RealtimeOptions) {
 		if (opts.node.protocol === "browser") {
 			log.debug("Looking for browser injected node providers");
 
+			// Early return if this is accidentally called on the server
+
 			if (typeof window === "undefined") {
-				return; // Early return if this is accidentally called on the server
+				return;
 			}
 
 			const store = createProviderStore();
