@@ -460,6 +460,9 @@ function realtime(opts: RealtimeOptions) {
 
 			const store = createProviderStore();
 
+			// We load metadata async after initialising the provider store so that we have to wait for
+			// all browser providers to announce themselves
+
 			const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
 
 			// For each chain, we register the chains we want to index
