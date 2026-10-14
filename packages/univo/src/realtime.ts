@@ -595,8 +595,8 @@ function realtime(opts: RealtimeOptions) {
 
 		const scheduler = {
 			initialise: async (opts: { provider: EIP6963ProviderDetail; chain: `0x${string}` }) => {
-				for (const key in promises) {
-					if (key.endsWith(opts.chain)) {
+				for (const key of promises.keys()) {
+					if (key.endsWith(`:${opts.chain}`)) {
 						return log.debug(`Already indexing key ${key}, aborting initialisation...`);
 					}
 				}
