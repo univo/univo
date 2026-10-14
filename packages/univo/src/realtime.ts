@@ -594,9 +594,6 @@ function realtime(opts: RealtimeOptions) {
 			};
 		};
 
-		// Store every provider that is announced
-		const providers = new Map<string, EIP6963ProviderDetail>();
-
 		// Store any active executions of handler for a given provider:chain pair
 		const promises = new Map<`${string}:${string}`, Promise<() => Promise<void>>>();
 
@@ -629,6 +626,9 @@ function realtime(opts: RealtimeOptions) {
 			},
 		};
 
+		// Store every provider that is announced
+		const providers = new Map<string, EIP6963ProviderDetail>();
+
 		window.addEventListener("eip6963:announceProvider", (event) => {
 			const typed = event as EIP6963AnnounceProviderEvent;
 
@@ -652,9 +652,9 @@ function realtime(opts: RealtimeOptions) {
 				await scheduler.interrupt({ provider });
 			});
 
-			provider.provider.on("chainChanged", async (chainId: `0x${string}`) => {
-				await scheduler.interrupt({ provider, chain: chainId });
-				await scheduler.initialise({ provider, chain: chainId });
+			provider.provider.on("chainChanged", async (chain: `0x${string}`) => {
+				await scheduler.interrupt({ provider, chain });
+				await scheduler.initialise({ provider, chain });
 			});
 		});
 
