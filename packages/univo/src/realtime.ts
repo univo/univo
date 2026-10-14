@@ -1,8 +1,8 @@
 import { hexToNumber } from "viem";
-import type { EIP1193Provider } from "viem";
+import type { EIP1193EventMap, EIP1193RequestFn } from "viem";
 
 import { IndexerRpc, Rpc } from "./rpc";
-import type { Transport } from "./transport";
+import { type Transport } from "./transport";
 import { createLogger, iife, isHexEqual, mutex, retry } from "./utils";
 
 /**
@@ -456,7 +456,7 @@ function realtime(opts: RealtimeOptions) {
 				return; // Early return if this is accidentally called on the server
 			}
 
-			const store = createProviderStore();
+			const store = createProviderStore({ quiet: opts.quiet ?? false });
 
 			const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
 
@@ -498,6 +498,12 @@ interface EIP6963ProviderDetail {
 	info: EIP6963ProviderInfo;
 }
 
+type EIP1193Provider = {
+	request: EIP1193RequestFn;
+	on: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
+	removeListener: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
+};
+
 interface EIP6963ProviderInfo {
 	uuid: string;
 	name: string;
@@ -511,23 +517,115 @@ interface EIP6963ProviderInfo {
 // target chain. Similarly it handles errors and can retry indexing the same chain with a different provider
 // connected to the same chain
 
-function createProviderStore() {
-	const providers: EIP6963ProviderDetail[] = [];
+function createProviderStore(opts: { quiet?: boolean }) {
+	const log = createLogger({ quiet: opts.quiet ?? false });
 
-	function onProviderAnnounced(provider: EIP6963ProviderDetail) {
-		const exists = providers.findIndex((_provider) => _provider.info.uuid === provider.info.uuid);
+	const providers: Map<string, EIP6963ProviderDetail> = new Map();
 
-		if (exists !== -1) {
-			return;
+	function createBrowserTransport(provider: EIP6963ProviderDetail["provider"]): Transport<Rpc> {
+		const request: Transport<Rpc>["request"] = async (opts) => {
+			const res = await provider.request({ method: opts.method, params: opts.params });
+
+			return res;
+		};
+
+		// We want to decouple subscriptions to the node with subscriptions to this abstraction, allowing
+		// us to deduplicate multiple subscribers to this abstraction for the same param into a single
+		// subscription with the node. Therefore we first create a map that allows us to go from a
+		// subscription id to a given param, and then from a param to a set of listeners.
+
+		const subscriptions = {
+			node: new Map<string, string>(),
+			abstraction: new Map<string, Set<(data: any) => void>>(),
+		};
+
+		const subscribe: Transport<Rpc>["subscribe"] = async (param, listener) => {
+			const listeners = subscriptions.abstraction.get(param);
+
+			if (listeners === undefined) {
+				const listeners = new Set<(data: any) => void>();
+
+				listeners.add(listener);
+
+				subscriptions.abstraction.set(param, listeners);
+
+				const id = await request({ method: "eth_subscribe", params: [param] }).catch((cause) => {
+					throw new Error(`Failed to initialise subscription for param ${param}`, { cause });
+				});
+
+				subscriptions.node.set(id, param);
+			} else {
+				listeners.add(listener);
+			}
+
+			return async function unsubscribe() {
+				const listeners = subscriptions.abstraction.get(param);
+
+				if (listeners === undefined) {
+					return;
+				}
+
+				listeners.delete(listener);
+
+				if (listeners.size === 0) {
+					for (const [id, _param] of subscriptions.node) {
+						if (param === _param) {
+							await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
+								log.warn("Failed to unsubscribe unused subscription");
+							});
+						}
+					}
+				}
+			};
+		};
+
+		async function onMessage(message: { type: string; data: any }) {
+			if (message.type === "eth_subscription") {
+				const param = subscriptions.node.get(message.data.subscription);
+
+				if (param === undefined) {
+					return await request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
+						log.warn("Failed to unsubscribe stale subscription");
+					});
+				}
+
+				const listeners = subscriptions.abstraction.get(param);
+
+				if (listeners === undefined) {
+					return await request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
+						log.warn("Failed to unsubscribe stale subscription");
+					});
+				}
+
+				for (const listener of listeners) {
+					try {
+						listener(message.data.result);
+					} catch (error) {
+						if (error instanceof Error) {
+							log.error(error.message);
+						}
+					}
+				}
+			}
 		}
 
-		// Pushing the provider immediately ensures that any subsequent announcements for the same
-		// provider will be dropped by the above duplication check
+		provider.on("message", onMessage);
 
-		providers.push(provider);
+		return { protocol: "browser", request, subscribe };
+	}
 
-		// Now we attach all the necessary provider event listeners and invoke any listeners whenever
-		// a chain provider becomes available that we can use for indexing
+	function onProviderAnnounced(provider: EIP6963ProviderDetail) {
+		provider.provider.on("connect", () => {
+			//
+		});
+
+		provider.provider.on("disconnect", () => {
+			//
+		});
+
+		provider.provider.on("chainChanged", () => {
+			//
+		});
 	}
 
 	window.addEventListener("eip6963:announceProvider", (event) => {
@@ -539,7 +637,7 @@ function createProviderStore() {
 	window.dispatchEvent(new Event("eip6963:requestProvider"));
 
 	return {
-		subscribe(chain: `0x${string}`, listener: (node: Transport<Rpc, "local">) => Promise<() => Promise<void>>) {
+		subscribe(chain: `0x${string}`, listener: (node: Transport<Rpc>) => Promise<() => Promise<void>>) {
 			//
 		},
 	};
