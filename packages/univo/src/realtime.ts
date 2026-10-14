@@ -477,7 +477,7 @@ function realtime(opts: RealtimeOptions) {
 					};
 
 					// We want to decouple subscriptions to the node from subscriptions to this abstraction, allowing
-					// us to deduplicate multiple subscribers into a single no subscription with the node. Therefore we
+					// us to deduplicate multiple subscribers into a single node subscription with the node. Therefore we
 					// first create a map that allows us to go from a subscription id to a given param, and then from a
 					// given param to a set of listeners.
 
