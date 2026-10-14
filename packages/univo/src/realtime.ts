@@ -479,7 +479,7 @@ function realtime(opts: RealtimeOptions) {
 		// Early return if this is accidentally called on the server
 
 		if (typeof window === "undefined") {
-			return;
+			return log.debug("Browser indexing invoked on the server, aborting...");
 		}
 
 		const onProviderConnected: Handler = async ({ chain, provider }) => {
