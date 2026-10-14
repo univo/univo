@@ -123,6 +123,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 
 	// Every request gets an identifier based on `id` above. This map represents that request in-flight
 	// and its corresponding callback handler to invoke when a response is received on the connection.
+
 	const requests = new Map<number, (data: any) => void>();
 
 	// We want to decouple subscriptions to the node with subscriptions to this abstraction, allowing
