@@ -458,19 +458,17 @@ function realtime(opts: RealtimeOptions) {
 				return;
 			}
 
-			const store = createProviderStore();
+			createProviderStore({
+				onProvider: async ({ chain, provider }) => {
+					// If a provider is announced for a chain that we don't want to index we early return
 
-			// We load metadata async after initialising the provider store so that we have to wait for
-			// all browser providers to announce themselves
+					const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
 
-			const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
+					if (!metadata.chains.includes(chain)) {
+						return async () => {};
+					}
 
-			// For each chain, we register a callback handler we want to invoke when/if a provider becomes available
-
-			for (const chain of metadata.chains) {
-				store.register(chain, async (provider) => {
-					// For each chain we initialise a node transport. This essentially proxies requests between
-					// the realtime client and the eip1193 provider
+					// Otherwise, we create a transport proxy requests to the eip1193 provider
 
 					const request: Transport<Rpc>["request"] = async (opts) => {
 						const res = await provider.request({ method: opts.method, params: opts.params });
@@ -571,8 +569,8 @@ function realtime(opts: RealtimeOptions) {
 						provider.removeListener("message", onMessage);
 						await interrupt();
 					};
-				});
-			}
+				},
+			});
 		}
 	});
 
@@ -610,7 +608,7 @@ interface EIP6963ProviderInfo {
 	rdns: string;
 }
 
-type Handler = (provider: EIP1193Provider) => Promise<() => Promise<void>>;
+type Handler = (_: { chain: `0x${string}`; provider: EIP1193Provider }) => Promise<() => Promise<void>>;
 
 // The key purpose of this interface is to abstract some details about accessing browser injected providers.
 // Notably, it registers all the necessary event handlers to discover them. It also abstracts details like
@@ -618,28 +616,64 @@ type Handler = (provider: EIP1193Provider) => Promise<() => Promise<void>>;
 // target chain. Similarly it handles errors and can retry indexing the same chain with a different provider
 // connected to the same chain
 
-function createProviderStore() {
-	const handlers: Map<`0x${string}`, Handler> = new Map();
+function createProviderStore(opts: { onProvider: Handler }) {
+	// Store every provider that is announced
+	const providers: Map<string, EIP6963ProviderDetail> = new Map();
+
+	// Store any active executions of handler for a given provided. We split this into two
+	// maps so that we can lookup execution by chain or by provider id.
+
+	const promises = {
+		providers: new Map<string, string>(),
+		chain: new Map<string, Promise<() => Promise<void>>>(),
+	};
+
+	function initialiseChain(chain: `0x${string}`) {
+		if (promises.chain.get(chain) instanceof Promise) {
+			return;
+		}
+
+		// TODO: Good to go
+	}
+
+	function interruptChain(chain: `0x${string}`) {
+		//
+	}
+
+	function interruptProvider(uuid: string) {
+		//
+	}
 
 	async function onProviderAnnounced(provider: EIP6963ProviderDetail) {
-		// TODO: Deduplicate announced providers
+		// Determine if this provider has already been announced
 
-		provider.provider.on("connect", () => {
-			//
-		});
+		if (providers.get(provider.info.uuid) !== undefined) {
+			return;
+		}
 
-		provider.provider.on("disconnect", () => {
-			//
-		});
+		providers.set(provider.info.uuid, provider);
 
-		provider.provider.on("chainChanged", () => {
-			//
-		});
+		// Initialise primary change events on provider
 
-		// We perform a test request on the provider immediately. If this suceeds we learn two things:
-		// the provider has connectivitiy and the currently connected chain
+		function onConnect(event: { chainId: `0x${string}` }) {
+			initialiseChain(event.chainId);
+		}
 
-		const chain = await provider.provider.request({ method: "eth_chainId" });
+		function onDisconnect() {
+			interruptProvider(provider.info.uuid);
+		}
+
+		function onChainChanged(chainId: `0x${string}`) {
+			onDisconnect();
+			onConnect({ chainId });
+		}
+
+		// Note that over the lifecycle of this application there is no reason to ever
+		// remove these event handlers. There's no method for a provider to un-announce itself
+
+		provider.provider.on("connect", onConnect);
+		provider.provider.on("disconnect", onDisconnect);
+		provider.provider.on("chainChanged", onChainChanged);
 	}
 
 	window.addEventListener("eip6963:announceProvider", (event) => {
@@ -649,16 +683,6 @@ function createProviderStore() {
 	});
 
 	window.dispatchEvent(new Event("eip6963:requestProvider"));
-
-	return {
-		register: (chain: `0x${string}`, handler: Handler) => {
-			if (handlers.get(chain) !== undefined) {
-				throw new Error(`Handler already registered for chain ${chain}`);
-			}
-
-			handlers.set(chain, handler);
-		},
-	};
 }
 
 export { realtime };
