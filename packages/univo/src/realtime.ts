@@ -214,6 +214,31 @@ type RealtimeOptions = {
 	indexer: Transport<IndexerRpc, "http" | "local">;
 };
 
+interface EIP6963AnnounceProviderEvent extends CustomEvent {
+	type: "eip6963:announceProvider";
+	detail: EIP6963ProviderDetail;
+}
+
+interface EIP6963ProviderDetail {
+	provider: EIP1193Provider;
+	info: EIP6963ProviderInfo;
+}
+
+type EIP1193Provider = {
+	request: EIP1193RequestFn;
+	on: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
+	removeListener: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
+};
+
+interface EIP6963ProviderInfo {
+	uuid: string;
+	name: string;
+	icon: string;
+	rdns: string;
+}
+
+type Handler = (_: { chain: `0x${string}`; provider: EIP1193Provider }) => Promise<() => Promise<void>>;
+
 function realtime(opts: RealtimeOptions) {
 	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[realtime]" });
 
@@ -458,7 +483,7 @@ function realtime(opts: RealtimeOptions) {
 				return;
 			}
 
-			onProvider(async ({ chain, provider }) => {
+			const onProviderConnected: Handler = async ({ chain, provider }) => {
 				// If a provider is announced for a chain that we don't want to index we early return
 
 				const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
@@ -568,7 +593,73 @@ function realtime(opts: RealtimeOptions) {
 					provider.removeListener("message", onMessage);
 					await interrupt();
 				};
+			};
+
+			// Store every provider that is announced
+			const providers = new Map<string, EIP6963ProviderDetail>();
+
+			// Store any active executions of handler for a given provider:chain pair
+			const promises = new Map<`${string}:${string}`, Promise<() => Promise<void>>>();
+
+			const scheduler = {
+				initialise: async (opts: { provider: EIP6963ProviderDetail; chain: `0x${string}` }) => {
+					for (const key in promises) {
+						if (key === `${opts.provider.info.uuid}:${opts.chain}`) {
+							return;
+						}
+					}
+
+					const key = `${opts.provider.info.uuid}:${opts.chain}` as const;
+					const promise = onProviderConnected({ provider: opts.provider.provider, chain: opts.chain });
+
+					promises.set(key, promise);
+				},
+
+				interrupt: async (opts: { provider: EIP6963ProviderDetail; chain?: `0x${string}` }) => {
+					for (const [key, promise] of promises) {
+						if (key.startsWith(opts.chain === undefined ? opts.provider.info.uuid : `${opts.provider.info.uuid}:${opts.chain}`)) {
+							try {
+								const interrupt = await promise;
+								await interrupt();
+								promises.delete(key);
+							} catch {
+								promises.delete(key);
+							}
+						}
+					}
+				},
+			};
+
+			window.addEventListener("eip6963:announceProvider", (event) => {
+				const typed = event as EIP6963AnnounceProviderEvent;
+
+				const provider = typed.detail;
+
+				// Determine if this provider has already been announced
+				if (providers.get(provider.info.uuid) !== undefined) {
+					return;
+				}
+
+				providers.set(provider.info.uuid, provider);
+
+				// Note that over the lifecycle of this application there is no reason to ever
+				// remove these event handlers. There's no method for a provider to un-announce itself
+
+				provider.provider.on("connect", async (event: { chainId: `0x${string}` }) => {
+					await scheduler.initialise({ provider, chain: event.chainId });
+				});
+
+				provider.provider.on("disconnect", async () => {
+					await scheduler.interrupt({ provider });
+				});
+
+				provider.provider.on("chainChanged", async (chainId: `0x${string}`) => {
+					await scheduler.interrupt({ provider, chain: chainId });
+					await scheduler.initialise({ provider, chain: chainId });
+				});
 			});
+
+			window.dispatchEvent(new Event("eip6963:requestProvider"));
 		}
 	});
 
@@ -577,109 +668,6 @@ function realtime(opts: RealtimeOptions) {
 			log.error(error.message);
 		}
 	});
-}
-
-/**
- * createProviderStore ---------------------------------------------------------------------------------------------------------------
- */
-
-interface EIP6963AnnounceProviderEvent extends CustomEvent {
-	type: "eip6963:announceProvider";
-	detail: EIP6963ProviderDetail;
-}
-
-interface EIP6963ProviderDetail {
-	provider: EIP1193Provider;
-	info: EIP6963ProviderInfo;
-}
-
-type EIP1193Provider = {
-	request: EIP1193RequestFn;
-	on: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
-	removeListener: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
-};
-
-interface EIP6963ProviderInfo {
-	uuid: string;
-	name: string;
-	icon: string;
-	rdns: string;
-}
-
-type Handler = (_: { chain: `0x${string}`; provider: EIP1193Provider }) => Promise<() => Promise<void>>;
-
-// The key purpose of this interface is to abstract some details about accessing browser injected providers.
-// Notably, it registers all the necessary event handlers to discover them. It also abstracts details like
-// whether or not a given provider has been granted RPC access (has connectivity) or is connected to a
-// target chain. Similarly it handles errors and can retry indexing the same chain with a different provider
-// connected to the same chain
-
-function onProvider(handler: Handler) {
-	// Store every provider that is announced
-	const providers = new Map<string, EIP6963ProviderDetail>();
-
-	// Store any active executions of handler for a given provider:chain pair
-	const promises = new Map<`${string}:${string}`, Promise<() => Promise<void>>>();
-
-	const scheduler = {
-		initialise: async (opts: { provider: EIP6963ProviderDetail; chain: `0x${string}` }) => {
-			for (const key in promises) {
-				if (key === `${opts.provider.info.uuid}:${opts.chain}`) {
-					return;
-				}
-			}
-
-			const key = `${opts.provider.info.uuid}:${opts.chain}` as const;
-			const promise = handler({ provider: opts.provider.provider, chain: opts.chain });
-
-			promises.set(key, promise);
-		},
-
-		interrupt: async (opts: { provider: EIP6963ProviderDetail; chain?: `0x${string}` }) => {
-			for (const [key, promise] of promises) {
-				if (key.startsWith(opts.chain === undefined ? opts.provider.info.uuid : `${opts.provider.info.uuid}:${opts.chain}`)) {
-					try {
-						const interrupt = await promise;
-						await interrupt();
-						promises.delete(key);
-					} catch {
-						promises.delete(key);
-					}
-				}
-			}
-		},
-	};
-
-	window.addEventListener("eip6963:announceProvider", (event) => {
-		const typed = event as EIP6963AnnounceProviderEvent;
-
-		const provider = typed.detail;
-
-		// Determine if this provider has already been announced
-		if (providers.get(provider.info.uuid) !== undefined) {
-			return;
-		}
-
-		providers.set(provider.info.uuid, provider);
-
-		// Note that over the lifecycle of this application there is no reason to ever
-		// remove these event handlers. There's no method for a provider to un-announce itself
-
-		provider.provider.on("connect", async (event: { chainId: `0x${string}` }) => {
-			await scheduler.initialise({ provider, chain: event.chainId });
-		});
-
-		provider.provider.on("disconnect", async () => {
-			await scheduler.interrupt({ provider });
-		});
-
-		provider.provider.on("chainChanged", async (chainId: `0x${string}`) => {
-			await scheduler.interrupt({ provider, chain: chainId });
-			await scheduler.initialise({ provider, chain: chainId });
-		});
-	});
-
-	window.dispatchEvent(new Event("eip6963:requestProvider"));
 }
 
 export { realtime };
