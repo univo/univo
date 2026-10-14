@@ -125,11 +125,13 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 	// and its corresponding callback handler to invoke when a response is received on the connection.
 	const requests = new Map<number, (data: any) => void>();
 
-	// This is a key value store for a given subscription id to a given param
-	const subscriptions = new Map<string, { param: string; latest: number }>();
+	// We want to decouple subscriptions to the node with subscriptions to this abstraction, allowing
+	// us to deduplicate multiple subscribers to this abstraction for the same param into a single
+	// subscription with the node. Therefore we first create a map that allows us to go from a
+	// subscription id to a given param, and then from a param to a set of listeners.
 
-	// For each param we keep a set of handlers to notify when we receive a response
-	const params = new Map<string, Set<(data: any) => void>>();
+	const subscriptionToParam = new Map<string, { param: string; latest: number }>();
+	const paramToListeners = new Map<string, Set<(data: any) => void>>();
 
 	const socket = createSocket(url as "wss://", {
 		async onError(cause) {
@@ -137,7 +139,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		},
 
 		async onOpen() {
-			if (subscriptions.size === 0) {
+			if (subscriptionToParam.size === 0) {
 				return;
 			}
 
@@ -146,7 +148,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 
 			const params: string[] = [];
 
-			for (const [id, subscription] of subscriptions) {
+			for (const [id, subscription] of subscriptionToParam) {
 				params.push(subscription.param);
 
 				// This isn't strictly needed for correctness. The fact that the websocket connection was dropped
@@ -156,12 +158,12 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 					log.warn("Failed to cancel old susbcription");
 				});
 
-				subscriptions.delete(id);
+				subscriptionToParam.delete(id);
 			}
 
 			for (const param of params) {
 				request({ method: "eth_subscribe", params: [param] }).then((id) => {
-					subscriptions.set(id, { param, latest: Date.now() });
+					subscriptionToParam.set(id, { param, latest: Date.now() });
 				});
 			}
 		},
@@ -174,31 +176,33 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 			const data = JSON.parse(event.data);
 
 			if (data.method === "eth_subscription") {
-				const subscription = subscriptions.get(data.params.subscription);
+				const param = subscriptionToParam.get(data.params.subscription);
 
-				if (subscription === undefined) {
+				if (param === undefined) {
 					return await request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {
 						log.warn("Failed to unsubscribe stale subscription");
 					});
 				}
 
-				const handlers = params.get(subscription.param);
+				const listeners = paramToListeners.get(param.param);
 
-				if (handlers === undefined) {
+				if (listeners === undefined) {
 					return await request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {
 						log.warn("Failed to unsubscribe stale subscription");
 					});
 				}
 
-				for (const handler of handlers) {
+				for (const listener of listeners) {
 					try {
-						handler(data.params.result);
-					} catch (cause) {
-						log.error(new Error("Handler error", { cause }));
+						listener(data.params.result);
+					} catch (error) {
+						if (error instanceof Error) {
+							log.error(error.message);
+						}
 					}
 				}
 
-				subscription.latest = Date.now();
+				param.latest = Date.now();
 
 				return;
 			}
@@ -253,43 +257,49 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		});
 	};
 
-	const subscribe: Transport<Rpc>["subscribe"] = async (param, handler) => {
-		const handlers = params.get(param);
+	const subscribe: Transport<Rpc>["subscribe"] = async (param, listener) => {
+		const listeners = paramToListeners.get(param);
 
-		if (handlers === undefined) {
-			const handlers = new Set<(data: any) => void>().add(handler);
+		if (listeners === undefined) {
+			const listeners = new Set<(data: any) => void>();
 
-			params.set(param, handlers);
+			listeners.add(listener);
+
+			paramToListeners.set(param, listeners);
 
 			const id = await request({ method: "eth_subscribe", params: [param] }).catch((cause) => {
 				throw new Error(`Failed to initialise subscription for param ${param}`, { cause });
 			});
 
-			subscriptions.set(id, { param, latest: Date.now() });
+			subscriptionToParam.set(id, { param, latest: Date.now() });
 		} else {
-			handlers.add(handler);
+			listeners.add(listener);
 		}
 
 		return async function unsubscribe() {
-			const handlers = params.get(param);
+			const listeners = paramToListeners.get(param);
 
-			if (handlers === undefined) {
+			if (listeners === undefined) {
 				return log.warn("Param already unsubscribed...");
 			}
 
-			handlers.delete(handler);
+			listeners.delete(listener);
 
-			if (handlers.size === 0) {
-				await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
-					log.warn("Failed to unsubscribe unused subscription");
-				});
+			if (listeners.size === 0) {
+				for (const [id, _param] of subscriptionToParam) {
+					if (param === _param.param) {
+						await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
+							log.warn("Failed to unsubscribe unused subscription");
+						});
+					}
+				}
 			}
 		};
 	};
 
 	function healthcheck() {
 		try {
-			const failed = Object.values(subscriptions).some((subscription) => {
+			const failed = Object.values(subscriptionToParam).some((subscription) => {
 				return Date.now() - subscription.latest > 60 * 1000;
 			});
 
