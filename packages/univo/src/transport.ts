@@ -130,8 +130,10 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 	// subscription with the node. Therefore we first create a map that allows us to go from a
 	// subscription id to a given param, and then from a param to a set of listeners.
 
-	const subscriptionToParam = new Map<string, { param: string; latest: number }>();
-	const paramToListeners = new Map<string, Set<(data: any) => void>>();
+	const subscriptions = {
+		node: new Map<string, { param: string; latest: number }>(),
+		abstraction: new Map<string, Set<(data: any) => void>>(),
+	};
 
 	const socket = createSocket(url as "wss://", {
 		async onError(cause) {
@@ -139,7 +141,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		},
 
 		async onOpen() {
-			if (subscriptionToParam.size === 0) {
+			if (subscriptions.node.size === 0) {
 				return;
 			}
 
@@ -148,7 +150,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 
 			const params: string[] = [];
 
-			for (const [id, subscription] of subscriptionToParam) {
+			for (const [id, subscription] of subscriptions.node) {
 				params.push(subscription.param);
 
 				// This isn't strictly needed for correctness. The fact that the websocket connection was dropped
@@ -158,12 +160,12 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 					log.warn("Failed to cancel old susbcription");
 				});
 
-				subscriptionToParam.delete(id);
+				subscriptions.node.delete(id);
 			}
 
 			for (const param of params) {
 				request({ method: "eth_subscribe", params: [param] }).then((id) => {
-					subscriptionToParam.set(id, { param, latest: Date.now() });
+					subscriptions.node.set(id, { param, latest: Date.now() });
 				});
 			}
 		},
@@ -176,7 +178,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 			const data = JSON.parse(event.data);
 
 			if (data.method === "eth_subscription") {
-				const param = subscriptionToParam.get(data.params.subscription);
+				const param = subscriptions.node.get(data.params.subscription);
 
 				if (param === undefined) {
 					return await request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {
@@ -184,7 +186,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 					});
 				}
 
-				const listeners = paramToListeners.get(param.param);
+				const listeners = subscriptions.abstraction.get(param.param);
 
 				if (listeners === undefined) {
 					return await request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {
@@ -258,26 +260,26 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 	};
 
 	const subscribe: Transport<Rpc>["subscribe"] = async (param, listener) => {
-		const listeners = paramToListeners.get(param);
+		const listeners = subscriptions.abstraction.get(param);
 
 		if (listeners === undefined) {
 			const listeners = new Set<(data: any) => void>();
 
 			listeners.add(listener);
 
-			paramToListeners.set(param, listeners);
+			subscriptions.abstraction.set(param, listeners);
 
 			const id = await request({ method: "eth_subscribe", params: [param] }).catch((cause) => {
 				throw new Error(`Failed to initialise subscription for param ${param}`, { cause });
 			});
 
-			subscriptionToParam.set(id, { param, latest: Date.now() });
+			subscriptions.node.set(id, { param, latest: Date.now() });
 		} else {
 			listeners.add(listener);
 		}
 
 		return async function unsubscribe() {
-			const listeners = paramToListeners.get(param);
+			const listeners = subscriptions.abstraction.get(param);
 
 			if (listeners === undefined) {
 				return log.warn("Param already unsubscribed...");
@@ -286,7 +288,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 			listeners.delete(listener);
 
 			if (listeners.size === 0) {
-				for (const [id, _param] of subscriptionToParam) {
+				for (const [id, _param] of subscriptions.node) {
 					if (param === _param.param) {
 						await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
 							log.warn("Failed to unsubscribe unused subscription");
@@ -299,7 +301,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 
 	function healthcheck() {
 		try {
-			const failed = Object.values(subscriptionToParam).some((subscription) => {
+			const failed = Object.values(subscriptions.node).some((subscription) => {
 				return Date.now() - subscription.latest > 60 * 1000;
 			});
 
