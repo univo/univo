@@ -2,7 +2,7 @@ import { hexToNumber } from "viem";
 import type { EIP1193EventMap, EIP1193RequestFn } from "viem";
 
 import { IndexerRpc, Rpc } from "./rpc";
-import { type Transport } from "./transport";
+import type { Transport } from "./transport";
 import { createLogger, iife, isHexEqual, mutex, retry } from "./utils";
 
 /**
