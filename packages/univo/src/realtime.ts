@@ -490,14 +490,6 @@ function realtime(opts: RealtimeOptions) {
 				return async () => {};
 			}
 
-			// Otherwise, we create a transport proxy requests to the eip1193 provider
-
-			const request: Transport<Rpc>["request"] = async (opts) => {
-				const res = await provider.request({ method: opts.method, params: opts.params });
-
-				return res;
-			};
-
 			// We want to decouple subscriptions to the node from subscriptions to this abstraction, allowing
 			// us to deduplicate multiple subscribers into a single node subscription. Therefore we first create
 			// a map that allows us to go from a subscription id to a given param, and then from a given param to
@@ -508,52 +500,62 @@ function realtime(opts: RealtimeOptions) {
 				abstraction: new Map<string, Set<(data: any) => void>>(),
 			};
 
-			const subscribe: Transport<Rpc>["subscribe"] = async (param, listener) => {
-				const listeners = subscriptions.abstraction.get(param);
+			const transport: Transport<Rpc> = {
+				protocol: "browser",
 
-				if (listeners === undefined) {
-					const listeners = new Set<(data: any) => void>();
+				request: async (opts) => {
+					const res = await provider.request({ method: opts.method, params: opts.params });
 
-					listeners.add(listener);
+					return res;
+				},
 
-					subscriptions.abstraction.set(param, listeners);
-
-					const id = await request({ method: "eth_subscribe", params: [param] }).catch((cause) => {
-						throw new Error(`Failed to initialise subscription for param ${param}`, { cause });
-					});
-
-					subscriptions.node.set(id, param);
-				} else {
-					listeners.add(listener);
-				}
-
-				return async function unsubscribe() {
+				subscribe: async (param, listener) => {
 					const listeners = subscriptions.abstraction.get(param);
 
 					if (listeners === undefined) {
-						return;
+						const listeners = new Set<(data: any) => void>();
+
+						listeners.add(listener);
+
+						subscriptions.abstraction.set(param, listeners);
+
+						const id = await transport.request({ method: "eth_subscribe", params: [param] }).catch((cause) => {
+							throw new Error(`Failed to initialise subscription for param ${param}`, { cause });
+						});
+
+						subscriptions.node.set(id, param);
+					} else {
+						listeners.add(listener);
 					}
 
-					listeners.delete(listener);
+					return async function unsubscribe() {
+						const listeners = subscriptions.abstraction.get(param);
 
-					if (listeners.size === 0) {
-						for (const [id, _param] of subscriptions.node) {
-							if (param === _param) {
-								await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
-									log.warn("Failed to unsubscribe unused subscription");
-								});
+						if (listeners === undefined) {
+							return;
+						}
+
+						listeners.delete(listener);
+
+						if (listeners.size === 0) {
+							for (const [id, _param] of subscriptions.node) {
+								if (param === _param) {
+									await transport.request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
+										log.warn("Failed to unsubscribe unused subscription");
+									});
+								}
 							}
 						}
-					}
-				};
+					};
+				},
 			};
 
-			async function onMessage(message: { type: string; data: any }) {
+			const onMessage = async (message: { type: string; data: any }) => {
 				if (message.type === "eth_subscription") {
 					const param = subscriptions.node.get(message.data.subscription);
 
 					if (param === undefined) {
-						return await request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
+						return await transport.request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
 							log.warn("Failed to unsubscribe stale subscription");
 						});
 					}
@@ -561,7 +563,7 @@ function realtime(opts: RealtimeOptions) {
 					const listeners = subscriptions.abstraction.get(param);
 
 					if (listeners === undefined) {
-						return await request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
+						return await transport.request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
 							log.warn("Failed to unsubscribe stale subscription");
 						});
 					}
@@ -576,16 +578,11 @@ function realtime(opts: RealtimeOptions) {
 						}
 					}
 				}
-			}
+			};
 
 			provider.on("message", onMessage);
 
-			const node: Transport<Rpc> = { protocol: "browser", request, subscribe };
-
-			const interrupt = await start({ chain, node });
-
-			// This return function will be invoked whenever we lose access to a provider with
-			// this chain and must interrupt our indexing
+			const interrupt = await start({ chain, node: transport });
 
 			return async () => {
 				provider.removeListener("message", onMessage);
@@ -611,9 +608,9 @@ function realtime(opts: RealtimeOptions) {
 				promises.set(key, promise);
 			},
 
-			interrupt: async (opts: { provider: EIP6963ProviderDetail; chain: `0x${string}` }) => {
+			interrupt: async (opts: { provider: EIP6963ProviderDetail }) => {
 				for (const [key, promise] of promises) {
-					if (key === `${opts.provider.info.uuid}:${opts.chain}`) {
+					if (key.startsWith(opts.provider.info.uuid)) {
 						try {
 							log.debug(`Awaiting interrupt for key ${key}`);
 							const interrupt = await promise;
@@ -653,7 +650,7 @@ function realtime(opts: RealtimeOptions) {
 			provider.provider.on("chainChanged", async (chain: `0x${string}`) => {
 				log.debug(`Provider (${provider.info.uuid}) changed to chain (${hexToNumber(chain)})`);
 
-				await scheduler.interrupt({ provider, chain });
+				await scheduler.interrupt({ provider });
 				await scheduler.initialise({ provider, chain });
 			});
 
