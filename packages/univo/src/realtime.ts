@@ -471,7 +471,7 @@ function realtime(opts: RealtimeOptions) {
 				throw new Error("Provided `node` is connected to a chain not indexed by the provided `indexer`");
 			}
 
-			await start({ chain, node: opts.node });
+			return await start({ chain, node: opts.node });
 		}
 
 		log.debug("Looking for browser injected node providers");
@@ -484,7 +484,6 @@ function realtime(opts: RealtimeOptions) {
 
 		const onProviderConnected: Handler = async ({ chain, provider }) => {
 			// If a provider is announced for a chain that we don't want to index we early return
-
 			const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
 
 			if (!metadata.chains.includes(chain)) {
@@ -600,14 +599,15 @@ function realtime(opts: RealtimeOptions) {
 		const scheduler = {
 			initialise: async (opts: { provider: EIP6963ProviderDetail; chain: `0x${string}` }) => {
 				for (const key in promises) {
-					if (key === `${opts.provider.info.uuid}:${opts.chain}`) {
-						return;
+					if (key.endsWith(opts.chain)) {
+						return log.debug(`Already indexing key ${key}, aborting initialisation...`);
 					}
 				}
 
 				const key = `${opts.provider.info.uuid}:${opts.chain}` as const;
-				const promise = onProviderConnected({ provider: opts.provider.provider, chain: opts.chain });
+				log.debug(`Initialising indexing for key ${key}`);
 
+				const promise = onProviderConnected({ provider: opts.provider.provider, chain: opts.chain });
 				promises.set(key, promise);
 			},
 
@@ -615,10 +615,17 @@ function realtime(opts: RealtimeOptions) {
 				for (const [key, promise] of promises) {
 					if (key.startsWith(opts.chain === undefined ? opts.provider.info.uuid : `${opts.provider.info.uuid}:${opts.chain}`)) {
 						try {
+							log.debug(`Awaiting interrupt for key ${key}`);
 							const interrupt = await promise;
+
+							log.debug(`Interrupting key ${key}`);
 							await interrupt();
+
+							log.debug(`Key ${key} interrupted`);
 							promises.delete(key);
 						} catch {
+							log.warn(`Failed interrupt for key ${key}`);
+
 							promises.delete(key);
 						}
 					}
@@ -629,35 +636,32 @@ function realtime(opts: RealtimeOptions) {
 		// Store every provider that is announced
 		const providers = new Map<string, EIP6963ProviderDetail>();
 
-		window.addEventListener("eip6963:announceProvider", (event) => {
+		log.debug("Initialising eip6963 event listeners");
+
+		window.addEventListener("eip6963:announceProvider", async (event) => {
 			const typed = event as EIP6963AnnounceProviderEvent;
 
 			const provider = typed.detail;
 
 			// Determine if this provider has already been announced
 			if (providers.get(provider.info.uuid) !== undefined) {
-				return log.debug(`Found duplicate provider with id ${provider.info.uuid}`);
+				return log.debug(`Found duplicate provider (${provider.info.uuid})`);
 			}
 
+			log.debug(`Found provider (${provider.info.uuid})`);
 			providers.set(provider.info.uuid, provider);
 
-			log.debug(`Found provider with id ${provider.info.uuid}`);
-
-			// Note that over the lifecycle of this application there is no reason to ever
-			// remove these event handlers. There's no method for a provider to un-announce itself
-
-			provider.provider.on("connect", async (event: { chainId: `0x${string}` }) => {
-				await scheduler.initialise({ provider, chain: event.chainId });
-			});
-
-			provider.provider.on("disconnect", async () => {
-				await scheduler.interrupt({ provider });
-			});
-
+			// We add an event listener to detect any changes to the providers chain
 			provider.provider.on("chainChanged", async (chain: `0x${string}`) => {
+				log.debug(`Provider (${provider.info.uuid}) changed to chain (${hexToNumber(chain)})`);
+
 				await scheduler.interrupt({ provider, chain });
 				await scheduler.initialise({ provider, chain });
 			});
+
+			// And then we request the chain we are currently connected to and begin indexing
+			const chain: `0x${string}` = await provider.provider.request({ method: "eth_chainId" });
+			await scheduler.initialise({ provider, chain });
 		});
 
 		window.dispatchEvent(new Event("eip6963:requestProvider"));
