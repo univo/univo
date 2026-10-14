@@ -469,16 +469,19 @@ function realtime(opts: RealtimeOptions) {
 
 			for (const chain of metadata.chains) {
 				store.register(chain, async (provider) => {
+					// For each chain we initialise a node transport. This essentially proxies requests between
+					// the realtime client and the eip1193 provider
+
 					const request: Transport<Rpc>["request"] = async (opts) => {
 						const res = await provider.request({ method: opts.method, params: opts.params });
 
 						return res;
 					};
 
-					// We want to decouple subscriptions to the node with subscriptions to this abstraction, allowing
-					// us to deduplicate multiple subscribers to this abstraction for the same param into a single
-					// subscription with the node. Therefore we first create a map that allows us to go from a
-					// subscription id to a given param, and then from a param to a set of listeners.
+					// We want to decouple subscriptions to the node from subscriptions to this abstraction, allowing
+					// us to deduplicate multiple subscribers into a single no subscription with the node. Therefore we
+					// first create a map that allows us to go from a subscription id to a given param, and then from a
+					// given param to a set of listeners.
 
 					const subscriptions = {
 						node: new Map<string, string>(),
@@ -619,6 +622,8 @@ function createProviderStore() {
 	const handlers: Map<`0x${string}`, Handler> = new Map();
 
 	async function onProviderAnnounced(provider: EIP6963ProviderDetail) {
+		// TODO: Deduplicate announced providers
+
 		provider.provider.on("connect", () => {
 			//
 		});
