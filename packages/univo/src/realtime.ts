@@ -458,118 +458,116 @@ function realtime(opts: RealtimeOptions) {
 				return;
 			}
 
-			createProviderStore({
-				onProvider: async ({ chain, provider }) => {
-					// If a provider is announced for a chain that we don't want to index we early return
+			onProvider(async ({ chain, provider }) => {
+				// If a provider is announced for a chain that we don't want to index we early return
 
-					const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
+				const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
 
-					if (!metadata.chains.includes(chain)) {
-						return async () => {};
+				if (!metadata.chains.includes(chain)) {
+					return async () => {};
+				}
+
+				// Otherwise, we create a transport proxy requests to the eip1193 provider
+
+				const request: Transport<Rpc>["request"] = async (opts) => {
+					const res = await provider.request({ method: opts.method, params: opts.params });
+
+					return res;
+				};
+
+				// We want to decouple subscriptions to the node from subscriptions to this abstraction, allowing
+				// us to deduplicate multiple subscribers into a single node subscription. Therefore we first create
+				// a map that allows us to go from a subscription id to a given param, and then from a given param to
+				// a set of listeners.
+
+				const subscriptions = {
+					node: new Map<string, string>(),
+					abstraction: new Map<string, Set<(data: any) => void>>(),
+				};
+
+				const subscribe: Transport<Rpc>["subscribe"] = async (param, listener) => {
+					const listeners = subscriptions.abstraction.get(param);
+
+					if (listeners === undefined) {
+						const listeners = new Set<(data: any) => void>();
+
+						listeners.add(listener);
+
+						subscriptions.abstraction.set(param, listeners);
+
+						const id = await request({ method: "eth_subscribe", params: [param] }).catch((cause) => {
+							throw new Error(`Failed to initialise subscription for param ${param}`, { cause });
+						});
+
+						subscriptions.node.set(id, param);
+					} else {
+						listeners.add(listener);
 					}
 
-					// Otherwise, we create a transport proxy requests to the eip1193 provider
-
-					const request: Transport<Rpc>["request"] = async (opts) => {
-						const res = await provider.request({ method: opts.method, params: opts.params });
-
-						return res;
-					};
-
-					// We want to decouple subscriptions to the node from subscriptions to this abstraction, allowing
-					// us to deduplicate multiple subscribers into a single node subscription. Therefore we first create
-					// a map that allows us to go from a subscription id to a given param, and then from a given param to
-					// a set of listeners.
-
-					const subscriptions = {
-						node: new Map<string, string>(),
-						abstraction: new Map<string, Set<(data: any) => void>>(),
-					};
-
-					const subscribe: Transport<Rpc>["subscribe"] = async (param, listener) => {
+					return async function unsubscribe() {
 						const listeners = subscriptions.abstraction.get(param);
 
 						if (listeners === undefined) {
-							const listeners = new Set<(data: any) => void>();
-
-							listeners.add(listener);
-
-							subscriptions.abstraction.set(param, listeners);
-
-							const id = await request({ method: "eth_subscribe", params: [param] }).catch((cause) => {
-								throw new Error(`Failed to initialise subscription for param ${param}`, { cause });
-							});
-
-							subscriptions.node.set(id, param);
-						} else {
-							listeners.add(listener);
+							return;
 						}
 
-						return async function unsubscribe() {
-							const listeners = subscriptions.abstraction.get(param);
+						listeners.delete(listener);
 
-							if (listeners === undefined) {
-								return;
-							}
-
-							listeners.delete(listener);
-
-							if (listeners.size === 0) {
-								for (const [id, _param] of subscriptions.node) {
-									if (param === _param) {
-										await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
-											log.warn("Failed to unsubscribe unused subscription");
-										});
-									}
+						if (listeners.size === 0) {
+							for (const [id, _param] of subscriptions.node) {
+								if (param === _param) {
+									await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
+										log.warn("Failed to unsubscribe unused subscription");
+									});
 								}
 							}
-						};
+						}
 					};
+				};
 
-					async function onMessage(message: { type: string; data: any }) {
-						if (message.type === "eth_subscription") {
-							const param = subscriptions.node.get(message.data.subscription);
+				async function onMessage(message: { type: string; data: any }) {
+					if (message.type === "eth_subscription") {
+						const param = subscriptions.node.get(message.data.subscription);
 
-							if (param === undefined) {
-								return await request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
-									log.warn("Failed to unsubscribe stale subscription");
-								});
-							}
+						if (param === undefined) {
+							return await request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
+								log.warn("Failed to unsubscribe stale subscription");
+							});
+						}
 
-							const listeners = subscriptions.abstraction.get(param);
+						const listeners = subscriptions.abstraction.get(param);
 
-							if (listeners === undefined) {
-								return await request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
-									log.warn("Failed to unsubscribe stale subscription");
-								});
-							}
+						if (listeners === undefined) {
+							return await request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
+								log.warn("Failed to unsubscribe stale subscription");
+							});
+						}
 
-							for (const listener of listeners) {
-								try {
-									listener(message.data.result);
-								} catch (error) {
-									if (error instanceof Error) {
-										log.error(error.message);
-									}
+						for (const listener of listeners) {
+							try {
+								listener(message.data.result);
+							} catch (error) {
+								if (error instanceof Error) {
+									log.error(error.message);
 								}
 							}
 						}
 					}
+				}
 
-					provider.on("message", onMessage);
+				provider.on("message", onMessage);
 
-					const node: Transport<Rpc> = { protocol: "browser", request, subscribe };
+				const node: Transport<Rpc> = { protocol: "browser", request, subscribe };
 
-					const interrupt = await start({ chain, node });
+				const interrupt = await start({ chain, node });
 
-					// This return function will be invoked whenever we lose access to a provider with
-					// this chain and must interrupt our indexing
+				// This return function will be invoked whenever we lose access to a provider with
+				// this chain and must interrupt our indexing
 
-					return async () => {
-						provider.removeListener("message", onMessage);
-						await interrupt();
-					};
-				},
+				return async () => {
+					provider.removeListener("message", onMessage);
+					await interrupt();
+				};
 			});
 		}
 	});
@@ -616,7 +614,7 @@ type Handler = (_: { chain: `0x${string}`; provider: EIP1193Provider }) => Promi
 // target chain. Similarly it handles errors and can retry indexing the same chain with a different provider
 // connected to the same chain
 
-function createProviderStore(opts: { onProvider: Handler }) {
+function onProvider(handler: Handler) {
 	// Store every provider that is announced
 	const providers: Map<string, EIP6963ProviderDetail> = new Map();
 
