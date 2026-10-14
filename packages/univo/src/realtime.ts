@@ -465,7 +465,7 @@ function realtime(opts: RealtimeOptions) {
 
 			const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
 
-			// For each chain, we register the chains we want to index
+			// For each chain, we register a callback handler we want to invoke when/if a provider becomes available
 
 			for (const chain of metadata.chains) {
 				store.register(chain, async (provider) => {
