@@ -559,18 +559,19 @@ function realtime(realtime: RealtimeOptions) {
 				protocol: "browser",
 
 				request: async (request) => {
-					// As soon as our underlying provider changes chains we want to prevent any requests. The only
-					// exception to this is our eth_unsubscribe request to clean up the old subscription.
+					// If we have aborted this provider because the underlying chain changed, we still want our
+					// cleanup mechanism to work and successfully unsub any subscriptions
 
-					const ALWAYS_ALLOW = ["eth_unsubscribe"];
-
-					if (!ALWAYS_ALLOW.includes(request.method)) {
+					if (request.method !== "eth_unsubscribe") {
 						browser.signal.throwIfAborted();
 					}
 
 					const res = await browser.provider.request({ method: request.method, params: request.params });
 
-					if (!ALWAYS_ALLOW.includes(request.method)) {
+					// Similarly, if a request to start a subscription was in-flight while the provider was aborted
+					// we want to ensure that safely returns so that it can be safely unsubscribed during cleanup
+
+					if (request.method !== "eth_unsubscribe" && request.method !== "eth_subscribe") {
 						browser.signal.throwIfAborted();
 					}
 
