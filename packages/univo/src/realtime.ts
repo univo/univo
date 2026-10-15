@@ -176,6 +176,8 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		return await reconcile(newBlock); // Finally we add this block
 	}
 
+	// TODO: `prune` and `reconcile` should share a mutex
+
 	return {
 		chain,
 		prune: mutex(prune),
