@@ -555,9 +555,10 @@ function realtime(opts: RealtimeOptions) {
 					const param = subscriptions.node.get(message.data.subscription);
 
 					if (param === undefined) {
-						return await transport.request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
-							log.warn("Failed to unsubscribe stale subscription");
-						});
+						// Injected providers are shared; unknown subscriptions may belong to another application.
+						// Rather than automatically unsubscribing we simply ignore
+
+						return;
 					}
 
 					const listeners = subscriptions.abstraction.get(param);
