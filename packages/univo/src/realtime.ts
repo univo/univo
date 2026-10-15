@@ -654,44 +654,14 @@ function realtime(opts: RealtimeOptions) {
 					return log.debug("Browser indexing invoked on the server, aborting...");
 				}
 
-				// Store any active executions of handler for a given provider:chain pair
-				const promises = new Map<`${string}:${string}`, () => void>();
-
-				const scheduler = {
-					initialise: async (opts: { provider: EIP6963ProviderDetail; chain: `0x${string}` }) => {
-						for (const key of promises.keys()) {
-							if (key.endsWith(`:${opts.chain}`)) {
-								return log.debug(`Already indexing key ${key}, aborting initialisation...`);
-							}
-						}
-
-						const key = `${opts.provider.info.uuid}:${opts.chain}` as const;
-						log.debug(`Initialising indexing for key ${key}`);
-
-						const interrupt = browser({ provider: opts.provider.provider, chain: opts.chain });
-						promises.set(key, interrupt);
-					},
-
-					interrupt: async (opts: { provider: EIP6963ProviderDetail }) => {
-						for (const [key, interrupt] of promises) {
-							if (key.startsWith(opts.provider.info.uuid)) {
-								try {
-									interrupt();
-									promises.delete(key);
-								} catch (error) {
-									if (error instanceof Error) {
-										log.error(error.message);
-									}
-
-									promises.delete(key);
-								}
-							}
-						}
-					},
-				};
+				// Session id counter
+				const session = 0;
 
 				// Store every provider that is announced
 				const providers = new Map<string, EIP6963ProviderDetail>();
+
+				// Store any active executions of handler for a given provider:chain pair
+				const sessions = new Map<`${string}:${string}`, () => void>();
 
 				window.addEventListener("eip6963:announceProvider", async (event) => {
 					const typed = event as EIP6963AnnounceProviderEvent;
@@ -706,17 +676,56 @@ function realtime(opts: RealtimeOptions) {
 					log.debug(`Found provider (${provider.info.uuid})`);
 					providers.set(provider.info.uuid, provider);
 
+					const initialise = (chain: `0x${string}`) => {
+						// If we are already indexing this chain with another provider we can abort
+
+						for (const key of sessions.keys()) {
+							if (key.endsWith(`:${chain}`)) {
+								return log.debug(`Already indexing key ${key}, aborting initialisation...`);
+							}
+						}
+
+						// Whenever we initialise a provider for a given chain, we must first interrupt any existing
+						// sessions for this provider. We first increment the session counter so that existing sessions
+						// begin erroring immediately for the wrong chain
+
+						for (const [key, interrupt] of sessions) {
+							if (key.startsWith(provider.info.uuid)) {
+								try {
+									interrupt();
+									sessions.delete(key);
+								} catch (error) {
+									if (error instanceof Error) {
+										log.error(error.message);
+									}
+
+									sessions.delete(key);
+								}
+							}
+						}
+
+						// Now we are free to start a new session
+
+						const key = `${provider.info.uuid}:${chain}` as const;
+						log.debug(`Initialising indexing for key ${key}`);
+
+						const interrupt = browser({ provider: provider.provider, chain: chain });
+						sessions.set(key, interrupt);
+					};
+
 					// We add an event listener to detect any changes to the providers chain
 					provider.provider.on("chainChanged", async (chain: `0x${string}`) => {
 						log.debug(`Provider (${provider.info.uuid}) changed to chain (${hexToNumber(chain)})`);
 
-						await scheduler.interrupt({ provider });
-						await scheduler.initialise({ provider, chain });
+						// Start indexing chain for provider
+						initialise(chain);
 					});
 
 					// And then we request the chain we are currently connected to and begin indexing
 					const chain: `0x${string}` = await provider.provider.request({ method: "eth_chainId" });
-					await scheduler.initialise({ provider, chain });
+
+					// Start indexing chain for provider
+					initialise(chain);
 				});
 
 				window.dispatchEvent(new Event("eip6963:requestProvider"));
