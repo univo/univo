@@ -262,9 +262,9 @@ function realtime(realtime: RealtimeOptions) {
 		};
 
 		return {
-			disposed: () => disposed,
+			isDisposed: () => disposed,
 
-			cleanup: (fn: () => Promise<void> | void) => {
+			onCleanup: (fn: () => Promise<void> | void) => {
 				if (disposed) {
 					cleanup(fn);
 				} else {
@@ -284,7 +284,7 @@ function realtime(realtime: RealtimeOptions) {
 	};
 
 	const instance = ({ chain, node }: { chain: `0x${string}`; node: Transport<Rpc> }) => {
-		const { disposed, cleanup, interrupt } = lifecycle();
+		const { isDisposed, onCleanup, interrupt } = lifecycle();
 
 		const promise = iife(async () => {
 			// First step is to initialise the realtime client so that it immediately begins indexing the tip
@@ -297,7 +297,7 @@ function realtime(realtime: RealtimeOptions) {
 				node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
 			]);
 
-			if (disposed()) {
+			if (isDisposed()) {
 				return;
 			}
 
@@ -371,7 +371,7 @@ function realtime(realtime: RealtimeOptions) {
 				parent_hash: chainLatestBlock.parentHash,
 			});
 
-			if (disposed()) {
+			if (isDisposed()) {
 				return;
 			}
 
@@ -385,9 +385,9 @@ function realtime(realtime: RealtimeOptions) {
 				});
 			});
 
-			cleanup(() => unsubscribe());
+			onCleanup(() => unsubscribe());
 
-			if (disposed()) {
+			if (isDisposed()) {
 				return;
 			}
 
@@ -503,7 +503,7 @@ function realtime(realtime: RealtimeOptions) {
 			}
 
 			const id = setInterval(poll, POLLING_INTERVAL_MS);
-			cleanup(() => clearInterval(id));
+			onCleanup(() => clearInterval(id));
 
 			log.debug("Started polling finalized height");
 		});
@@ -520,24 +520,24 @@ function realtime(realtime: RealtimeOptions) {
 	};
 
 	const browser = (browser: { signal: AbortSignal; chain: `0x${string}`; provider: EIP1193Provider }) => {
-		const { disposed, cleanup, interrupt } = lifecycle();
+		const { isDisposed, onCleanup, interrupt } = lifecycle();
 
 		browser.signal.addEventListener("abort", interrupt, { once: true });
-		cleanup(() => browser.signal.removeEventListener("abort", interrupt));
+		onCleanup(() => browser.signal.removeEventListener("abort", interrupt));
 
 		if (browser.signal.aborted) {
 			interrupt();
 		}
 
 		const promise = iife(async () => {
-			if (disposed()) {
+			if (isDisposed()) {
 				return;
 			}
 
 			// If a provider is announced for a chain that we don't want to index we early return
 			const metadata = await realtime.indexer.request({ method: "public_getMetadata", params: [] });
 
-			if (disposed()) {
+			if (isDisposed()) {
 				return;
 			}
 
@@ -641,10 +641,10 @@ function realtime(realtime: RealtimeOptions) {
 			};
 
 			browser.provider.on("message", onMessage);
-			cleanup(() => browser.provider.removeListener("message", onMessage));
+			onCleanup(() => browser.provider.removeListener("message", onMessage));
 
 			const _interrupt = instance({ chain: browser.chain, node: transport });
-			cleanup(() => _interrupt());
+			onCleanup(() => _interrupt());
 		});
 
 		promise.catch((error) => {
