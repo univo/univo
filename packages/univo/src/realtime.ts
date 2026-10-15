@@ -728,11 +728,18 @@ function realtime(realtime: RealtimeOptions) {
 						initialise({ chain, signal: controller.signal });
 					});
 
+					const initialSignal = controller.signal;
+
 					// And then we request the chain we are currently connected to and begin indexing
 					const initialChain: `0x${string}` = await provider.provider.request({ method: "eth_chainId" });
 
+					// If a chain change occurred while the request was in flight be abort early
+					if (initialSignal.aborted) {
+						return;
+					}
+
 					// Start indexing chain for provider
-					initialise({ chain: initialChain, signal: controller.signal });
+					initialise({ chain: initialChain, signal: initialSignal });
 				});
 
 				window.dispatchEvent(new Event("eip6963:requestProvider"));
