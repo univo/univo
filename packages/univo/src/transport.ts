@@ -117,7 +117,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		throw new Error("Websocket connections must start with `wss://`");
 	}
 
-	const log = createLogger({ quiet: opts.quiet ?? false });
+	const log = createLogger({ quiet: opts.quiet });
 
 	let id = 0;
 

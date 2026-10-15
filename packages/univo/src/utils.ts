@@ -1,54 +1,97 @@
 import { name, version } from "../package.json";
 
-export function createLogger(opts: { quiet: boolean; prefix?: string }) {
+export function createLogger(opts: { quiet?: boolean; prefix?: string }) {
+	const noop = (..._: any[]) => {};
+
+	if (opts.quiet === true) {
+		return {
+			debug: noop,
+			info: noop,
+			warn: noop,
+			error: noop,
+		};
+	}
+
+	// For logs to show the user has to specify a LOG_LEVEL or set `quiet: false`. If we are in
+	// a browser environment the user cannot specify a LOG_LEVEL and there
+
 	let prefix = `[${name}@${version}]`;
 
 	if (opts.prefix !== undefined) {
 		prefix += ` ${opts.prefix}`;
 	}
 
+	const debug = (...any: any[]) => console.log(`${prefix} DEBUG`, ...any);
+	const info = (...any: any[]) => console.log(`${prefix} INFO`, ...any);
+	const warn = (...any: any[]) => console.log(`${prefix} WARN`, ...any);
+	const error = (...any: any[]) => console.log(`${prefix} ERROR`, ...any);
+
+	// Browser environment. Therefore the user cannot specify a log level so
+	// logging is determined by `quiet: false` and defaults to DEBUG log level
+
+	if (typeof process === "undefined" || typeof process.env === "undefined") {
+		if (opts.quiet === false) {
+			return {
+				debug,
+				info,
+				warn,
+				error,
+			};
+		}
+
+		return {
+			debug: noop,
+			info: noop,
+			warn: noop,
+			error: noop,
+		};
+	}
+
+	// Server environment
+
+	if (process.env.LOG_LEVEL === "ERROR") {
+		return {
+			debug: noop,
+			info: noop,
+			warn: noop,
+			error,
+		};
+	}
+
+	if (process.env.LOG_LEVEL === "WARN" || process.env.LOG_LEVEL === "WARNING") {
+		return {
+			debug: noop,
+			info: noop,
+			warn,
+			error,
+		};
+	}
+
+	if (process.env.LOG_LEVEL === "INFO") {
+		return {
+			debug: noop,
+			info,
+			warn,
+			error,
+		};
+	}
+
+	// No LOG_LEVEL specified. Only log if `quiet: false` and default to DEBUG log level
+
+	if (opts.quiet === false) {
+		return {
+			debug,
+			info,
+			warn,
+			error,
+		};
+	}
+
 	return {
-		debug(...any: any[]) {
-			if (opts.quiet) {
-				return;
-			}
-
-			if (process.env.LOG_LEVEL === "DEBUG") {
-				console.log(`${prefix} DEBUG`, ...any);
-			}
-		},
-		info(...any: any[]) {
-			if (opts.quiet) {
-				return;
-			}
-
-			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO") {
-				console.log(`${prefix} INFO`, ...any);
-			}
-		},
-		warn(...any: any[]) {
-			if (opts.quiet) {
-				return;
-			}
-
-			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN") {
-				console.log(`${prefix} WARN`, ...any);
-			}
-		},
-		error(...any: any[]) {
-			if (opts.quiet) {
-				return;
-			}
-
-			if (
-				process.env.LOG_LEVEL === "DEBUG" ||
-				process.env.LOG_LEVEL === "INFO" ||
-				process.env.LOG_LEVEL === "WARN" ||
-				process.env.LOG_LEVEL === "ERROR"
-			) {
-				console.log(`${prefix} ERROR`, ...any);
-			}
-		},
+		debug: noop,
+		info: noop,
+		warn: noop,
+		error: noop,
 	};
 }
 

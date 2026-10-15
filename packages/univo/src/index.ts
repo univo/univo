@@ -359,7 +359,7 @@ type Indexer = {
 };
 
 function defineIndexer(opts: Indexer) {
-	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[indexer]" });
+	const log = createLogger({ quiet: opts.quiet, prefix: "[indexer]" });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
 	// events that share the same storage adapter to be combined into the same batch for upsert.

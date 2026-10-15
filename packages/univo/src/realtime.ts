@@ -16,7 +16,7 @@ type Head = {
 };
 
 type BlockchainOptions = {
-	quiet: boolean;
+	quiet?: boolean;
 	onBlockAdded?: (head: Head) => Promise<void> | void;
 	onBlockReorganised?: (head: Head) => Promise<void> | void;
 	getBlockByHash(hash: `0x${string}`): Promise<Head | null>;
@@ -240,7 +240,7 @@ interface EIP6963ProviderInfo {
 type Handler = (_: { chain: `0x${string}`; provider: EIP1193Provider }) => Promise<() => Promise<void>>;
 
 function realtime(opts: RealtimeOptions) {
-	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[realtime]" });
+	const log = createLogger({ quiet: opts.quiet, prefix: "[realtime]" });
 
 	async function start({ chain, node }: { chain: `0x${string}`; node: Transport<Rpc> }) {
 		// First step is to initialise the realtime client so that it immediately begins indexing the tip
@@ -262,7 +262,7 @@ function realtime(opts: RealtimeOptions) {
 		}
 
 		const unfinalized = defineBlockchain({
-			quiet: opts.quiet ?? false,
+			quiet: opts.quiet,
 
 			getBlockByHash: async (hash: `0x${string}`) => {
 				const block = await node.request({ method: "eth_getBlockByHash", params: [hash, false] });
