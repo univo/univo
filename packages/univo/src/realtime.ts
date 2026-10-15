@@ -484,10 +484,7 @@ function realtime(realtime: RealtimeOptions) {
 		return interrupt;
 	};
 
-	// Session id counter
-	let session = 0;
-
-	const browser = (browser: { session: number; chain: `0x${string}`; provider: EIP1193Provider }) => {
+	const browser = (browser: { signal: AbortSignal; chain: `0x${string}`; provider: EIP1193Provider }) => {
 		const finalizers: Array<() => Promise<void> | void> = [];
 
 		const interrupt = () => {
@@ -530,15 +527,11 @@ function realtime(realtime: RealtimeOptions) {
 				protocol: "browser",
 
 				request: async (request) => {
-					if (browser.session !== session) {
-						throw new Error("Provider session invalided, aborting request...");
-					}
+					browser.signal.throwIfAborted();
 
 					const res = await browser.provider.request({ method: request.method, params: request.params });
 
-					if (browser.session !== session) {
-						throw new Error("Provider session invalided, aborting request...");
-					}
+					browser.signal.throwIfAborted();
 
 					return res;
 				},
@@ -684,7 +677,9 @@ function realtime(realtime: RealtimeOptions) {
 					log.debug(`Found provider (${provider.info.uuid})`);
 					providers.set(provider.info.uuid, provider);
 
-					const initialise = (initialise: { session: number; chain: `0x${string}` }) => {
+					let controller = new AbortController();
+
+					const initialise = (initialise: { signal: AbortSignal; chain: `0x${string}` }) => {
 						// If we are already indexing this chain with another provider we can abort
 
 						for (const key of sessions.keys()) {
@@ -694,8 +689,8 @@ function realtime(realtime: RealtimeOptions) {
 						}
 
 						// Whenever we initialise a provider for a given chain, we must first interrupt any existing
-						// sessions for this provider. We first increment the session counter so that existing sessions
-						// begin erroring immediately for the wrong chain
+						// sessions for this provider. The previous signal is aborted on chain changes so that existing
+						// sessions begin erroring immediately for the wrong chain
 
 						for (const [key, interrupt] of sessions) {
 							if (key.startsWith(provider.info.uuid)) {
@@ -717,7 +712,7 @@ function realtime(realtime: RealtimeOptions) {
 						const key = `${provider.info.uuid}:${initialise.chain}` as const;
 						log.debug(`Initialising indexing for key ${key}`);
 
-						const interrupt = browser({ session: initialise.session, chain: initialise.chain, provider: provider.provider });
+						const interrupt = browser({ signal: initialise.signal, chain: initialise.chain, provider: provider.provider });
 						sessions.set(key, interrupt);
 					};
 
@@ -725,18 +720,19 @@ function realtime(realtime: RealtimeOptions) {
 					provider.provider.on("chainChanged", async (chain: `0x${string}`) => {
 						log.debug(`Provider (${provider.info.uuid}) changed to chain (${hexToNumber(chain)})`);
 
-						// Increment session to invalidate old sessions immediately
-						session++;
+						// Invalidate only this provider's previous session immediately
+						controller.abort();
+						controller = new AbortController();
 
 						// Start indexing chain for provider
-						initialise({ chain, session });
+						initialise({ chain, signal: controller.signal });
 					});
 
 					// And then we request the chain we are currently connected to and begin indexing
 					const initialChain: `0x${string}` = await provider.provider.request({ method: "eth_chainId" });
 
 					// Start indexing chain for provider
-					initialise({ chain: initialChain, session });
+					initialise({ chain: initialChain, signal: controller.signal });
 				});
 
 				window.dispatchEvent(new Event("eip6963:requestProvider"));
