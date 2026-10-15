@@ -485,7 +485,13 @@ function realtime(realtime: RealtimeOptions) {
 	};
 
 	const browser = (browser: { signal: AbortSignal; chain: `0x${string}`; provider: EIP1193Provider }) => {
-		const { isDisposed, onCleanup, interrupt } = lifecycle(log);
+		const { isDisposed, onCleanup, interrupt } = lifecycle({
+			onCleanupError: (error) => {
+				if (error instanceof Error) {
+					log.warn(error.message);
+				}
+			},
+		});
 
 		browser.signal.addEventListener("abort", interrupt, { once: true });
 		onCleanup(() => browser.signal.removeEventListener("abort", interrupt));
