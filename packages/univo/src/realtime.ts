@@ -680,14 +680,6 @@ function realtime(realtime: RealtimeOptions) {
 					let controller = new AbortController();
 
 					const initialise = (initialise: { signal: AbortSignal; chain: `0x${string}` }) => {
-						// If we are already indexing this chain with another provider we can abort
-
-						for (const key of sessions.keys()) {
-							if (key.endsWith(`:${initialise.chain}`)) {
-								return log.debug(`Already indexing key ${key}, aborting initialisation...`);
-							}
-						}
-
 						// Whenever we initialise a provider for a given chain, we must first interrupt any existing
 						// sessions for this provider. The previous signal is aborted on chain changes so that existing
 						// sessions begin erroring immediately for the wrong chain
@@ -704,6 +696,15 @@ function realtime(realtime: RealtimeOptions) {
 
 									sessions.delete(key);
 								}
+							}
+						}
+
+						// Before initialising, we then determine if the chain already has a session with a different
+						// provider and abort if so
+
+						for (const key of sessions.keys()) {
+							if (key.endsWith(`:${initialise.chain}`)) {
+								return log.debug(`Already indexing key ${key}, aborting initialisation...`);
 							}
 						}
 
