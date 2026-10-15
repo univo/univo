@@ -26,11 +26,37 @@ export function createLogger(opts: { quiet?: boolean; prefix?: string }) {
 	const warn = (...any: any[]) => console.log(`${prefix} WARN`, ...any);
 	const error = (...any: any[]) => console.log(`${prefix} ERROR`, ...any);
 
-	// Browser environment. Therefore the user cannot specify a log level so
-	// logging is determined by `quiet: false` and defaults to DEBUG log level
+	// Server environment
 
-	if (typeof process === "undefined" || typeof process.env === "undefined") {
-		if (opts.quiet === false) {
+	if (typeof process !== "undefined" && process.env) {
+		if (process.env.LOG_LEVEL === "ERROR") {
+			return {
+				debug: noop,
+				info: noop,
+				warn: noop,
+				error,
+			};
+		}
+
+		if (process.env.LOG_LEVEL === "WARN" || process.env.LOG_LEVEL === "WARNING") {
+			return {
+				debug: noop,
+				info: noop,
+				warn,
+				error,
+			};
+		}
+
+		if (process.env.LOG_LEVEL === "INFO") {
+			return {
+				debug: noop,
+				info,
+				warn,
+				error,
+			};
+		}
+
+		if (process.env.LOG_LEVEL === "DEBUG") {
 			return {
 				debug,
 				info,
@@ -38,42 +64,6 @@ export function createLogger(opts: { quiet?: boolean; prefix?: string }) {
 				error,
 			};
 		}
-
-		return {
-			debug: noop,
-			info: noop,
-			warn: noop,
-			error: noop,
-		};
-	}
-
-	// Server environment
-
-	if (process.env.LOG_LEVEL === "ERROR") {
-		return {
-			debug: noop,
-			info: noop,
-			warn: noop,
-			error,
-		};
-	}
-
-	if (process.env.LOG_LEVEL === "WARN" || process.env.LOG_LEVEL === "WARNING") {
-		return {
-			debug: noop,
-			info: noop,
-			warn,
-			error,
-		};
-	}
-
-	if (process.env.LOG_LEVEL === "INFO") {
-		return {
-			debug: noop,
-			info,
-			warn,
-			error,
-		};
 	}
 
 	// No LOG_LEVEL specified. Only log if `quiet: false` and default to DEBUG log level
