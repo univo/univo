@@ -239,8 +239,6 @@ interface EIP6963ProviderInfo {
 	rdns: string;
 }
 
-type Handler = (_: { chain: `0x${string}`; provider: EIP1193Provider }) => Promise<() => Promise<void>>;
-
 function realtime(opts: RealtimeOptions) {
 	const log = createLogger({ quiet: opts.quiet, prefix: "[realtime]" });
 
