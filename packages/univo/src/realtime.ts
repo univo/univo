@@ -216,28 +216,28 @@ type RealtimeOptions = {
 	indexer: Transport<IndexerRpc, "http" | "local">;
 };
 
-interface EIP6963AnnounceProviderEvent extends CustomEvent {
+type EIP6963AnnounceProviderEvent = CustomEvent & {
 	type: "eip6963:announceProvider";
 	detail: EIP6963ProviderDetail;
-}
+};
 
-interface EIP6963ProviderDetail {
+type EIP6963ProviderDetail = {
 	provider: EIP1193Provider;
 	info: EIP6963ProviderInfo;
-}
+};
+
+type EIP6963ProviderInfo = {
+	uuid: string;
+	name: string;
+	icon: string;
+	rdns: string;
+};
 
 type EIP1193Provider = {
 	request: EIP1193RequestFn;
 	on: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
 	removeListener: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
 };
-
-interface EIP6963ProviderInfo {
-	uuid: string;
-	name: string;
-	icon: string;
-	rdns: string;
-}
 
 function realtime(opts: RealtimeOptions) {
 	const log = createLogger({ quiet: opts.quiet, prefix: "[realtime]" });
