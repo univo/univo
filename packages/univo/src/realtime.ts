@@ -242,26 +242,49 @@ type EIP1193Provider = {
 function realtime(realtime: RealtimeOptions) {
 	const log = createLogger({ quiet: realtime.quiet, prefix: "[realtime]" });
 
-	const instance = ({ chain, node }: { chain: `0x${string}`; node: Transport<Rpc> }) => {
+	const lifecycle = () => {
+		let disposed = false;
+
 		const finalizers: Array<() => Promise<void> | void> = [];
 
-		const interrupt = () => {
-			for (const fn of finalizers) {
-				try {
-					const res = fn();
-
-					if (res instanceof Promise) {
-						res.catch((error) => {
-							throw error;
-						});
-					}
-				} catch (error) {
-					if (error instanceof Error) {
-						log.warn(error.message);
-					}
-				}
+		const onError = (error: unknown) => {
+			if (error instanceof Error) {
+				log.warn(error.message);
 			}
 		};
+
+		const cleanup = (fn: () => Promise<void> | void) => {
+			try {
+				Promise.resolve(fn()).catch(onError);
+			} catch (error) {
+				onError(error);
+			}
+		};
+
+		return {
+			disposed: () => disposed,
+
+			cleanup: (fn: () => Promise<void> | void) => {
+				if (disposed) {
+					cleanup(fn);
+				} else {
+					finalizers.push(fn);
+				}
+			},
+
+			interrupt: () => {
+				if (disposed) return;
+				disposed = true;
+
+				for (const fn of finalizers.splice(0)) {
+					cleanup(fn);
+				}
+			},
+		};
+	};
+
+	const instance = ({ chain, node }: { chain: `0x${string}`; node: Transport<Rpc> }) => {
+		const { disposed, cleanup, interrupt } = lifecycle();
 
 		const promise = iife(async () => {
 			// First step is to initialise the realtime client so that it immediately begins indexing the tip
@@ -273,6 +296,10 @@ function realtime(realtime: RealtimeOptions) {
 				node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }), //
 				node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
 			]);
+
+			if (disposed()) {
+				return;
+			}
 
 			if (chainLatestBlock === null) {
 				throw new Error("Latest block not found");
@@ -344,6 +371,10 @@ function realtime(realtime: RealtimeOptions) {
 				parent_hash: chainLatestBlock.parentHash,
 			});
 
+			if (disposed()) {
+				return;
+			}
+
 			log.debug("Subscribing unfinalized chain to new heads...");
 
 			const unsubscribe = await node.subscribe("newHeads", async (head) => {
@@ -354,7 +385,11 @@ function realtime(realtime: RealtimeOptions) {
 				});
 			});
 
-			finalizers.push(() => unsubscribe());
+			cleanup(() => unsubscribe());
+
+			if (disposed()) {
+				return;
+			}
 
 			log.debug("Subscribed unfinalized chain to new heads");
 
@@ -468,7 +503,7 @@ function realtime(realtime: RealtimeOptions) {
 			}
 
 			const id = setInterval(poll, POLLING_INTERVAL_MS);
-			finalizers.push(() => clearInterval(id));
+			cleanup(() => clearInterval(id));
 
 			log.debug("Started polling finalized height");
 		});
@@ -485,29 +520,26 @@ function realtime(realtime: RealtimeOptions) {
 	};
 
 	const browser = (browser: { signal: AbortSignal; chain: `0x${string}`; provider: EIP1193Provider }) => {
-		const finalizers: Array<() => Promise<void> | void> = [];
+		const { disposed, cleanup, interrupt } = lifecycle();
 
-		const interrupt = () => {
-			for (const fn of finalizers) {
-				try {
-					const res = fn();
+		browser.signal.addEventListener("abort", interrupt, { once: true });
+		cleanup(() => browser.signal.removeEventListener("abort", interrupt));
 
-					if (res instanceof Promise) {
-						res.catch((error) => {
-							throw error;
-						});
-					}
-				} catch (error) {
-					if (error instanceof Error) {
-						log.warn(error.message);
-					}
-				}
-			}
-		};
+		if (browser.signal.aborted) {
+			interrupt();
+		}
 
 		const promise = iife(async () => {
+			if (disposed()) {
+				return;
+			}
+
 			// If a provider is announced for a chain that we don't want to index we early return
 			const metadata = await realtime.indexer.request({ method: "public_getMetadata", params: [] });
+
+			if (disposed()) {
+				return;
+			}
 
 			if (!metadata.chains.includes(browser.chain)) {
 				return;
@@ -609,10 +641,10 @@ function realtime(realtime: RealtimeOptions) {
 			};
 
 			browser.provider.on("message", onMessage);
-			finalizers.push(() => browser.provider.removeListener("message", onMessage));
+			cleanup(() => browser.provider.removeListener("message", onMessage));
 
-			const interrupt = instance({ chain: browser.chain, node: transport });
-			finalizers.push(() => interrupt());
+			const _interrupt = instance({ chain: browser.chain, node: transport });
+			cleanup(() => _interrupt());
 		});
 
 		promise.catch((error) => {
