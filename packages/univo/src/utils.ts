@@ -83,22 +83,16 @@ export function createLogger(opts: { quiet?: boolean; prefix?: string }) {
 
 export const iife = <T>(fn: () => T): T => fn();
 
-export function lifecycle(log: Pick<ReturnType<typeof createLogger>, "warn">) {
+export function lifecycle(opts: { onCleanupError: (error: unknown) => void }) {
 	let disposed = false;
 
 	const finalizers: Array<() => Promise<void> | void> = [];
 
-	const onError = (error: unknown) => {
-		if (error instanceof Error) {
-			log.warn(error.message);
-		}
-	};
-
 	const cleanup = (fn: () => Promise<void> | void) => {
 		try {
-			Promise.resolve(fn()).catch(onError);
+			Promise.resolve(fn()).catch(opts.onCleanupError);
 		} catch (error) {
-			onError(error);
+			opts.onCleanupError(error);
 		}
 	};
 

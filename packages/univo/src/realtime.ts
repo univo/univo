@@ -243,7 +243,13 @@ function realtime(realtime: RealtimeOptions) {
 	const log = createLogger({ quiet: realtime.quiet, prefix: "[realtime]" });
 
 	const instance = ({ chain, node }: { chain: `0x${string}`; node: Transport<Rpc> }) => {
-		const { isDisposed, onCleanup, interrupt } = lifecycle(log);
+		const { isDisposed, onCleanup, interrupt } = lifecycle({
+			onCleanupError: (error) => {
+				if (error instanceof Error) {
+					log.warn(error.message);
+				}
+			},
+		});
 
 		const promise = iife(async () => {
 			// First step is to initialise the realtime client so that it immediately begins indexing the tip
