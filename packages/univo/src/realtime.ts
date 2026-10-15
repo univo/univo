@@ -356,7 +356,7 @@ function realtime(opts: RealtimeOptions) {
 				});
 			});
 
-			finalizers.push(async () => await unsubscribe());
+			finalizers.push(() => unsubscribe());
 
 			log.debug("Subscribed unfinalized chain to new heads");
 
@@ -470,7 +470,6 @@ function realtime(opts: RealtimeOptions) {
 			}
 
 			const id = setInterval(poll, POLLING_INTERVAL_MS);
-
 			finalizers.push(() => clearInterval(id));
 
 			log.debug("Started polling finalized height");
@@ -608,11 +607,9 @@ function realtime(opts: RealtimeOptions) {
 			};
 
 			provider.on("message", onMessage);
-
 			finalizers.push(() => provider.removeListener("message", onMessage));
 
 			const interrupt = instance({ chain, node: transport });
-
 			finalizers.push(() => interrupt());
 		});
 
