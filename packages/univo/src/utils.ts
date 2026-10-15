@@ -26,8 +26,6 @@ export function createLogger(opts: { quiet?: boolean; prefix?: string }) {
 	const warn = (...any: any[]) => console.log(`${prefix} WARN`, ...any);
 	const error = (...any: any[]) => console.log(`${prefix} ERROR`, ...any);
 
-	// Server environment
-
 	if (typeof process !== "undefined" && process.env) {
 		if (process.env.LOG_LEVEL === "ERROR") {
 			return {
@@ -66,7 +64,8 @@ export function createLogger(opts: { quiet?: boolean; prefix?: string }) {
 		}
 	}
 
-	// No LOG_LEVEL specified. Only log if `quiet: false` and default to DEBUG log level
+	// No LOG_LEVEL specified. Only log if `quiet: false` and default to DEBUG log level.
+	// Note that usually happens in a browser context where no `process` is defined
 
 	if (opts.quiet === false) {
 		return {
