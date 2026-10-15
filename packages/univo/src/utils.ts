@@ -83,6 +83,50 @@ export function createLogger(opts: { quiet?: boolean; prefix?: string }) {
 
 export const iife = <T>(fn: () => T): T => fn();
 
+export function lifecycle(log: Pick<ReturnType<typeof createLogger>, "warn">) {
+	let disposed = false;
+
+	const finalizers: Array<() => Promise<void> | void> = [];
+
+	const onError = (error: unknown) => {
+		if (error instanceof Error) {
+			log.warn(error.message);
+		}
+	};
+
+	const cleanup = (fn: () => Promise<void> | void) => {
+		try {
+			Promise.resolve(fn()).catch(onError);
+		} catch (error) {
+			onError(error);
+		}
+	};
+
+	return {
+		isDisposed: () => disposed,
+
+		onCleanup: (fn: () => Promise<void> | void) => {
+			if (disposed) {
+				cleanup(fn);
+			} else {
+				finalizers.push(fn);
+			}
+		},
+
+		interrupt: () => {
+			if (disposed) {
+				return;
+			}
+
+			disposed = true;
+
+			for (const fn of finalizers.splice(0)) {
+				cleanup(fn);
+			}
+		},
+	};
+}
+
 export type Prettify<T> = unknown & {
 	[K in keyof T]: T[K];
 };

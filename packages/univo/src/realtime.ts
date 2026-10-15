@@ -3,7 +3,7 @@ import type { EIP1193EventMap, EIP1193RequestFn } from "viem";
 
 import { IndexerRpc, Rpc } from "./rpc";
 import type { Transport } from "./transport";
-import { createLogger, iife, isHexEqual, mutex, retry } from "./utils";
+import { createLogger, iife, isHexEqual, lifecycle, mutex, retry } from "./utils";
 
 /**
  * Blockchain -----------------------------------------------------------------------------------------------------------------------------------
@@ -242,49 +242,8 @@ type EIP1193Provider = {
 function realtime(realtime: RealtimeOptions) {
 	const log = createLogger({ quiet: realtime.quiet, prefix: "[realtime]" });
 
-	const lifecycle = () => {
-		let disposed = false;
-
-		const finalizers: Array<() => Promise<void> | void> = [];
-
-		const onError = (error: unknown) => {
-			if (error instanceof Error) {
-				log.warn(error.message);
-			}
-		};
-
-		const cleanup = (fn: () => Promise<void> | void) => {
-			try {
-				Promise.resolve(fn()).catch(onError);
-			} catch (error) {
-				onError(error);
-			}
-		};
-
-		return {
-			isDisposed: () => disposed,
-
-			onCleanup: (fn: () => Promise<void> | void) => {
-				if (disposed) {
-					cleanup(fn);
-				} else {
-					finalizers.push(fn);
-				}
-			},
-
-			interrupt: () => {
-				if (disposed) return;
-				disposed = true;
-
-				for (const fn of finalizers.splice(0)) {
-					cleanup(fn);
-				}
-			},
-		};
-	};
-
 	const instance = ({ chain, node }: { chain: `0x${string}`; node: Transport<Rpc> }) => {
-		const { isDisposed, onCleanup, interrupt } = lifecycle();
+		const { isDisposed, onCleanup, interrupt } = lifecycle(log);
 
 		const promise = iife(async () => {
 			// First step is to initialise the realtime client so that it immediately begins indexing the tip
@@ -520,7 +479,7 @@ function realtime(realtime: RealtimeOptions) {
 	};
 
 	const browser = (browser: { signal: AbortSignal; chain: `0x${string}`; provider: EIP1193Provider }) => {
-		const { isDisposed, onCleanup, interrupt } = lifecycle();
+		const { isDisposed, onCleanup, interrupt } = lifecycle(log);
 
 		browser.signal.addEventListener("abort", interrupt, { once: true });
 		onCleanup(() => browser.signal.removeEventListener("abort", interrupt));
