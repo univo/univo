@@ -12,9 +12,6 @@ export function createLogger(opts: { quiet?: boolean; prefix?: string }) {
 		};
 	}
 
-	// For logs to show the user has to specify a LOG_LEVEL or set `quiet: false`. If we are in
-	// a browser environment the user cannot specify a LOG_LEVEL and there
-
 	let prefix = `[${name}@${version}]`;
 
 	if (opts.prefix !== undefined) {
