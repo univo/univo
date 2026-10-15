@@ -239,8 +239,8 @@ type EIP1193Provider = {
 	removeListener: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
 };
 
-function realtime(opts: RealtimeOptions) {
-	const log = createLogger({ quiet: opts.quiet, prefix: "[realtime]" });
+function realtime(realtime: RealtimeOptions) {
+	const log = createLogger({ quiet: realtime.quiet, prefix: "[realtime]" });
 
 	const instance = ({ chain, node }: { chain: `0x${string}`; node: Transport<Rpc> }) => {
 		const finalizers: Array<() => Promise<void> | void> = [];
@@ -283,7 +283,7 @@ function realtime(opts: RealtimeOptions) {
 			}
 
 			const unfinalized = defineBlockchain({
-				quiet: opts.quiet,
+				quiet: realtime.quiet,
 
 				getBlockByHash: async (hash: `0x${string}`) => {
 					const block = await node.request({ method: "eth_getBlockByHash", params: [hash, false] });
@@ -304,7 +304,7 @@ function realtime(opts: RealtimeOptions) {
 						// attempt to process the latest block. Concurrency control mechanisms on the indexer ensure that
 						// only one of these requests actually write data to storage
 
-						await opts.indexer.request({
+						await realtime.indexer.request({
 							method: "public_writeUnfinalizedHead",
 							params: [{ chain, ...head }],
 						});
@@ -325,7 +325,7 @@ function realtime(opts: RealtimeOptions) {
 						// thundering herd or degradation and maximises the chance our indexer can safely process the reorged head
 
 						await retry(
-							() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
+							() => realtime.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
 							2,
 						);
 
@@ -366,7 +366,7 @@ function realtime(opts: RealtimeOptions) {
 				try {
 					log.debug("Finalizing indexer...");
 
-					await opts.indexer.request({ params: [chain], method: "public_finalize" });
+					await realtime.indexer.request({ params: [chain], method: "public_finalize" });
 
 					log.debug("Indexer finalized");
 				} catch (error) {
@@ -401,7 +401,7 @@ function realtime(opts: RealtimeOptions) {
 						return log.debug("Chain finalized height has not progressed");
 					}
 
-					await opts.indexer.request({ params: [chain], method: "public_writeFinalizedHeight" });
+					await realtime.indexer.request({ params: [chain], method: "public_writeFinalizedHeight" });
 
 					// Determine new finalized heads
 
@@ -435,7 +435,7 @@ function realtime(opts: RealtimeOptions) {
 							// Instead retries should be handled by deploying multiple realtime clients. Any failures will
 							// automatically be resolved by the finalization process
 
-							await opts.indexer.request({ params: [head], method: "public_writeFinalizedHead" });
+							await realtime.indexer.request({ params: [head], method: "public_writeFinalizedHead" });
 
 							log.debug("Delivered finalized head");
 						} catch (error) {
@@ -484,7 +484,10 @@ function realtime(opts: RealtimeOptions) {
 		return interrupt;
 	};
 
-	const browser = ({ chain, provider }: { chain: `0x${string}`; provider: EIP1193Provider }) => {
+	// Session id counter
+	let session = 0;
+
+	const browser = (browser: { session: number; chain: `0x${string}`; provider: EIP1193Provider }) => {
 		const finalizers: Array<() => Promise<void> | void> = [];
 
 		const interrupt = () => {
@@ -507,9 +510,9 @@ function realtime(opts: RealtimeOptions) {
 
 		const promise = iife(async () => {
 			// If a provider is announced for a chain that we don't want to index we early return
-			const metadata = await opts.indexer.request({ method: "public_getMetadata", params: [] });
+			const metadata = await realtime.indexer.request({ method: "public_getMetadata", params: [] });
 
-			if (!metadata.chains.includes(chain)) {
+			if (!metadata.chains.includes(browser.chain)) {
 				return;
 			}
 
@@ -526,8 +529,16 @@ function realtime(opts: RealtimeOptions) {
 			const transport: Transport<Rpc> = {
 				protocol: "browser",
 
-				request: async (opts) => {
-					const res = await provider.request({ method: opts.method, params: opts.params });
+				request: async (request) => {
+					if (browser.session !== session) {
+						throw new Error("Provider session invalided, aborting request...");
+					}
+
+					const res = await browser.provider.request({ method: request.method, params: request.params });
+
+					if (browser.session !== session) {
+						throw new Error("Provider session invalided, aborting request...");
+					}
 
 					return res;
 				},
@@ -604,10 +615,10 @@ function realtime(opts: RealtimeOptions) {
 				}
 			};
 
-			provider.on("message", onMessage);
-			finalizers.push(() => provider.removeListener("message", onMessage));
+			browser.provider.on("message", onMessage);
+			finalizers.push(() => browser.provider.removeListener("message", onMessage));
 
-			const interrupt = instance({ chain, node: transport });
+			const interrupt = instance({ chain: browser.chain, node: transport });
 			finalizers.push(() => interrupt());
 		});
 
@@ -626,12 +637,12 @@ function realtime(opts: RealtimeOptions) {
 		try {
 			log.debug("Initialising realtime client");
 
-			if (opts.node.protocol === "wss") {
+			if (realtime.node.protocol === "wss") {
 				log.debug("Found user provided node");
 
 				const [chain, metadata] = await Promise.all([
-					opts.node.request({ method: "eth_chainId", params: [] }),
-					opts.indexer.request({ method: "public_getMetadata", params: [] }),
+					realtime.node.request({ method: "eth_chainId", params: [] }),
+					realtime.indexer.request({ method: "public_getMetadata", params: [] }),
 				]);
 
 				log.debug(`Determined chain identifier for connected node: ${hexToNumber(chain)}`);
@@ -640,12 +651,12 @@ function realtime(opts: RealtimeOptions) {
 					throw new Error("Provided `node` is connected to a chain not indexed by the provided `indexer`");
 				}
 
-				instance({ chain, node: opts.node });
+				instance({ chain, node: realtime.node });
 
 				return;
 			}
 
-			if (opts.node.protocol === "browser") {
+			if (realtime.node.protocol === "browser") {
 				log.debug("Looking for browser injected node providers");
 
 				// Early return if this is accidentally called on the server
@@ -653,9 +664,6 @@ function realtime(opts: RealtimeOptions) {
 				if (typeof window === "undefined") {
 					return log.debug("Browser indexing invoked on the server, aborting...");
 				}
-
-				// Session id counter
-				const session = 0;
 
 				// Store every provider that is announced
 				const providers = new Map<string, EIP6963ProviderDetail>();
@@ -676,11 +684,11 @@ function realtime(opts: RealtimeOptions) {
 					log.debug(`Found provider (${provider.info.uuid})`);
 					providers.set(provider.info.uuid, provider);
 
-					const initialise = (chain: `0x${string}`) => {
+					const initialise = (initialise: { session: number; chain: `0x${string}` }) => {
 						// If we are already indexing this chain with another provider we can abort
 
 						for (const key of sessions.keys()) {
-							if (key.endsWith(`:${chain}`)) {
+							if (key.endsWith(`:${initialise.chain}`)) {
 								return log.debug(`Already indexing key ${key}, aborting initialisation...`);
 							}
 						}
@@ -706,10 +714,10 @@ function realtime(opts: RealtimeOptions) {
 
 						// Now we are free to start a new session
 
-						const key = `${provider.info.uuid}:${chain}` as const;
+						const key = `${provider.info.uuid}:${initialise.chain}` as const;
 						log.debug(`Initialising indexing for key ${key}`);
 
-						const interrupt = browser({ provider: provider.provider, chain: chain });
+						const interrupt = browser({ session: initialise.session, chain: initialise.chain, provider: provider.provider });
 						sessions.set(key, interrupt);
 					};
 
@@ -717,15 +725,18 @@ function realtime(opts: RealtimeOptions) {
 					provider.provider.on("chainChanged", async (chain: `0x${string}`) => {
 						log.debug(`Provider (${provider.info.uuid}) changed to chain (${hexToNumber(chain)})`);
 
+						// Increment session to invalidate old sessions immediately
+						session++;
+
 						// Start indexing chain for provider
-						initialise(chain);
+						initialise({ chain, session });
 					});
 
 					// And then we request the chain we are currently connected to and begin indexing
-					const chain: `0x${string}` = await provider.provider.request({ method: "eth_chainId" });
+					const initialChain: `0x${string}` = await provider.provider.request({ method: "eth_chainId" });
 
 					// Start indexing chain for provider
-					initialise(chain);
+					initialise({ chain: initialChain, session });
 				});
 
 				window.dispatchEvent(new Event("eip6963:requestProvider"));
