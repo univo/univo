@@ -534,17 +534,6 @@ function realtime(realtime: RealtimeOptions) {
 				return;
 			}
 
-			// If a provider is announced for a chain that we don't want to index we early return
-			const metadata = await realtime.indexer.request({ method: "public_getMetadata", params: [] });
-
-			if (isDisposed()) {
-				return;
-			}
-
-			if (!metadata.chains.includes(browser.chain)) {
-				return;
-			}
-
 			// We want to decouple subscriptions to the node from subscriptions to this abstraction, allowing
 			// us to deduplicate multiple subscribers into a single node subscription. Therefore we first create
 			// a map that allows us to go from a subscription id to a given param, and then from a given param to
@@ -700,6 +689,8 @@ function realtime(realtime: RealtimeOptions) {
 					return log.debug("Browser indexing invoked on the server, aborting...");
 				}
 
+				const metadata = await realtime.indexer.request({ method: "public_getMetadata", params: [] });
+
 				// Store every provider that is announced
 				const providers = new Map<string, EIP6963ProviderDetail>();
 
@@ -739,6 +730,11 @@ function realtime(realtime: RealtimeOptions) {
 									sessions.delete(key);
 								}
 							}
+						}
+
+						// Skip chains that the indexer does not index, after cleaning up this provider's previous session.
+						if (!metadata.chains.includes(initialise.chain)) {
+							return;
 						}
 
 						// Before initialising, we then determine if the chain already has a session with a different
