@@ -3,7 +3,7 @@ import type { EIP1193EventMap, EIP1193RequestFn } from "viem";
 
 import { IndexerRpc, Rpc } from "./rpc";
 import type { Transport } from "./transport";
-import { createLogger, iife, isHexEqual, lifecycle, mutex, retry } from "./utils";
+import { createLogger, iife, isHexEqual, lifecycle, mutex, queue, retry } from "./utils";
 
 /**
  * Blockchain -----------------------------------------------------------------------------------------------------------------------------------
@@ -176,12 +176,13 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		return await reconcile(newBlock); // Finally we add this block
 	}
 
-	// TODO: `prune` and `reconcile` should submit to a queue to process serially
+	// We serialize access to our internal chain with a queue
+	const enqueue = queue();
 
 	return {
 		chain,
-		prune: mutex(prune),
-		reconcile: mutex(reconcile),
+		prune: (tail) => enqueue(() => prune(tail)),
+		reconcile: (newBlock) => enqueue(() => reconcile(newBlock)),
 	};
 }
 

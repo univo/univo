@@ -125,6 +125,22 @@ export type Prettify<T> = unknown & {
 	[K in keyof T]: T[K];
 };
 
+/** Runs submitted tasks serially in submission order, even after a task fails. */
+export function queue() {
+	let pending = Promise.resolve();
+
+	return <T>(fn: () => T | Promise<T>): Promise<T> => {
+		const result = pending.then(fn);
+
+		pending = result.then(
+			() => {},
+			() => {},
+		);
+
+		return result;
+	};
+}
+
 export function mutex(fn: (...args: any[]) => void | Promise<void>) {
 	let locked = false;
 
