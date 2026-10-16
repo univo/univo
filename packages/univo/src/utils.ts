@@ -1,62 +1,145 @@
 import { name, version } from "../package.json";
 
-export function createLogger(opts: { quiet: boolean; prefix?: string }) {
+export function createLogger(opts: { quiet?: boolean; prefix?: string }) {
+	const noop = (..._: any[]) => {};
+
+	if (opts.quiet === true) {
+		return {
+			debug: noop,
+			info: noop,
+			warn: noop,
+			error: noop,
+		};
+	}
+
 	let prefix = `[${name}@${version}]`;
 
 	if (opts.prefix !== undefined) {
 		prefix += ` ${opts.prefix}`;
 	}
 
+	const debug = (...any: any[]) => console.log(`${prefix} DEBUG`, ...any);
+	const info = (...any: any[]) => console.log(`${prefix} INFO`, ...any);
+	const warn = (...any: any[]) => console.log(`${prefix} WARN`, ...any);
+	const error = (...any: any[]) => console.log(`${prefix} ERROR`, ...any);
+
+	if (typeof process !== "undefined" && process.env) {
+		if (process.env.LOG_LEVEL === "ERROR") {
+			return {
+				debug: noop,
+				info: noop,
+				warn: noop,
+				error,
+			};
+		}
+
+		if (process.env.LOG_LEVEL === "WARN" || process.env.LOG_LEVEL === "WARNING") {
+			return {
+				debug: noop,
+				info: noop,
+				warn,
+				error,
+			};
+		}
+
+		if (process.env.LOG_LEVEL === "INFO") {
+			return {
+				debug: noop,
+				info,
+				warn,
+				error,
+			};
+		}
+
+		if (process.env.LOG_LEVEL === "DEBUG") {
+			return {
+				debug,
+				info,
+				warn,
+				error,
+			};
+		}
+	}
+
+	// No LOG_LEVEL specified. Only log if `quiet: false` and default to DEBUG log level.
+	// Note that usually happens in a browser context where no `process` is defined
+
+	if (opts.quiet === false) {
+		return {
+			debug,
+			info,
+			warn,
+			error,
+		};
+	}
+
 	return {
-		debug(...any: any[]) {
-			if (opts.quiet) {
-				return;
-			}
-
-			if (process.env.LOG_LEVEL === "DEBUG") {
-				console.log(`${prefix} DEBUG`, ...any);
-			}
-		},
-		info(...any: any[]) {
-			if (opts.quiet) {
-				return;
-			}
-
-			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO") {
-				console.log(`${prefix} INFO`, ...any);
-			}
-		},
-		warn(...any: any[]) {
-			if (opts.quiet) {
-				return;
-			}
-
-			if (process.env.LOG_LEVEL === "DEBUG" || process.env.LOG_LEVEL === "INFO" || process.env.LOG_LEVEL === "WARN") {
-				console.log(`${prefix} WARN`, ...any);
-			}
-		},
-		error(...any: any[]) {
-			if (opts.quiet) {
-				return;
-			}
-
-			if (
-				process.env.LOG_LEVEL === "DEBUG" ||
-				process.env.LOG_LEVEL === "INFO" ||
-				process.env.LOG_LEVEL === "WARN" ||
-				process.env.LOG_LEVEL === "ERROR"
-			) {
-				console.log(`${prefix} ERROR`, ...any);
-			}
-		},
+		debug: noop,
+		info: noop,
+		warn: noop,
+		error: noop,
 	};
 }
 
 export const iife = <T>(fn: () => T): T => fn();
 
+export function lifecycle(opts: { onCleanupError: (error: unknown) => void }) {
+	let disposed = false;
+
+	const finalizers: Array<() => Promise<void> | void> = [];
+
+	const cleanup = (fn: () => Promise<void> | void) => {
+		try {
+			Promise.resolve(fn()).catch(opts.onCleanupError);
+		} catch (error) {
+			opts.onCleanupError(error);
+		}
+	};
+
+	return {
+		isDisposed: () => disposed,
+
+		onCleanup: (fn: () => Promise<void> | void) => {
+			if (disposed) {
+				cleanup(fn);
+			} else {
+				finalizers.push(fn);
+			}
+		},
+
+		interrupt: () => {
+			if (disposed) {
+				return;
+			}
+
+			disposed = true;
+
+			for (const fn of finalizers.splice(0)) {
+				cleanup(fn);
+			}
+		},
+	};
+}
+
 export type Prettify<T> = unknown & {
 	[K in keyof T]: T[K];
 };
+
+/** Runs submitted tasks serially in submission order, even after a task fails. */
+export function queue() {
+	let pending = Promise.resolve();
+
+	return <T>(fn: () => T | Promise<T>): Promise<T> => {
+		const result = pending.then(fn);
+
+		pending = result.then(
+			() => {},
+			() => {},
+		);
+
+		return result;
+	};
+}
 
 export function mutex(fn: (...args: any[]) => void | Promise<void>) {
 	let locked = false;

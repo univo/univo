@@ -1,5 +1,4 @@
-import type { Flatten } from "./utils";
-import type { Block, Filter, Head, Metadata, Result } from ".";
+import type { Block, Head, PrivateMetadata, PublicMetadata, Result } from ".";
 
 type Rpc = {
 	/**
@@ -51,14 +50,14 @@ type IndexerRpc = {
 		public_finalize: (chain: `0x${string}`) => Promise<void>;
 
 		/**
-		 * @returns Specified metadata about the indexer
+		 * @returns Public metadata about the indexer
 		 */
-		private_getMetadata: () => Promise<Metadata>;
+		public_getMetadata: () => Promise<PublicMetadata>;
 
 		/**
-		 * @returns All events defined on this indexer
+		 * @returns Private metadata about the indexer
 		 */
-		private_getEvents: () => Promise<{ id: string; filters: Flatten<Filter>[] }[]>;
+		private_getMetadata: () => Promise<PrivateMetadata>;
 
 		/**
 		 * Accepts a list of events and a batch of minified block data and writes to storage
