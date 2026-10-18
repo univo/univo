@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.0...v0.4.1
+
+[compare changes](https://github.com/univo/univo/compare/v0.4.0...v0.4.1)
+
+### 🚀 Enhancements
+
+- **realtime:** Introduce browser transport for EIP6963 supported indexing ([#96](https://github.com/univo/univo/pull/96))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.3.3...v0.4.0
 
 [compare changes](https://github.com/univo/univo/compare/v0.3.3...v0.4.0)
