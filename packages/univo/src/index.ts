@@ -23,7 +23,7 @@ import { version } from "../package.json";
 import type { Storage } from "./metadata";
 import { AdapterError } from "./metadata/adapters";
 import { catchException, createException } from "./exceptions";
-import { compress, createLogger, decoder, decompress, normalizeHex, retry, isHexEqual, iife } from "./utils";
+import { compress, createLogger, decoder, decompress, normalizeHex, retry, isHexEqual, iife, Flatten } from "./utils";
 
 /**
  * The minimum RPC data required to process a block.
@@ -260,9 +260,14 @@ type PartialHead = {
 	number: `0x${string}` | "finalized";
 };
 
-type Metadata = {
+type PublicMetadata = {
+	chains: `0x${string}`[];
+};
+
+type PrivateMetadata = {
 	version: string;
 	language: string;
+	events: { id: string; filters: Flatten<Filter>[] }[];
 };
 
 type Result = {
@@ -354,7 +359,7 @@ type Indexer = {
 };
 
 function defineIndexer(opts: Indexer) {
-	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[indexer]" });
+	const log = createLogger({ quiet: opts.quiet, prefix: "[indexer]" });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
 	// events that share the same storage adapter to be combined into the same batch for upsert.
@@ -390,10 +395,58 @@ function defineIndexer(opts: Indexer) {
 		actionIds.add(action.id);
 	}
 
+	const public_getMetadata: IndexerRpc["request"]["public_getMetadata"] = async () => {
+		return {
+			chains: Array.from(
+				new Set(
+					allEvents.flatMap((event) => {
+						return event.filters.flatMap((filter) => {
+							return numberToHex(filter.chain);
+						});
+					}),
+				),
+			),
+		};
+	};
+
+	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
+		const manifest = await getOrInitManifest(chain);
+
+		return manifest.finalized_block_height;
+	};
+
+	async function getOrInitManifest(chain: `0x${string}`) {
+		const path = `manifest/v1/${normalizeHex(chain)}`;
+
+		const manifestRes = await opts.metadataStorage.adapter.get(path);
+
+		let manifest: Manifest;
+
+		if (manifestRes === null) {
+			const block = await getBlockFromChain({ chain, number: "finalized" });
+
+			const chainFinalizedHeight = hexToNumber(block.eth_getBlockByNumber.number);
+
+			const newManifest: Manifest = {
+				finalized_block_height: chainFinalizedHeight,
+				finalized_block_hash: block.eth_getBlockByNumber.hash,
+				next_finalized_height: chainFinalizedHeight,
+				updated_at: Date.now(),
+			};
+
+			await opts.metadataStorage.adapter.put(path, JSON.stringify(newManifest), { ifNoneMatch: "*" });
+
+			manifest = newManifest;
+		} else {
+			manifest = JSON.parse(decoder.decode(manifestRes.body));
+		}
+
+		return manifest;
+	}
+
 	/**
-	 * Fetches a block using the provided `getBlock` function. Handles retries. We accept a partial head,
-	 * sometimes want the canonical block using only the block number. If a hash and/or parent hash is
-	 * provided we will ensure that they match the block returned
+	 * Fetches a block using the provided `getBlock` function. Handles retries. Note that this always loads
+	 * the requested block by its number. If a hash and/or parent hash is provided it ensures they match
 	 */
 	async function getBlockFromChain(head: PartialHead) {
 		return await retry(() => retry_getBlockFromChain(head), 2);
@@ -772,41 +825,6 @@ function defineIndexer(opts: Indexer) {
 		if (cumulativeGasUsed !== blockGasUsed) {
 			throw new Error("Block returned inconsistent gas used");
 		}
-	}
-
-	const public_getFinalizedHeight: IndexerRpc["request"]["public_getFinalizedHeight"] = async (chain) => {
-		const manifest = await getOrInitManifest(chain);
-
-		return manifest.finalized_block_height;
-	};
-
-	async function getOrInitManifest(chain: `0x${string}`) {
-		const path = `manifest/v1/${normalizeHex(chain)}`;
-
-		const manifestRes = await opts.metadataStorage.adapter.get(path);
-
-		let manifest: Manifest;
-
-		if (manifestRes === null) {
-			const block = await getBlockFromChain({ chain, number: "finalized" });
-
-			const chainFinalizedHeight = hexToNumber(block.eth_getBlockByNumber.number);
-
-			const newManifest: Manifest = {
-				finalized_block_height: chainFinalizedHeight,
-				finalized_block_hash: block.eth_getBlockByNumber.hash,
-				next_finalized_height: chainFinalizedHeight,
-				updated_at: Date.now(),
-			};
-
-			await opts.metadataStorage.adapter.put(path, JSON.stringify(newManifest), { ifNoneMatch: "*" });
-
-			manifest = newManifest;
-		} else {
-			manifest = JSON.parse(decoder.decode(manifestRes.body));
-		}
-
-		return manifest;
 	}
 
 	const public_writeUnfinalizedHead: IndexerRpc["request"]["public_writeUnfinalizedHead"] = async (head) => {
@@ -1795,23 +1813,20 @@ function defineIndexer(opts: Indexer) {
 		return {
 			version,
 			language: "javascript",
+			events: allEvents.map((event) => {
+				const filters = event.filters.map((filter) => {
+					return {
+						chain: filter.chain,
+						event: filter.event,
+						address: filter.address,
+						to_block: filter.toBlock,
+						from_block: filter.fromBlock,
+					};
+				});
+
+				return { id: event.id, filters };
+			}),
 		};
-	};
-
-	const private_getEvents: IndexerRpc["request"]["private_getEvents"] = async () => {
-		return allEvents.map((event) => {
-			const filters = event.filters.map((filter) => {
-				return {
-					chain: filter.chain,
-					event: filter.event,
-					address: filter.address,
-					to_block: filter.toBlock,
-					from_block: filter.fromBlock,
-				};
-			});
-
-			return { id: event.id, filters };
-		});
 	};
 
 	// When calling `private_writeEvents` we want to ensure that a value exists for all keys that were accessed.
@@ -2173,13 +2188,13 @@ function defineIndexer(opts: Indexer) {
 	const rpc: IndexerRpc = {
 		request: {
 			public_finalize,
+			public_getMetadata,
 			public_getFinalizedHeight,
 			public_writeFinalizedHead,
 			public_writeFinalizedHeight,
 			public_writeUnfinalizedHead,
 			public_deleteReorganisedHead,
 
-			private_getEvents,
 			private_getMetadata,
 			private_writeEvents,
 			private_writeEventsAndGetKeys,
@@ -2196,4 +2211,4 @@ function defineIndexer(opts: Indexer) {
  */
 
 export { defineIndexer, defineEvent, defineAction };
-export type { Indexer, Event, Action, Filter, Block, Head, Metadata, Result };
+export type { Indexer, Event, Action, Filter, Block, Head, PublicMetadata, PrivateMetadata, Result };

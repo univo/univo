@@ -5,17 +5,9 @@ import type { ErrorEvent } from "partysocket/ws";
 import type { Rpc } from "./rpc";
 import { compress, createLogger, mutex } from "./utils";
 
-/**
- * Config -----------------------------------------------------------------------------------------------------------------------------------
- */
-
 const DEFAULT_TIMEOUT_MS = 60 * 1000;
 
-/**
- * Types -----------------------------------------------------------------------------------------------------------------------------------
- */
-
-type Protocol = "http" | "wss" | "local";
+type Protocol = "http" | "wss" | "local" | "browser";
 
 type Transport<R extends Rpc, P extends Protocol = Protocol> = {
 	/**
@@ -37,11 +29,11 @@ type Transport<R extends Rpc, P extends Protocol = Protocol> = {
 	 * Subscribes to specific event to receive and invoke a callback for a stream of values
 	 * @returns An async function to unsubscribe from the stream
 	 */
-	subscribe: <M extends keyof R["subscribe"]>(param: M, handler: (message: R["subscribe"][M]) => void) => Promise<() => Promise<void>>;
+	subscribe: <M extends keyof R["subscribe"]>(param: M, listener: (message: R["subscribe"][M]) => void) => Promise<() => Promise<void>>;
 };
 
 /**
- * Local -----------------------------------------------------------------------------------------------------------------------------------
+ * local -----------------------------------------------------------------------------------------------------------------------------------
  */
 
 function local<R extends Rpc>(rpc: R): Transport<R, "local"> {
@@ -63,7 +55,23 @@ function local<R extends Rpc>(rpc: R): Transport<R, "local"> {
 }
 
 /**
- * WSS -----------------------------------------------------------------------------------------------------------------------------------
+ * browser -----------------------------------------------------------------------------------------------------------------------------------
+ */
+
+function browser(): Transport<Rpc, "browser"> {
+	const request: Transport<Rpc>["request"] = async (_) => {
+		throw new Error("Unable to `request` on `browser` transport");
+	};
+
+	const subscribe: Transport<Rpc>["subscribe"] = async () => {
+		throw new Error("Unable to `subscribe` on `local` transport");
+	};
+
+	return { protocol: "browser", request, subscribe };
+}
+
+/**
+ * wss -----------------------------------------------------------------------------------------------------------------------------------
  */
 
 type SocketOptions = {
@@ -109,19 +117,24 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		throw new Error("Websocket connections must start with `wss://`");
 	}
 
-	const log = createLogger({ quiet: opts.quiet ?? false });
+	const log = createLogger({ quiet: opts.quiet });
 
 	let id = 0;
 
 	// Every request gets an identifier based on `id` above. This map represents that request in-flight
-	// and it's corresponding callback handler to invoke when a response is received on the connection.
+	// and its corresponding callback handler to invoke when a response is received on the connection.
+
 	const requests = new Map<number, (data: any) => void>();
 
-	// This is a key value store for a given subscription id to a given param
-	const subscriptions = new Map<string, { param: string; latest: number }>();
+	// We want to decouple subscriptions to the node from subscriptions to this abstraction, allowing
+	// us to deduplicate multiple subscribers into a single node subscription. Therefore we first create
+	// a map that allows us to go from a subscription id to a given param, and then from a given param to
+	// a set of listeners.
 
-	// For each param we keep a set of handlers to notify when we receive a response
-	const params = new Map<string, Set<(data: any) => void>>();
+	const subscriptions = {
+		node: new Map<string, { param: string; latest: number }>(),
+		abstraction: new Map<string, Set<(data: any) => void>>(),
+	};
 
 	const socket = createSocket(url as "wss://", {
 		async onError(cause) {
@@ -129,7 +142,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		},
 
 		async onOpen() {
-			if (subscriptions.size === 0) {
+			if (subscriptions.node.size === 0) {
 				return;
 			}
 
@@ -138,7 +151,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 
 			const params: string[] = [];
 
-			for (const [id, subscription] of subscriptions) {
+			for (const [id, subscription] of subscriptions.node) {
 				params.push(subscription.param);
 
 				// This isn't strictly needed for correctness. The fact that the websocket connection was dropped
@@ -148,12 +161,12 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 					log.warn("Failed to cancel old susbcription");
 				});
 
-				subscriptions.delete(id);
+				subscriptions.node.delete(id);
 			}
 
 			for (const param of params) {
 				request({ method: "eth_subscribe", params: [param] }).then((id) => {
-					subscriptions.set(id, { param, latest: Date.now() });
+					subscriptions.node.set(id, { param, latest: Date.now() });
 				});
 			}
 		},
@@ -166,31 +179,33 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 			const data = JSON.parse(event.data);
 
 			if (data.method === "eth_subscription") {
-				const subscription = subscriptions.get(data.params.subscription);
+				const param = subscriptions.node.get(data.params.subscription);
 
-				if (subscription === undefined) {
+				if (param === undefined) {
 					return await request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {
 						log.warn("Failed to unsubscribe stale subscription");
 					});
 				}
 
-				const handlers = params.get(subscription.param);
+				const listeners = subscriptions.abstraction.get(param.param);
 
-				if (handlers === undefined) {
+				if (listeners === undefined) {
 					return await request({ method: "eth_unsubscribe", params: [data.params.subscription] }).catch(() => {
 						log.warn("Failed to unsubscribe stale subscription");
 					});
 				}
 
-				for (const handler of handlers) {
+				for (const listener of listeners) {
 					try {
-						handler(data.params.result);
-					} catch (cause) {
-						log.error(new Error("Handler error", { cause }));
+						listener(data.params.result);
+					} catch (error) {
+						if (error instanceof Error) {
+							log.error(error.message);
+						}
 					}
 				}
 
-				subscription.latest = Date.now();
+				param.latest = Date.now();
 
 				return;
 			}
@@ -245,43 +260,49 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 		});
 	};
 
-	const subscribe: Transport<Rpc>["subscribe"] = async (param, handler) => {
-		const handlers = params.get(param);
+	const subscribe: Transport<Rpc>["subscribe"] = async (param, listener) => {
+		const listeners = subscriptions.abstraction.get(param);
 
-		if (handlers === undefined) {
-			const handlers = new Set<(data: any) => void>().add(handler);
+		if (listeners === undefined) {
+			const listeners = new Set<(data: any) => void>();
 
-			params.set(param, handlers);
+			listeners.add(listener);
+
+			subscriptions.abstraction.set(param, listeners);
 
 			const id = await request({ method: "eth_subscribe", params: [param] }).catch((cause) => {
 				throw new Error(`Failed to initialise subscription for param ${param}`, { cause });
 			});
 
-			subscriptions.set(id, { param, latest: Date.now() });
+			subscriptions.node.set(id, { param, latest: Date.now() });
 		} else {
-			handlers.add(handler);
+			listeners.add(listener);
 		}
 
 		return async function unsubscribe() {
-			const handlers = params.get(param);
+			const listeners = subscriptions.abstraction.get(param);
 
-			if (handlers === undefined) {
+			if (listeners === undefined) {
 				return log.warn("Param already unsubscribed...");
 			}
 
-			handlers.delete(handler);
+			listeners.delete(listener);
 
-			if (handlers.size === 0) {
-				await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
-					log.warn("Failed to unsubscribe unused subscription");
-				});
+			if (listeners.size === 0) {
+				for (const [id, _param] of subscriptions.node) {
+					if (param === _param.param) {
+						await request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
+							log.warn("Failed to unsubscribe unused subscription");
+						});
+					}
+				}
 			}
 		};
 	};
 
 	function healthcheck() {
 		try {
-			const failed = Object.values(subscriptions).some((subscription) => {
+			const failed = Object.values(subscriptions.node).some((subscription) => {
 				return Date.now() - subscription.latest > 60 * 1000;
 			});
 
@@ -305,7 +326,7 @@ function wss<R extends Rpc>(url: string, opts: { quiet?: boolean } = {}): Transp
 }
 
 /**
- * HTTP -----------------------------------------------------------------------------------------------------------------------------------
+ * http -----------------------------------------------------------------------------------------------------------------------------------
  */
 
 function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): Transport<R, "http"> {
@@ -375,4 +396,4 @@ function http<R extends Rpc>(url: string, opts: { signingKey?: string } = {}): T
  */
 
 export type { Transport };
-export { http, local, wss };
+export { http, local, wss, browser };

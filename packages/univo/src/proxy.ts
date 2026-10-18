@@ -12,7 +12,7 @@ import { createLogger, decoder, decompress } from "./utils";
  * Note that we use the provided `signingKey` to prevent any unauthorized access.
  */
 function http(opts: { quiet?: boolean; indexer: Transport<IndexerRpc>; signingKey: string }) {
-	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[proxy]" });
+	const log = createLogger({ quiet: opts.quiet, prefix: "[proxy]" });
 
 	return async function proxy(req: Request): Promise<Response> {
 		// Parse request body

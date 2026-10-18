@@ -1,8 +1,9 @@
 import { hexToNumber } from "viem";
+import type { EIP1193EventMap, EIP1193RequestFn } from "viem";
 
 import { IndexerRpc, Rpc } from "./rpc";
 import type { Transport } from "./transport";
-import { createLogger, iife, isHexEqual, mutex, retry } from "./utils";
+import { createLogger, iife, isHexEqual, lifecycle, mutex, queue, retry } from "./utils";
 
 /**
  * Blockchain -----------------------------------------------------------------------------------------------------------------------------------
@@ -15,7 +16,7 @@ type Head = {
 };
 
 type BlockchainOptions = {
-	quiet: boolean;
+	quiet?: boolean;
 	onBlockAdded?: (head: Head) => Promise<void> | void;
 	onBlockReorganised?: (head: Head) => Promise<void> | void;
 	getBlockByHash(hash: `0x${string}`): Promise<Head | null>;
@@ -175,10 +176,13 @@ function defineBlockchain(opts: BlockchainOptions): Blockchain {
 		return await reconcile(newBlock); // Finally we add this block
 	}
 
+	// We serialize access to our internal chain with a queue
+	const enqueue = queue();
+
 	return {
 		chain,
-		prune: mutex(prune),
-		reconcile: mutex(reconcile),
+		prune: (tail) => enqueue(() => prune(tail)),
+		reconcile: (newBlock) => enqueue(() => reconcile(newBlock)),
 	};
 }
 
@@ -200,9 +204,9 @@ type RealtimeOptions = {
 	/**
 	 * Connection to a blockchain node.
 	 *
-	 * Must use the `wss` transport protocol from `univo/transport`.
+	 * Must use the `wss` or `browser` transport protocol from `univo/transport`.
 	 */
-	node: Transport<Rpc, "wss">;
+	node: Transport<Rpc, "wss" | "browser">;
 
 	/**
 	 * Connection to a univo indexer.
@@ -213,222 +217,548 @@ type RealtimeOptions = {
 	indexer: Transport<IndexerRpc, "http" | "local">;
 };
 
-function realtime(opts: RealtimeOptions) {
-	const log = createLogger({ quiet: opts.quiet ?? false, prefix: "[realtime]" });
+type EIP6963AnnounceProviderEvent = CustomEvent & {
+	type: "eip6963:announceProvider";
+	detail: EIP6963ProviderDetail;
+};
 
-	async function getBlockByHash(hash: `0x${string}`) {
-		const block = await opts.node.request({ method: "eth_getBlockByHash", params: [hash, false] });
+type EIP6963ProviderDetail = {
+	provider: EIP1193Provider;
+	info: EIP6963ProviderInfo;
+};
 
-		if (block === null) {
-			return null;
-		}
+type EIP6963ProviderInfo = {
+	uuid: string;
+	name: string;
+	icon: string;
+	rdns: string;
+};
 
-		return { number: block.number, hash: block.hash, parent_hash: block.parentHash };
-	}
+type EIP1193Provider = {
+	request: EIP1193RequestFn;
+	on: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
+	removeListener: <event extends keyof EIP1193EventMap>(event: event, listener: EIP1193EventMap[event]) => void;
+};
 
-	const promise = iife(async () => {
-		log.debug("Initialising realtime client for indexer");
+function realtime(realtime: RealtimeOptions) {
+	const log = createLogger({ quiet: realtime.quiet, prefix: "[realtime]" });
 
-		const chain = await opts.node.request({ method: "eth_chainId", params: [] });
-
-		log.debug(`Determined chain identifier for connected node: ${hexToNumber(chain)}`);
-
-		// First step is to initialise the realtime client so that it immediately begins indexing the tip
-		// of the chain. This is fundamentally important part of recovering from downtime because it means
-		// that the number of blocks we have to process while unavailable is bounded. This puts an upper
-		// limit on our time-to-recovery and makes operational management simple.
-
-		const [chainLatestBlock, chainFinalizedBlock] = await Promise.all([
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }), //
-			opts.node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
-		]);
-
-		if (chainLatestBlock === null) {
-			throw new Error("Latest block not found");
-		}
-
-		if (chainFinalizedBlock === null) {
-			throw new Error("Finalized block not found");
-		}
-
-		const unfinalized = defineBlockchain({
-			getBlockByHash,
-			quiet: opts.quiet ?? false,
-			onBlockAdded: async (head) => {
-				try {
-					log.debug("Received unfinalized head");
-
-					// We intentionally do not perform retries here. It makes more sense to improve the resiliency of
-					// tip indexing by deploying more realtime clients. Three clients means it at least three requests
-					// attempt to process the latest block. Concurrency control mechanisms on the indexer ensure that
-					// only one of these requests actually write data to storage
-
-					await opts.indexer.request({
-						method: "public_writeUnfinalizedHead",
-						params: [{ chain, ...head }],
-					});
-
-					log.debug("Delivered unfinalized head");
-				} catch (error) {
-					if (error instanceof Error) {
-						log.warn(`Failed to write unfinalized head: ${error.message}`);
-					}
-				}
-			},
-			onBlockReorganised: async (head) => {
-				try {
-					log.debug("Received reorganised head");
-
-					// Because reorganised blocks are rare, it's safe to be pretty liberal with retries here. It won't cause any
-					// thundering herd or degradation and maximises the chance our indexer can safely process the reorged head
-
-					await retry(
-						() => opts.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
-						2,
-					);
-
-					log.debug("Delivered reorganised head");
-				} catch (error) {
-					if (error instanceof Error) {
-						log.warn(`Failed to write reorganised head: ${error.message}`);
-					}
+	const instance = ({ chain, node }: { chain: `0x${string}`; node: Transport<Rpc> }) => {
+		const { isDisposed, onCleanup, interrupt } = lifecycle({
+			onCleanupError: (error) => {
+				if (error instanceof Error) {
+					log.warn(error.message);
 				}
 			},
 		});
 
-		await unfinalized.reconcile({
-			hash: chainLatestBlock.hash,
-			number: chainLatestBlock.number,
-			parent_hash: chainLatestBlock.parentHash,
-		});
+		const promise = iife(async () => {
+			// First step is to initialise the realtime client so that it immediately begins indexing the tip
+			// of the chain. This is fundamentally important part of recovering from downtime because it means
+			// that the number of blocks we have to process while unavailable is bounded. This puts an upper
+			// limit on our time-to-recovery and makes operational management simple.
 
-		await opts.node.subscribe("newHeads", async (head) => {
-			await unfinalized.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
-				if (error instanceof Error) {
-					log.error(`Failed to reconcile unfinalized head: ${error.message}`);
-				}
-			});
-		});
+			const [chainLatestBlock, chainFinalizedBlock] = await Promise.all([
+				node.request({ method: "eth_getBlockByNumber", params: ["latest", false] }), //
+				node.request({ method: "eth_getBlockByNumber", params: ["finalized", false] }),
+			]);
 
-		log.debug("Subscribed unfinalized chain to new heads");
-
-		// We wrap finalization in a mutex. On the indexer finalization is a single-writer process that
-		// operates under 60s leases. This means that any new requests while finalization is in-flight
-		// will fail anyway so this mutex is just an optimisation and doesn't break correctness.
-
-		async function finalize() {
-			try {
-				log.debug("Finalizing indexer...");
-
-				await opts.indexer.request({ params: [chain], method: "public_finalize" });
-
-				log.debug("Indexer finalized");
-			} catch (error) {
-				if (error instanceof Error) {
-					log.warn(`Failed to finalize: ${error.message}`);
-				}
+			if (isDisposed()) {
+				return;
 			}
-		}
 
-		const mutex_finalize = mutex(finalize);
+			if (chainLatestBlock === null) {
+				throw new Error("Latest block not found");
+			}
 
-		// Begin polling for finalized height
+			if (chainFinalizedBlock === null) {
+				throw new Error("Finalized block not found");
+			}
 
-		let chainFinalizedHeight = hexToNumber(chainFinalizedBlock.number);
+			const unfinalized = defineBlockchain({
+				quiet: realtime.quiet,
 
-		async function poll() {
-			try {
-				log.debug("Polling for finalized height...");
+				getBlockByHash: async (hash: `0x${string}`) => {
+					const block = await node.request({ method: "eth_getBlockByHash", params: [hash, false] });
 
-				const finalizedBlock = await opts.node.request({
-					method: "eth_getBlockByNumber",
-					params: ["finalized", false],
-				});
+					if (block === null) {
+						return null;
+					}
 
-				if (finalizedBlock === null) {
-					throw new Error("Finalized block not found");
-				}
+					return { number: block.number, hash: block.hash, parent_hash: block.parentHash };
+				},
 
-				const nextFinalizedHeight = hexToNumber(finalizedBlock.number);
-
-				if (nextFinalizedHeight <= chainFinalizedHeight) {
-					return log.debug("Chain finalized height has not progressed");
-				}
-
-				await opts.indexer.request({ params: [chain], method: "public_writeFinalizedHeight" });
-
-				// Determine new finalized heads
-
-				const newFinalizedHeads = unfinalized.chain
-					.filter((head) => {
-						if (hexToNumber(head.number) > chainFinalizedHeight && hexToNumber(head.number) <= nextFinalizedHeight) {
-							return true;
-						}
-
-						return false;
-					})
-					.map((head) => {
-						return { chain, ...head };
-					});
-
-				if (newFinalizedHeads.length === 0) {
-					chainFinalizedHeight = nextFinalizedHeight;
-
-					return log.debug("No new finalized heads to process");
-				}
-
-				// Process new heads
-
-				log.debug(`Processing ${newFinalizedHeads.length} finalized head(s) in parallel`);
-
-				const promises = newFinalizedHeads.map(async (head) => {
+				onBlockAdded: async (head) => {
 					try {
-						log.debug("Received finalized head");
+						log.debug("Received unfinalized head");
 
-						// Similar to tip indexing, we don't perform any retries here because of thundering herd issues.
-						// Instead retries should be handled by deploying multiple realtime clients. Any failures will
-						// automatically be resolved by the finalization process
+						// We intentionally do not perform retries here. It makes more sense to improve the resiliency of
+						// tip indexing by deploying more realtime clients. Three clients means it at least three requests
+						// attempt to process the latest block. Concurrency control mechanisms on the indexer ensure that
+						// only one of these requests actually write data to storage
 
-						await opts.indexer.request({ params: [head], method: "public_writeFinalizedHead" });
+						await realtime.indexer.request({
+							method: "public_writeUnfinalizedHead",
+							params: [{ chain, ...head }],
+						});
 
-						log.debug("Delivered finalized head");
+						log.debug("Delivered unfinalized head");
 					} catch (error) {
 						if (error instanceof Error) {
-							log.warn(`Failed to write finalized head: ${error.message}`);
+							log.warn(`Failed to write unfinalized head: ${error.message}`);
 						}
 					}
+				},
+
+				onBlockReorganised: async (head) => {
+					try {
+						log.debug("Received reorganised head");
+
+						// Because reorganised blocks are rare, it's safe to be pretty liberal with retries here. It won't cause any
+						// thundering herd or degradation and maximises the chance our indexer can safely process the reorged head
+
+						await retry(
+							() => realtime.indexer.request({ method: "public_deleteReorganisedHead", params: [{ chain, ...head }] }), //
+							2,
+						);
+
+						log.debug("Delivered reorganised head");
+					} catch (error) {
+						if (error instanceof Error) {
+							log.warn(`Failed to write reorganised head: ${error.message}`);
+						}
+					}
+				},
+			});
+
+			await unfinalized.reconcile({
+				hash: chainLatestBlock.hash,
+				number: chainLatestBlock.number,
+				parent_hash: chainLatestBlock.parentHash,
+			});
+
+			if (isDisposed()) {
+				return;
+			}
+
+			log.debug("Subscribing unfinalized chain to new heads...");
+
+			const unsubscribe = await node.subscribe("newHeads", async (head) => {
+				await unfinalized.reconcile({ hash: head.hash, number: head.number, parent_hash: head.parentHash }).catch((error) => {
+					if (error instanceof Error) {
+						log.error(`Failed to reconcile unfinalized head: ${error.message}`);
+					}
 				});
+			});
 
-				await Promise.allSettled(promises);
+			onCleanup(() => unsubscribe());
 
-				// Acknowledge heads were processed, irrespective of failures
+			if (isDisposed()) {
+				return;
+			}
 
-				log.debug(`Processed ${newFinalizedHeads.length} finalized head(s) in parallel`);
+			log.debug("Subscribed unfinalized chain to new heads");
 
-				chainFinalizedHeight = nextFinalizedHeight;
+			// We wrap finalization in a mutex. On the indexer finalization is a single-writer process that
+			// operates under 60s leases. This means that any new requests while finalization is in-flight
+			// will fail anyway so this mutex is just an optimisation and doesn't break correctness.
 
-				await unfinalized.prune({
-					hash: finalizedBlock.hash,
-					number: finalizedBlock.number,
-					parent_hash: finalizedBlock.parentHash,
-				});
+			async function finalize() {
+				try {
+					log.debug("Finalizing indexer...");
 
-				await mutex_finalize();
-			} catch (error) {
-				if (error instanceof Error) {
-					log.error(`Failed to reconcile finalized head: ${error.message}`);
+					await realtime.indexer.request({ params: [chain], method: "public_finalize" });
+
+					log.debug("Indexer finalized");
+				} catch (error) {
+					if (error instanceof Error) {
+						log.warn(`Failed to finalize: ${error.message}`);
+					}
 				}
 			}
+
+			const mutex_finalize = mutex(finalize);
+
+			// Begin polling for finalized height
+
+			let chainFinalizedHeight = hexToNumber(chainFinalizedBlock.number);
+
+			async function poll() {
+				try {
+					log.debug("Polling for finalized height...");
+
+					const finalizedBlock = await node.request({
+						method: "eth_getBlockByNumber",
+						params: ["finalized", false],
+					});
+
+					if (finalizedBlock === null) {
+						throw new Error("Finalized block not found");
+					}
+
+					const nextFinalizedHeight = hexToNumber(finalizedBlock.number);
+
+					if (nextFinalizedHeight <= chainFinalizedHeight) {
+						return log.debug("Chain finalized height has not progressed");
+					}
+
+					await realtime.indexer.request({ params: [chain], method: "public_writeFinalizedHeight" });
+
+					// Determine new finalized heads
+
+					const newFinalizedHeads = unfinalized.chain
+						.filter((head) => {
+							if (hexToNumber(head.number) > chainFinalizedHeight && hexToNumber(head.number) <= nextFinalizedHeight) {
+								return true;
+							}
+
+							return false;
+						})
+						.map((head) => {
+							return { chain, ...head };
+						});
+
+					if (newFinalizedHeads.length === 0) {
+						chainFinalizedHeight = nextFinalizedHeight;
+
+						return log.debug("No new finalized heads to process");
+					}
+
+					// Process new heads
+
+					log.debug(`Processing ${newFinalizedHeads.length} finalized head(s) in parallel`);
+
+					const promises = newFinalizedHeads.map(async (head) => {
+						try {
+							log.debug("Received finalized head");
+
+							// Similar to tip indexing, we don't perform any retries here because of thundering herd issues.
+							// Instead retries should be handled by deploying multiple realtime clients. Any failures will
+							// automatically be resolved by the finalization process
+
+							await realtime.indexer.request({ params: [head], method: "public_writeFinalizedHead" });
+
+							log.debug("Delivered finalized head");
+						} catch (error) {
+							if (error instanceof Error) {
+								log.warn(`Failed to write finalized head: ${error.message}`);
+							}
+						}
+					});
+
+					await Promise.allSettled(promises);
+
+					// Acknowledge heads were processed, irrespective of failures
+
+					log.debug(`Processed ${newFinalizedHeads.length} finalized head(s) in parallel`);
+
+					chainFinalizedHeight = nextFinalizedHeight;
+
+					await unfinalized.prune({
+						hash: finalizedBlock.hash,
+						number: finalizedBlock.number,
+						parent_hash: finalizedBlock.parentHash,
+					});
+
+					await mutex_finalize();
+				} catch (error) {
+					if (error instanceof Error) {
+						log.error(`Failed to reconcile finalized head: ${error.message}`);
+					}
+				}
+			}
+
+			const id = setInterval(poll, POLLING_INTERVAL_MS);
+			onCleanup(() => clearInterval(id));
+
+			log.debug("Started polling finalized height");
+		});
+
+		promise.catch((error) => {
+			if (error instanceof Error) {
+				log.error(error.message);
+			}
+
+			interrupt();
+		});
+
+		return interrupt;
+	};
+
+	const browser = (browser: { signal: AbortSignal; chain: `0x${string}`; provider: EIP1193Provider }) => {
+		const { isDisposed, onCleanup, interrupt } = lifecycle({
+			onCleanupError: (error) => {
+				if (error instanceof Error) {
+					log.warn(error.message);
+				}
+			},
+		});
+
+		browser.signal.addEventListener("abort", interrupt, { once: true });
+		onCleanup(() => browser.signal.removeEventListener("abort", interrupt));
+
+		if (browser.signal.aborted) {
+			interrupt();
 		}
 
-		setInterval(poll, POLLING_INTERVAL_MS);
+		const promise = iife(async () => {
+			if (isDisposed()) {
+				return;
+			}
 
-		log.debug("Started polling finalized height");
-	});
+			// We want to decouple subscriptions to the node from subscriptions to this abstraction, allowing
+			// us to deduplicate multiple subscribers into a single node subscription. Therefore we first create
+			// a map that allows us to go from a subscription id to a given param, and then from a given param to
+			// a set of listeners.
 
-	promise.catch((error) => {
-		if (error instanceof Error) {
-			log.error(`Failed to initialise realtime client: ${error.message}`);
+			const subscriptions = {
+				node: new Map<string, string>(),
+				abstraction: new Map<string, Set<(data: any) => void>>(),
+			};
+
+			const transport: Transport<Rpc> = {
+				protocol: "browser",
+
+				request: async (request) => {
+					// If we have aborted this provider because the underlying chain changed, we still want our
+					// cleanup mechanism to work and successfully unsub any subscriptions
+
+					if (request.method !== "eth_unsubscribe") {
+						browser.signal.throwIfAborted();
+					}
+
+					const res = await browser.provider.request({ method: request.method, params: request.params });
+
+					// Similarly, if a request to start a subscription was in-flight while the provider was aborted
+					// we want to ensure that safely returns so that it can be safely unsubscribed during cleanup
+
+					if (request.method !== "eth_unsubscribe" && request.method !== "eth_subscribe") {
+						browser.signal.throwIfAborted();
+					}
+
+					return res;
+				},
+
+				subscribe: async (param, listener) => {
+					const listeners = subscriptions.abstraction.get(param);
+
+					if (listeners === undefined) {
+						const listeners = new Set<(data: any) => void>();
+
+						listeners.add(listener);
+
+						subscriptions.abstraction.set(param, listeners);
+
+						const id = await transport.request({ method: "eth_subscribe", params: [param] }).catch((cause) => {
+							throw new Error(`Failed to initialise subscription for param ${param}`, { cause });
+						});
+
+						subscriptions.node.set(id, param);
+					} else {
+						listeners.add(listener);
+					}
+
+					return async function unsubscribe() {
+						const listeners = subscriptions.abstraction.get(param);
+
+						if (listeners === undefined) {
+							return;
+						}
+
+						listeners.delete(listener);
+
+						if (listeners.size === 0) {
+							for (const [id, _param] of subscriptions.node) {
+								if (param === _param) {
+									await transport.request({ method: "eth_unsubscribe", params: [id] }).catch(() => {
+										log.warn("Failed to unsubscribe unused subscription");
+									});
+								}
+							}
+						}
+					};
+				},
+			};
+
+			const onMessage = async (message: { type: string; data: any }) => {
+				if (message.type === "eth_subscription") {
+					const param = subscriptions.node.get(message.data.subscription);
+
+					if (param === undefined) {
+						// Injected providers are shared; unknown subscriptions may belong to another application.
+						// Rather than automatically unsubscribing we simply ignore
+
+						return;
+					}
+
+					const listeners = subscriptions.abstraction.get(param);
+
+					if (listeners === undefined) {
+						return await transport.request({ method: "eth_unsubscribe", params: [message.data.subscription] }).catch(() => {
+							log.warn("Failed to unsubscribe stale subscription");
+						});
+					}
+
+					for (const listener of listeners) {
+						try {
+							listener(message.data.result);
+						} catch (error) {
+							if (error instanceof Error) {
+								log.error(error.message);
+							}
+						}
+					}
+				}
+			};
+
+			browser.provider.on("message", onMessage);
+			onCleanup(() => browser.provider.removeListener("message", onMessage));
+
+			const _interrupt = instance({ chain: browser.chain, node: transport });
+			onCleanup(() => _interrupt());
+		});
+
+		promise.catch((error) => {
+			if (error instanceof Error) {
+				log.error(error.message);
+			}
+
+			interrupt();
+		});
+
+		return interrupt;
+	};
+
+	iife(async () => {
+		try {
+			log.debug("Initialising realtime client");
+
+			if (realtime.node.protocol === "wss") {
+				log.debug("Found user provided node");
+
+				const [chain, metadata] = await Promise.all([
+					realtime.node.request({ method: "eth_chainId", params: [] }),
+					realtime.indexer.request({ method: "public_getMetadata", params: [] }),
+				]);
+
+				log.debug(`Determined chain identifier for connected node: ${hexToNumber(chain)}`);
+
+				if (!metadata.chains.some((_chain) => _chain === chain)) {
+					throw new Error("Provided `node` is connected to a chain not indexed by the provided `indexer`");
+				}
+
+				instance({ chain, node: realtime.node });
+
+				return;
+			}
+
+			if (realtime.node.protocol === "browser") {
+				log.debug("Looking for browser injected node providers");
+
+				// Early return if this is accidentally called on the server
+
+				if (typeof window === "undefined") {
+					return log.debug("Browser indexing invoked on the server, aborting...");
+				}
+
+				const metadata = await realtime.indexer.request({ method: "public_getMetadata", params: [] });
+
+				// Store every provider that is announced
+				const providers = new Map<string, EIP6963ProviderDetail>();
+
+				// Store any active executions of handler for a given provider:chain pair
+				const sessions = new Map<`${string}:${string}`, () => void>();
+
+				window.addEventListener("eip6963:announceProvider", async (event) => {
+					const typed = event as EIP6963AnnounceProviderEvent;
+
+					const provider = typed.detail;
+
+					// Determine if this provider has already been announced
+					if (providers.get(provider.info.uuid) !== undefined) {
+						return log.debug(`Found duplicate provider (${provider.info.uuid})`);
+					}
+
+					log.debug(`Found provider (${provider.info.uuid})`);
+					providers.set(provider.info.uuid, provider);
+
+					let controller = new AbortController();
+
+					const initialise = (initialise: { signal: AbortSignal; chain: `0x${string}` }) => {
+						// Whenever we initialise a provider for a given chain, we must first interrupt any existing
+						// sessions for this provider. The previous signal is aborted on chain changes so that existing
+						// sessions begin erroring immediately for the wrong chain
+
+						for (const [key, interrupt] of sessions) {
+							if (key.startsWith(provider.info.uuid)) {
+								try {
+									interrupt();
+									sessions.delete(key);
+								} catch (error) {
+									if (error instanceof Error) {
+										log.error(error.message);
+									}
+
+									sessions.delete(key);
+								}
+							}
+						}
+
+						// Skip chains that the indexer does not index, after cleaning up this provider's previous session.
+						if (!metadata.chains.includes(initialise.chain)) {
+							return;
+						}
+
+						// Before initialising, we then determine if the chain already has a session with a different
+						// provider and abort if so
+
+						for (const key of sessions.keys()) {
+							if (key.endsWith(`:${initialise.chain}`)) {
+								return log.debug(`Already indexing key ${key}, aborting initialisation...`);
+							}
+						}
+
+						// Now we are free to start a new session
+
+						const key = `${provider.info.uuid}:${initialise.chain}` as const;
+						log.debug(`Initialising indexing for key ${key}`);
+
+						const interrupt = browser({ signal: initialise.signal, chain: initialise.chain, provider: provider.provider });
+						sessions.set(key, interrupt);
+					};
+
+					// We add an event listener to detect any changes to the providers chain
+					provider.provider.on("chainChanged", async (chain: `0x${string}`) => {
+						log.debug(`Provider (${provider.info.uuid}) changed to chain (${hexToNumber(chain)})`);
+
+						// Invalidate only this provider's previous session immediately
+						controller.abort();
+						controller = new AbortController();
+
+						// Start indexing chain for provider
+						initialise({ chain, signal: controller.signal });
+					});
+
+					const initialSignal = controller.signal;
+
+					// And then we request the chain we are currently connected to and begin indexing
+					const initialChain: `0x${string}` = await provider.provider.request({ method: "eth_chainId" });
+
+					// If a chain change occurred while the request was in flight be abort early
+					if (initialSignal.aborted) {
+						return;
+					}
+
+					// Start indexing chain for provider
+					initialise({ chain: initialChain, signal: initialSignal });
+				});
+
+				window.dispatchEvent(new Event("eip6963:requestProvider"));
+			}
+		} catch (error) {
+			if (error instanceof Error) {
+				log.error(error.message);
+			}
 		}
 	});
 }
