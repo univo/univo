@@ -95,13 +95,13 @@ function matchFilter(block: Block, filter: Filter) {
 
 	// 1. Blocks where that top-level function emitted that event on that contract.
 	if (filter.address && filter.event && filter.function) {
-		const invocations: `0x${string}`[] = [];
+		const txs: `0x${string}`[] = [];
 
 		// Find all transactions where that top-level function was invoked on that contract
 		for (const tx of block.eth_getBlockByNumber.transactions) {
 			if (tx.to !== null && isHexEqual(tx.to, filter.address)) {
 				if (isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
-					invocations.push(tx.transactionIndex);
+					txs.push(tx.transactionIndex);
 				}
 			}
 		}
@@ -111,13 +111,16 @@ function matchFilter(block: Block, filter: Filter) {
 			for (const log of receipt.logs) {
 				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
 					if (isHexEqual(log.address, filter.address)) {
-						if (invocations.some((invocation) => isHexEqual(invocation, log.transactionIndex))) {
+						if (txs.some((tx) => isHexEqual(tx, log.transactionIndex))) {
 							return true;
 						}
 					}
 				}
 			}
 		}
+
+		// A footgun with this case is that reverted txs do not emit logs. If a user wanted to
+		// store failures like we do in the explorer it's necessary to omit the event argument.
 
 		return false;
 	}
@@ -152,12 +155,12 @@ function matchFilter(block: Block, filter: Filter) {
 
 	// 4. Blocks where that top-level function emitted that event on any contract
 	if (filter.address === undefined && filter.event && filter.function) {
-		const invocations: `0x${string}`[] = [];
+		const txs: `0x${string}`[] = [];
 
 		// Find all transactions where that top-level function was invoked
 		for (const tx of block.eth_getBlockByNumber.transactions) {
 			if (tx.to !== null && isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
-				invocations.push(tx.transactionIndex);
+				txs.push(tx.transactionIndex);
 			}
 		}
 
@@ -165,7 +168,7 @@ function matchFilter(block: Block, filter: Filter) {
 		for (const receipt of block.eth_getBlockReceipts) {
 			for (const log of receipt.logs) {
 				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
-					if (invocations.some((invocation) => isHexEqual(invocation, log.transactionIndex))) {
+					if (txs.some((tx) => isHexEqual(tx, log.transactionIndex))) {
 						return true;
 					}
 				}
@@ -1911,12 +1914,13 @@ function defineIndexer(opts: Indexer) {
 			version,
 			language: "javascript",
 			events: allEvents.map((event) => {
-				const filters = event.filters.map((filter) => {
+				const filters = event.filters.map<Flatten<Filter>>((filter) => {
 					return {
 						chain: filter.chain,
 						event: filter.event,
 						address: filter.address,
 						to_block: filter.toBlock,
+						function: filter.function,
 						from_block: filter.fromBlock,
 					};
 				});
