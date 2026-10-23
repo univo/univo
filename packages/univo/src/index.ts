@@ -111,7 +111,7 @@ function matchFilter(block: Block, filter: Filter) {
 			for (const log of receipt.logs) {
 				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
 					if (isHexEqual(log.address, filter.address)) {
-						if (invocations.includes(log.transactionIndex)) {
+						if (invocations.some((invocation) => isHexEqual(invocation, log.transactionIndex))) {
 							return true;
 						}
 					}
@@ -156,7 +156,7 @@ function matchFilter(block: Block, filter: Filter) {
 
 		// Find all transactions where that top-level function was invoked
 		for (const tx of block.eth_getBlockByNumber.transactions) {
-			if (isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
+			if (tx.to !== null && isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
 				invocations.push(tx.transactionIndex);
 			}
 		}
@@ -165,7 +165,7 @@ function matchFilter(block: Block, filter: Filter) {
 		for (const receipt of block.eth_getBlockReceipts) {
 			for (const log of receipt.logs) {
 				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
-					if (invocations.includes(log.transactionIndex)) {
+					if (invocations.some((invocation) => isHexEqual(invocation, log.transactionIndex))) {
 						return true;
 					}
 				}
@@ -191,7 +191,7 @@ function matchFilter(block: Block, filter: Filter) {
 	// 6. Blocks where that top-level function was invoked on any contract
 	if (filter.address === undefined && filter.event === undefined && filter.function) {
 		for (const tx of block.eth_getBlockByNumber.transactions) {
-			if (isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
+			if (tx.to !== null && isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
 				return true;
 			}
 		}
