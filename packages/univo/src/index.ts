@@ -26,22 +26,9 @@ import { catchException, createException } from "./exceptions";
 import { compress, createLogger, decoder, decompress, normalizeHex, retry, isHexEqual, iife, Flatten } from "./utils";
 
 /**
- * The minimum RPC data required to process a block.
- *
- * Extend this interface in your application to expose additional RPC methods to every event:
- *
- * ```ts
- * import "univo";
- *
- * declare module "univo" {
- *   interface Block {
- *     eth_getBalance: `0x${string}`;
- *   }
- * }
- * ```
- *
- * Your `getBlock` function must also return any required fields added by the augmentation.
+ * Block
  */
+
 interface Block {
 	eth_chainId: `0x${string}`;
 	eth_getBlockByNumber: RpcBlock<"latest", true>;
