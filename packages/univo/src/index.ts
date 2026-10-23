@@ -72,59 +72,142 @@ type Filter = {
 // only an address is specified we could expand matching to include all internal addresses involved.
 
 function matchFilter(block: Block, filter: Filter) {
-	// `chain` is valid
+	// Matches `chain`
 
 	if (hexToNumber(block.eth_chainId) !== filter.chain) {
 		return false;
 	}
 
-	// `fromBlock` is valid
+	// Matches `fromBlock`
 
 	if (hexToNumber(block.eth_getBlockByNumber.number) < filter.fromBlock) {
 		return false;
 	}
 
-	// `toBlock` is valid
+	// Matches `toBlock`
 
 	if (typeof filter.toBlock === "number" && hexToNumber(block.eth_getBlockByNumber.number) > filter.toBlock) {
 		return false;
 	}
 
-	// `address`, `event`, `function` are valid. In general we order these from most to least specific.
+	// Matches `address`, `event`, and `function`. In general we order these from most to least specific.
+	// Whatever combination of these three arguments will match one of the cases below.
 
 	// 1. Blocks where that top-level function emitted that event on that contract.
 	if (filter.address && filter.event && filter.function) {
-		//
+		const invocations: `0x${string}`[] = [];
+
+		// Find all transactions where that top-level function was invoked on that contract
+		for (const tx of block.eth_getBlockByNumber.transactions) {
+			if (tx.to !== null && isHexEqual(tx.to, filter.address)) {
+				if (isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
+					invocations.push(tx.transactionIndex);
+				}
+			}
+		}
+
+		// Determine if that transaction emitted that event from that contract
+		for (const receipt of block.eth_getBlockReceipts) {
+			for (const log of receipt.logs) {
+				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
+					if (isHexEqual(log.address, filter.address)) {
+						if (invocations.includes(log.transactionIndex)) {
+							return true;
+						}
+					}
+				}
+			}
+		}
+
+		return false;
 	}
 
 	// 2. Blocks where that contract emitted that event
 	if (filter.address && filter.event && filter.function === undefined) {
-		//
+		for (const receipt of block.eth_getBlockReceipts) {
+			for (const log of receipt.logs) {
+				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
+					if (isHexEqual(log.address, filter.address)) {
+						return true;
+					}
+				}
+			}
+		}
+
+		return false;
 	}
 
 	// 3. Blocks where that top-level function was invoked on that contract
 	if (filter.address && filter.event === undefined && filter.function) {
-		//
+		for (const tx of block.eth_getBlockByNumber.transactions) {
+			if (tx.to !== null && isHexEqual(tx.to, filter.address)) {
+				if (isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	// 4. Blocks where that top-level function emitted that event on any contract
 	if (filter.address === undefined && filter.event && filter.function) {
-		//
+		const invocations: `0x${string}`[] = [];
+
+		// Find all transactions where that top-level function was invoked
+		for (const tx of block.eth_getBlockByNumber.transactions) {
+			if (isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
+				invocations.push(tx.transactionIndex);
+			}
+		}
+
+		// Determine if that transaction emitted that event
+		for (const receipt of block.eth_getBlockReceipts) {
+			for (const log of receipt.logs) {
+				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
+					if (invocations.includes(log.transactionIndex)) {
+						return true;
+					}
+				}
+			}
+		}
+
+		return false;
 	}
 
 	// 5. Blocks where any contract emitted that event
 	if (filter.address === undefined && filter.event && filter.function === undefined) {
-		//
+		for (const receipt of block.eth_getBlockReceipts) {
+			for (const log of receipt.logs) {
+				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	// 6. Blocks where that top-level function was invoked on any contract
 	if (filter.address === undefined && filter.event === undefined && filter.function) {
-		//
+		for (const tx of block.eth_getBlockByNumber.transactions) {
+			if (isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	// 7. Blocks where that address sent/received a tx
 	if (filter.address && filter.event === undefined && filter.function === undefined) {
-		//
+		for (const tx of block.eth_getBlockByNumber.transactions) {
+			if (isHexEqual(tx.from, filter.address) || (tx.to !== null && isHexEqual(tx.to, filter.address))) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	return true;
