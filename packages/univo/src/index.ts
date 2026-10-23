@@ -63,58 +63,72 @@ type Filter = {
 	event?: `0x${string}`;
 	/** Index blocks that involve this address */
 	address?: `0x${string}`;
+	/** Index blocks where this function signature was invoked */
+	function?: `0x${string}`;
 };
+
+// TODO
+// Key improvement here is to include traces. For example internal function calls should qualify. Also if
+// only an address is specified we could expand matching to include all internal addresses involved.
 
 function matchFilter(block: Block, filter: Filter) {
-	if (!chainValid(block, filter)) return false;
-	if (!toBlockValid(block, filter)) return false;
-	if (!fromBlockValid(block, filter)) return false;
-	if (!includesLogEvent(block, filter)) return false;
-	if (!includesLogAddress(block, filter)) return false;
+	// `chain` is valid
+
+	if (hexToNumber(block.eth_chainId) !== filter.chain) {
+		return false;
+	}
+
+	// `fromBlock` is valid
+
+	if (hexToNumber(block.eth_getBlockByNumber.number) < filter.fromBlock) {
+		return false;
+	}
+
+	// `toBlock` is valid
+
+	if (typeof filter.toBlock === "number" && hexToNumber(block.eth_getBlockByNumber.number) > filter.toBlock) {
+		return false;
+	}
+
+	// `address`, `event`, `function` are valid. In general we order these from most to least specific.
+
+	// 1. Blocks where that top-level function emitted that event on that contract.
+	if (filter.address && filter.event && filter.function) {
+		//
+	}
+
+	// 2. Blocks where that contract emitted that event
+	if (filter.address && filter.event && filter.function === undefined) {
+		//
+	}
+
+	// 3. Blocks where that top-level function was invoked on that contract
+	if (filter.address && filter.event === undefined && filter.function) {
+		//
+	}
+
+	// 4. Blocks where that top-level function emitted that event on any contract
+	if (filter.address === undefined && filter.event && filter.function) {
+		//
+	}
+
+	// 5. Blocks where any contract emitted that event
+	if (filter.address === undefined && filter.event && filter.function === undefined) {
+		//
+	}
+
+	// 6. Blocks where that top-level function was invoked on any contract
+	if (filter.address === undefined && filter.event === undefined && filter.function) {
+		//
+	}
+
+	// 7. Blocks where that address sent/received a tx
+	if (filter.address && filter.event === undefined && filter.function === undefined) {
+		//
+	}
+
 	return true;
 }
-
-type MatchFilter = (block: Block, filter: Filter) => boolean;
-
-const chainValid: MatchFilter = (block, filter) => {
-	if (hexToNumber(block.eth_chainId) === filter.chain) return true;
-	return false;
-};
-
-const fromBlockValid: MatchFilter = (block, filter) => {
-	if (hexToNumber(block.eth_getBlockByNumber.number) >= filter.fromBlock) return true;
-	return false;
-};
-
-const toBlockValid: MatchFilter = (block, filter) => {
-	if (filter.toBlock === undefined) return true;
-	if (hexToNumber(block.eth_getBlockByNumber.number) <= filter.toBlock) return true;
-	return false;
-};
-
-const includesLogAddress: MatchFilter = (block, filter) => {
-	if (filter.address === undefined) return true;
-
-	for (const receipt of block.eth_getBlockReceipts) {
-		for (const log of receipt.logs) {
-			if (isHexEqual(log.address, filter.address)) return true;
-		}
-	}
-
-	return false;
-};
-
-const includesLogEvent: MatchFilter = (block, filter) => {
-	if (filter.event === undefined) return true;
-
-	for (const receipt of block.eth_getBlockReceipts) {
-		for (const log of receipt.logs) {
-			if (log.topics[0] === filter.event) return true;
-		}
-	}
-
-	return false;
-};
 
 /**
  * Events -----------------------------------------------------------------------------------------------------------------------------------
