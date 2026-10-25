@@ -28,22 +28,9 @@ import { catchException, createException } from "./exceptions";
 import { compress, createLogger, decoder, decompress, normalizeHex, retry, isHexEqual, iife, Flatten } from "./utils";
 
 /**
- * The minimum RPC data required to process a block.
- *
- * Extend this interface in your application to expose additional RPC methods to every event:
- *
- * ```ts
- * import "univo";
- *
- * declare module "univo" {
- *   interface Block {
- *     eth_getBalance: `0x${string}`;
- *   }
- * }
- * ```
- *
- * Your `getBlock` function must also return any required fields added by the augmentation.
+ * Block
  */
+
 interface Block {
 	eth_chainId: `0x${string}`;
 	eth_getBlockByNumber: RpcBlock<"latest", true>;
@@ -65,58 +52,158 @@ type Filter = {
 	event?: `0x${string}`;
 	/** Index blocks that involve this address */
 	address?: `0x${string}`;
+	/** Index blocks where this function signature was invoked */
+	function?: `0x${string}`;
 };
+
+// TODO
+// Key improvement here is to include traces. For example internal function calls should qualify. Also if
+// only an address is specified we could expand matching to include all internal addresses involved.
 
 function matchFilter(block: Block, filter: Filter) {
-	if (!chainValid(block, filter)) return false;
-	if (!toBlockValid(block, filter)) return false;
-	if (!fromBlockValid(block, filter)) return false;
-	if (!includesLogEvent(block, filter)) return false;
-	if (!includesLogAddress(block, filter)) return false;
+	// Matches `chain`
+
+	if (hexToNumber(block.eth_chainId) !== filter.chain) {
+		return false;
+	}
+
+	// Matches `fromBlock`
+
+	if (hexToNumber(block.eth_getBlockByNumber.number) < filter.fromBlock) {
+		return false;
+	}
+
+	// Matches `toBlock`
+
+	if (typeof filter.toBlock === "number" && hexToNumber(block.eth_getBlockByNumber.number) > filter.toBlock) {
+		return false;
+	}
+
+	// Matches `address`, `event`, and `function`. In general we order these from most to least specific.
+	// Whatever combination of these three arguments will match one of the cases below.
+
+	// 1. Blocks where that top-level function emitted that event on that contract.
+	if (filter.address && filter.event && filter.function) {
+		const txs: `0x${string}`[] = [];
+
+		// Find all transactions where that top-level function was invoked on that contract
+		for (const tx of block.eth_getBlockByNumber.transactions) {
+			if (tx.to !== null && isHexEqual(tx.to, filter.address)) {
+				if (isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
+					txs.push(tx.transactionIndex);
+				}
+			}
+		}
+
+		// Determine if that transaction emitted that event from that contract
+		for (const receipt of block.eth_getBlockReceipts) {
+			for (const log of receipt.logs) {
+				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
+					if (isHexEqual(log.address, filter.address)) {
+						if (txs.some((tx) => isHexEqual(tx, log.transactionIndex))) {
+							return true;
+						}
+					}
+				}
+			}
+		}
+
+		// A footgun with this case is that reverted txs do not emit logs. If a user wanted to
+		// store failures like we do in the explorer it's necessary to omit the event argument.
+
+		return false;
+	}
+
+	// 2. Blocks where that contract emitted that event
+	if (filter.address && filter.event && filter.function === undefined) {
+		for (const receipt of block.eth_getBlockReceipts) {
+			for (const log of receipt.logs) {
+				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
+					if (isHexEqual(log.address, filter.address)) {
+						return true;
+					}
+				}
+			}
+		}
+
+		return false;
+	}
+
+	// 3. Blocks where that top-level function was invoked on that contract
+	if (filter.address && filter.event === undefined && filter.function) {
+		for (const tx of block.eth_getBlockByNumber.transactions) {
+			if (tx.to !== null && isHexEqual(tx.to, filter.address)) {
+				if (isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	// 4. Blocks where that top-level function emitted that event on any contract
+	if (filter.address === undefined && filter.event && filter.function) {
+		const txs: `0x${string}`[] = [];
+
+		// Find all transactions where that top-level function was invoked
+		for (const tx of block.eth_getBlockByNumber.transactions) {
+			if (tx.to !== null && isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
+				txs.push(tx.transactionIndex);
+			}
+		}
+
+		// Determine if that transaction emitted that event
+		for (const receipt of block.eth_getBlockReceipts) {
+			for (const log of receipt.logs) {
+				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
+					if (txs.some((tx) => isHexEqual(tx, log.transactionIndex))) {
+						return true;
+					}
+				}
+			}
+		}
+
+		return false;
+	}
+
+	// 5. Blocks where any contract emitted that event
+	if (filter.address === undefined && filter.event && filter.function === undefined) {
+		for (const receipt of block.eth_getBlockReceipts) {
+			for (const log of receipt.logs) {
+				if (log.topics[0] !== undefined && isHexEqual(log.topics[0], filter.event)) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	// 6. Blocks where that top-level function was invoked on any contract
+	if (filter.address === undefined && filter.event === undefined && filter.function) {
+		for (const tx of block.eth_getBlockByNumber.transactions) {
+			if (tx.to !== null && isHexEqual(tx.input.slice(0, 10) as `0x`, filter.function)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// 7. Blocks where that address sent/received a tx
+	if (filter.address && filter.event === undefined && filter.function === undefined) {
+		for (const tx of block.eth_getBlockByNumber.transactions) {
+			if (isHexEqual(tx.from, filter.address) || (tx.to !== null && isHexEqual(tx.to, filter.address))) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	return true;
 }
-
-type MatchFilter = (block: Block, filter: Filter) => boolean;
-
-const chainValid: MatchFilter = (block, filter) => {
-	if (hexToNumber(block.eth_chainId) === filter.chain) return true;
-	return false;
-};
-
-const fromBlockValid: MatchFilter = (block, filter) => {
-	if (hexToNumber(block.eth_getBlockByNumber.number) >= filter.fromBlock) return true;
-	return false;
-};
-
-const toBlockValid: MatchFilter = (block, filter) => {
-	if (filter.toBlock === undefined) return true;
-	if (hexToNumber(block.eth_getBlockByNumber.number) <= filter.toBlock) return true;
-	return false;
-};
-
-const includesLogAddress: MatchFilter = (block, filter) => {
-	if (filter.address === undefined) return true;
-
-	for (const receipt of block.eth_getBlockReceipts) {
-		for (const log of receipt.logs) {
-			if (isHexEqual(log.address, filter.address)) return true;
-		}
-	}
-
-	return false;
-};
-
-const includesLogEvent: MatchFilter = (block, filter) => {
-	if (filter.event === undefined) return true;
-
-	for (const receipt of block.eth_getBlockReceipts) {
-		for (const log of receipt.logs) {
-			if (log.topics[0] === filter.event) return true;
-		}
-	}
-
-	return false;
-};
 
 /**
  * Events -----------------------------------------------------------------------------------------------------------------------------------
@@ -1849,12 +1936,13 @@ function defineIndexer(opts: Indexer) {
 			version,
 			language: "javascript",
 			events: allEvents.map((event) => {
-				const filters = event.filters.map((filter) => {
+				const filters = event.filters.map<Flatten<Filter>>((filter) => {
 					return {
 						chain: filter.chain,
 						event: filter.event,
 						address: filter.address,
 						to_block: filter.toBlock,
+						function: filter.function,
 						from_block: filter.fromBlock,
 					};
 				});
