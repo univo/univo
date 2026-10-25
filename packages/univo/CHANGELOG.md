@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.1...v0.4.2
+
+[compare changes](https://github.com/univo/univo/compare/v0.4.1...v0.4.2)
+
+### 🚀 Enhancements
+
+- **indexer:** Filter blocks by function selector ([#99](https://github.com/univo/univo/pull/99))
+
+### 🩹 Fixes
+
+- **indexer:** Verify blocks with invalid EIP-7702 authorizations ([#98](https://github.com/univo/univo/pull/98))
+
+### ❤️ Contributors
+
+- Sam Potter <sam.potter@hotmail.com>
+
 ## v0.4.0...v0.4.1
 
 [compare changes](https://github.com/univo/univo/compare/v0.4.0...v0.4.1)
