@@ -829,6 +829,60 @@ test.concurrent("public_deleteReorganisedHead never deletes events from canonica
 	expect(deleted).toBe(false);
 });
 
+test.concurrent("public_finalize accepts a mainnet block with an invalid EIP-7702 authorization", async () => {
+	const number = 26268195;
+	let chainFinalizedHeight = number - 1;
+
+	const upserted: string[] = [];
+	const finalized: string[] = [];
+	const hash = "0xaec8420968abd74e70ef5b3099d6ba7baa3f069c4f718d7c4d729d591cffcb09";
+
+	const event = defineEvent({
+		id: "event",
+		filters: [{ chain: 1, fromBlock: number }],
+		handler: (block) => block.eth_getBlockByNumber.transactions.filter((tx) => tx.hash === hash).map((tx) => tx.hash),
+		storage: {
+			async upsert(events) {
+				upserted.push(...events);
+			},
+			async delete() {},
+		},
+	});
+
+	const action = defineAction({
+		id: "action",
+		event,
+		handler: (hash) => {
+			finalized.push(hash);
+		},
+	});
+
+	const indexer = defineIndexer({
+		quiet: true,
+		events: [event],
+		actions: [action],
+		metadataStorage: test_metadataStorage(),
+		getBlock: (head) => {
+			if (head.number === "finalized") {
+				return test_getBlock({ ...head, number: numberToHex(chainFinalizedHeight) });
+			}
+
+			return test_getBlock(head);
+		},
+	});
+
+	await expect(indexer.request({ method: "public_getFinalizedHeight", params: ["0x1"] })).resolves.toBe(number - 1);
+
+	chainFinalizedHeight = number;
+
+	await indexer.request({ method: "public_finalize", params: ["0x1"] });
+
+	expect(upserted).toStrictEqual([hash]);
+	expect(finalized).toStrictEqual([hash]);
+
+	await expect(indexer.request({ method: "public_getFinalizedHeight", params: ["0x1"] })).resolves.toBe(number);
+});
+
 test.concurrent("public_finalize writes heads that were never processed", async () => {
 	let chainFinalizedHeight = 0;
 
