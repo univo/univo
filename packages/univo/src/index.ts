@@ -1,19 +1,21 @@
 import {
-	concatBytes,
-	formatTransaction,
-	hexToBigInt,
-	hexToBytes,
-	hexToNumber,
+	toRlp,
 	isHex,
 	keccak256,
-	numberToBytes,
+	concatHex,
+	hexToBytes,
+	concatBytes,
+	hexToNumber,
+	hexToBigInt,
 	numberToHex,
-	serializeTransaction,
-	toRlp,
+	numberToBytes,
+	formatTransaction,
+	serializeTransaction as _serializeTransaction,
 	type Hex,
 	type RpcBlock,
-	type RpcTransactionReceipt,
 	type Signature,
+	type RpcTransaction,
+	type RpcTransactionReceipt,
 	type TransactionSerializable,
 } from "viem";
 
@@ -709,6 +711,56 @@ function defineIndexer(opts: Indexer) {
 		return type === 0n ? encoded : concatBytes([Uint8Array.of(Number(type)), encoded]);
 	}
 
+	function serializeTransaction(tx: RpcTransaction) {
+		// Preserve authorization tuples verbatim, including invalid authorizations skipped by EIP-7702.
+		if (tx.type === "0x4") {
+			return concatHex([
+				"0x04",
+				toRlp([
+					quantityToBytes(tx.chainId),
+					quantityToBytes(tx.nonce),
+					quantityToBytes(tx.maxPriorityFeePerGas),
+					quantityToBytes(tx.maxFeePerGas),
+					quantityToBytes(tx.gas),
+					hexToBytes(tx.to!),
+					quantityToBytes(tx.value),
+					hexToBytes(tx.input),
+					tx.accessList.map(({ address, storageKeys }) => [hexToBytes(address), storageKeys.map((key) => hexToBytes(key))]),
+					(tx.authorizationList ?? []).map((authorization) => [
+						quantityToBytes(authorization.chainId),
+						hexToBytes(authorization.address),
+						quantityToBytes(authorization.nonce),
+						quantityToBytes(authorization.yParity),
+						quantityToBytes(authorization.r),
+						quantityToBytes(authorization.s),
+					]),
+					quantityToBytes(tx.yParity ?? tx.v),
+					quantityToBytes(tx.r),
+					quantityToBytes(tx.s),
+				]),
+			]);
+		}
+
+		const { input, ...formatted } = formatTransaction(tx);
+
+		// Some RPC providers attach the network chain ID to pre-EIP-155 transactions. Their v value
+		// remains authoritative; retaining chainId would incorrectly replay-protect the serialization.
+
+		if (formatted.type === "legacy" && (formatted.v === 27n || formatted.v === 28n)) {
+			formatted.chainId = undefined;
+		}
+
+		const signature =
+			formatted.type === "legacy"
+				? { r: formatted.r, s: formatted.s, v: formatted.v }
+				: { r: formatted.r, s: formatted.s, yParity: formatted.yParity };
+
+		return _serializeTransaction(
+			{ ...formatted, data: input } as TransactionSerializable, //
+			signature as Signature,
+		);
+	}
+
 	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n]);
 
 	/**
@@ -733,24 +785,7 @@ function defineIndexer(opts: Indexer) {
 		}
 
 		const transactions = block.eth_getBlockByNumber.transactions.map((tx) => {
-			const { input, ...formatted } = formatTransaction(tx);
-
-			// Some RPC providers attach the network chain ID to pre-EIP-155 transactions. Their v value
-			// remains authoritative; retaining chainId would incorrectly replay-protect the serialization.
-
-			if (formatted.type === "legacy" && (formatted.v === 27n || formatted.v === 28n)) {
-				formatted.chainId = undefined;
-			}
-
-			const signature =
-				formatted.type === "legacy"
-					? { r: formatted.r, s: formatted.s, v: formatted.v }
-					: { r: formatted.r, s: formatted.s, yParity: formatted.yParity };
-
-			const serialized = serializeTransaction(
-				{ ...formatted, data: input } as TransactionSerializable, //
-				signature as Signature,
-			);
+			const serialized = serializeTransaction(tx);
 
 			if (!isHexEqual(tx.hash, keccak256(serialized))) {
 				throw new Error(`Transaction ${tx.hash} failed serialization check`);
