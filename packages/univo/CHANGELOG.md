@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.2...v0.4.3
+
+[compare changes](https://github.com/univo/univo/compare/v0.4.2...v0.4.3)
+
+### 🚀 Enhancements
+
+- **realtime:** Optimistically finalize indexer on start up ([#101](https://github.com/univo/univo/pull/101))
+
+### 🏡 Chore
+
+- **proxy:** Improve proxy memory usage ([#102](https://github.com/univo/univo/pull/102))
+
+### ❤️ Contributors
+
+- Sam Potter <sam.potter@hotmail.com>
+
 ## v0.4.1...v0.4.2
 
 [compare changes](https://github.com/univo/univo/compare/v0.4.1...v0.4.2)
