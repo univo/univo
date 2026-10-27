@@ -13,13 +13,3 @@ export function catchException(unknown: unknown, exception: string) {
 
 	return false;
 }
-
-/** Returns `message` if the exception is a known or `undefined` if not */
-export function getException(unknown: unknown) {
-	if (unknown instanceof Error) {
-		if (unknown.message.startsWith("univo")) {
-			const [_, message] = unknown.message.split(":");
-			if (message) return message;
-		}
-	}
-}
