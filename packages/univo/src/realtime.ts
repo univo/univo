@@ -379,6 +379,12 @@ function realtime(realtime: RealtimeOptions) {
 
 			const mutex_finalize = mutex(finalize);
 
+			// When the realtime client starts up we optimistically attempt to finalize
+			// the indexer. Without this, the realtime client only finalizes the indexer
+			// when the chain finalized height next progresses.
+
+			void mutex_finalize();
+
 			// Begin polling for finalized height
 
 			let chainFinalizedHeight = hexToNumber(chainFinalizedBlock.number);
