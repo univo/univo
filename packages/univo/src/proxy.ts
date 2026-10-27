@@ -1,7 +1,6 @@
+import { createLogger } from "./utils";
 import type { IndexerRpc } from "./rpc";
-import { getException } from "./exceptions";
 import type { Transport } from "./transport";
-import { createLogger, decoder, decompress } from "./utils";
 
 /**
  * Creates a web standard HTTP request handler `(req: Request) => Promise<Response>`.
@@ -15,11 +14,46 @@ function http(opts: { quiet?: boolean; indexer: Transport<IndexerRpc>; signingKe
 	const log = createLogger({ quiet: opts.quiet, prefix: "[proxy]" });
 
 	return async function proxy(req: Request): Promise<Response> {
-		// Parse request body
-		let body_buffer: ArrayBuffer;
+		// Determine authentication status
+		const authorization = req.headers.get("Authorization");
+		const compressed = req.headers.get("Content-Encoding") === "gzip";
+		const authenticated = authorization === `Bearer ${opts.signingKey}`;
+
+		// Authenticate compressed requests before decompression
+		if (compressed && (!authorization || !authenticated)) {
+			return Response.json(
+				{ jsonrpc: "2.0", id: null, error: { code: 0, message: "Invalid bearer token" } }, //
+				{ status: 400 },
+			);
+		}
+
+		// Parse the request body to a string
+		let body_string = "";
 
 		try {
-			body_buffer = await req.arrayBuffer();
+			if (compressed) {
+				if (!req.body) {
+					throw new Error("Missing compressed request body");
+				}
+
+				const reader = req.body.pipeThrough(new DecompressionStream("gzip")).pipeThrough(new TextDecoderStream()).getReader();
+
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+
+						if (done) {
+							break;
+						}
+
+						body_string += value;
+					}
+				} finally {
+					reader.releaseLock();
+				}
+			} else {
+				body_string = await req.text();
+			}
 		} catch {
 			return Response.json(
 				{ jsonrpc: "2.0", id: null, error: { code: 0, message: "Invalid request body" } }, //
@@ -27,37 +61,7 @@ function http(opts: { quiet?: boolean; indexer: Transport<IndexerRpc>; signingKe
 			);
 		}
 
-		// Determine authentication status
-		const authorization = req.headers.get("Authorization");
-		const authenticated = authorization === `Bearer ${opts.signingKey}`;
-
-		// Decode request body
-		let body_string: string;
-
-		if (req.headers.get("Content-Encoding") === "gzip") {
-			// Compressed requests should be authenticated before decompression. This prevents unauthenticated clients
-			// from sending ZIP bombs that force the server to spend CPU and memory before rejecting the request.
-
-			if (!authorization) {
-				return Response.json(
-					{ jsonrpc: "2.0", id: null, error: { code: 0, message: "No bearer token provided" } }, //
-					{ status: 400 },
-				);
-			}
-
-			if (!authenticated) {
-				return Response.json(
-					{ jsonrpc: "2.0", id: null, error: { code: 0, message: "Invalid bearer token" } }, //
-					{ status: 400 },
-				);
-			}
-
-			body_string = await decompress(body_buffer);
-		} else {
-			body_string = decoder.decode(body_buffer);
-		}
-
-		// Parse request as JSON
+		// Parse string request body as json
 		let json: any;
 
 		try {
@@ -70,20 +74,11 @@ function http(opts: { quiet?: boolean; indexer: Transport<IndexerRpc>; signingKe
 		}
 
 		// Authorize request for any private methods
-		if (json.method.startsWith("private_")) {
-			if (!authorization) {
-				return Response.json(
-					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "No bearer token provided" } }, //
-					{ status: 400 },
-				);
-			}
-
-			if (authorization !== `Bearer ${opts.signingKey}`) {
-				return Response.json(
-					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "Invalid bearer token" } }, //
-					{ status: 400 },
-				);
-			}
+		if (json.method.startsWith("private_") && (!authorization || !authenticated)) {
+			return Response.json(
+				{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "Invalid bearer token" } }, //
+				{ status: 400 },
+			);
 		}
 
 		// Perform RPC
@@ -92,24 +87,12 @@ function http(opts: { quiet?: boolean; indexer: Transport<IndexerRpc>; signingKe
 
 			return Response.json({ jsonrpc: "2.0", id: json.id, result });
 		} catch (error) {
-			const message = getException(error);
+			const message = error instanceof Error ? error.message : "Internal error";
 
-			if (message) {
-				log.error(message);
-
-				return Response.json(
-					{ jsonrpc: "2.0", id: json.id, error: { code: 0, message } }, //
-					{ status: 400 },
-				);
-			}
-
-			// Unknown exception
-			if (error instanceof Error) {
-				log.error(error.message);
-			}
+			log.error(message);
 
 			return Response.json(
-				{ jsonrpc: "2.0", id: json.id, error: { code: 0, message: "Internal server error" } }, //
+				{ jsonrpc: "2.0", id: json.id, error: { code: 0, message } }, //
 				{ status: 500 },
 			);
 		}
