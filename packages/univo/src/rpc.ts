@@ -61,9 +61,9 @@ type IndexerRpc = {
 
 		/**
 		 * Accepts a list of events and a batch of minified block data and writes to storage
-		 * @returns A list of failures that occured for each event and block pair
+		 * @returns A list of results indicating the status of each processed block
 		 */
-		private_writeEvents: (params: { events: string[]; blocks: Block[] }) => Promise<{ failures: Result[] }>;
+		private_writeEvents: (params: { events: string[]; blocks: Block[] }) => Promise<{ results: Result[] }>;
 
 		/**
 		 * Accepts a block head and writes events to storage
