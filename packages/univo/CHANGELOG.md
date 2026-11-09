@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.3...v0.4.4
+
+[compare changes](https://github.com/univo/univo/compare/v0.4.3...v0.4.4)
+
+### 🚀 Enhancements
+
+- **indexer:** Indicate filter matching during backfills ([#104](https://github.com/univo/univo/pull/104))
+
+### 🏡 Chore
+
+- **cli:** Remove CLI ([#105](https://github.com/univo/univo/pull/105))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.4.2...v0.4.3
 
 [compare changes](https://github.com/univo/univo/compare/v0.4.2...v0.4.3)
