@@ -1440,6 +1440,61 @@ test.concurrent("private_writeEvents records events", async () => {
 	]);
 });
 
+test.concurrent("private_writeEvents ignores blocks outside the defined filter range", async () => {
+	let handlerCalled = false;
+	let upsertCalled = false;
+
+	const event = defineEvent({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 1, toBlock: 2 }],
+		handler: () => {
+			handlerCalled = true;
+			return ["test"];
+		},
+		storage: {
+			async upsert() {
+				upsertCalled = true;
+			},
+			async delete() {},
+		},
+	});
+
+	const indexer = defineIndexer({
+		quiet: true,
+		actions: [],
+		events: [event],
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+	});
+
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+
+	const response = await indexer.request({
+		method: "private_writeEvents",
+		params: [
+			{
+				events: ["test"],
+				blocks: [block0],
+			},
+		],
+	});
+
+	expect(response.results).toStrictEqual([
+		{
+			status: "ignored",
+			chain: "0x1",
+			number: "0x0",
+			event_id: "test",
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			created_at: expect.any(Number),
+		},
+	]);
+
+	expect(upsertCalled).toBe(false);
+	expect(handlerCalled).toBe(false);
+});
+
 test.concurrent("private_writeEvents ignores events not explicitly requested", async () => {
 	const event = defineEvent({
 		id: "test",
