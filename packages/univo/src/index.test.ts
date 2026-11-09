@@ -1,589 +1,9 @@
+import { hexToNumber, numberToHex } from "viem";
 import { expect, expectTypeOf, test } from "vitest";
-import { hexToNumber, numberToHex, type Hex } from "viem";
 
-import type { Block, Event, Head } from ".";
+import type { Event, Head } from ".";
 import { defineAction, defineEvent, defineIndexer } from ".";
 import { test_getBlock, test_metadataStorage } from "../tests/utils";
-
-test.concurrent("private_writeEvents filters address + event + function", async () => {
-	const address: Hex = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-	const otherAddress: Hex = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-	const topic: Hex = `0x${"ab".repeat(32)}`;
-	const otherTopic: Hex = `0x${"cd".repeat(32)}`;
-	const tx = { from: otherAddress, to: address, input: "0xabcdef120000", transactionIndex: "0xa" };
-	const log = { address, topics: [topic], transactionIndex: "0xa" };
-	const block = {
-		eth_chainId: "0x1",
-		eth_getBlockByNumber: { number: "0xa", hash: "0x11", parentHash: "0x22", transactions: [tx] },
-		eth_getBlockReceipts: [{ logs: [log] }],
-	};
-	const handled: Hex[] = [];
-	const event = defineEvent({
-		id: "test",
-		filters: [
-			{
-				chain: 1,
-				fromBlock: 10,
-				toBlock: 10,
-				address: `0x${address.slice(2).toUpperCase()}`,
-				event: `0x${topic.slice(2).toUpperCase()}`,
-				function: "0xABCDEF12",
-			},
-		],
-		handler(block) {
-			handled.push(block.eth_getBlockByNumber.hash);
-			return [];
-		},
-		storage: { async upsert() {}, async delete() {} },
-	});
-	const indexer = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
-	});
-	const scenarios = [
-		{ name: "inclusive boundaries", block, matches: true },
-		{ name: "wrong chain", block: { ...block, eth_chainId: "0x2" }, matches: false },
-		{ name: "before range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0x9" } }, matches: false },
-		{ name: "after range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0xb" } }, matches: false },
-		{
-			name: "empty block",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [] }, eth_getBlockReceipts: [] },
-			matches: false,
-		},
-		{
-			name: "wrong recipient",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, to: otherAddress }] } },
-			matches: false,
-		},
-		{ name: "wrong emitter", block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, address: otherAddress }] }] }, matches: false },
-		{
-			name: "topic in wrong position",
-			block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, topics: [otherTopic, topic] }] }] },
-			matches: false,
-		},
-		{ name: "no topics", block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, topics: [] }] }] }, matches: false },
-		{ name: "no surviving logs", block: { ...block, eth_getBlockReceipts: [{ logs: [] }] }, matches: false },
-		{
-			name: "different transactions",
-			block: {
-				...block,
-				eth_getBlockByNumber: {
-					...block.eth_getBlockByNumber,
-					transactions: [tx, { ...tx, input: "0x12345678", transactionIndex: "0xb" }],
-				},
-				eth_getBlockReceipts: [{ logs: [{ ...log, transactionIndex: "0xb" }] }],
-			},
-			matches: false,
-		},
-		{ name: "index casing", block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, transactionIndex: "0xA" }] }] }, matches: true },
-		{
-			name: "wrong selector",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x12345678" }] } },
-			matches: false,
-		},
-		{
-			name: "empty calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x" }] } },
-			matches: false,
-		},
-		{
-			name: "short calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0xab" }] } },
-			matches: false,
-		},
-		{
-			name: "selector later in calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x00000000abcdef12" }] } },
-			matches: false,
-		},
-		{
-			name: "contract creation",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, to: null }] } },
-			matches: false,
-		},
-	];
-	for (const scenario of scenarios) {
-		handled.length = 0;
-		const response = await indexer.request({
-			method: "private_writeEvents",
-			params: [{ events: [event.id], blocks: [scenario.block as unknown as Block] }],
-		});
-		expect(response.failures, scenario.name).toStrictEqual([]);
-		expect(handled, scenario.name).toStrictEqual(scenario.matches ? [block.eth_getBlockByNumber.hash] : []);
-	}
-});
-
-test.concurrent("private_writeEvents filters address + event", async () => {
-	const address: Hex = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-	const otherAddress: Hex = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-	const topic: Hex = `0x${"ab".repeat(32)}`;
-	const otherTopic: Hex = `0x${"cd".repeat(32)}`;
-	const log = { address, topics: [topic], transactionIndex: "0xa" };
-	const block = {
-		eth_chainId: "0x1",
-		eth_getBlockByNumber: { number: "0xa", hash: "0x11", parentHash: "0x22", transactions: [] },
-		eth_getBlockReceipts: [{ logs: [log] }],
-	};
-	const handled: Hex[] = [];
-	const event = defineEvent({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 10, toBlock: 10, address, event: topic }],
-		handler(block) {
-			handled.push(block.eth_getBlockByNumber.hash);
-			return [];
-		},
-		storage: { async upsert() {}, async delete() {} },
-	});
-	const indexer = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
-	});
-	const scenarios = [
-		{ name: "inclusive boundaries", block, matches: true },
-		{ name: "wrong chain", block: { ...block, eth_chainId: "0x2" }, matches: false },
-		{ name: "before range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0x9" } }, matches: false },
-		{ name: "after range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0xb" } }, matches: false },
-		{ name: "empty block", block: { ...block, eth_getBlockReceipts: [] }, matches: false },
-		{ name: "wrong emitter", block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, address: otherAddress }] }] }, matches: false },
-		{
-			name: "topic in wrong position",
-			block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, topics: [otherTopic, topic] }] }] },
-			matches: false,
-		},
-		{ name: "no topics", block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, topics: [] }] }] }, matches: false },
-		{
-			name: "different logs",
-			block: {
-				...block,
-				eth_getBlockReceipts: [
-					{
-						logs: [
-							{ ...log, topics: [otherTopic] },
-							{ ...log, address: otherAddress },
-						],
-					},
-				],
-			},
-			matches: false,
-		},
-	];
-	for (const scenario of scenarios) {
-		handled.length = 0;
-		const response = await indexer.request({
-			method: "private_writeEvents",
-			params: [{ events: [event.id], blocks: [scenario.block as unknown as Block] }],
-		});
-		expect(response.failures, scenario.name).toStrictEqual([]);
-		expect(handled, scenario.name).toStrictEqual(scenario.matches ? [block.eth_getBlockByNumber.hash] : []);
-	}
-});
-
-test.concurrent("private_writeEvents filters address + function", async () => {
-	const address: Hex = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-	const otherAddress: Hex = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-	const tx = { from: otherAddress, to: address, input: "0xabcdef120000", transactionIndex: "0xa" };
-	const block = {
-		eth_chainId: "0x1",
-		eth_getBlockByNumber: { number: "0xa", hash: "0x11", parentHash: "0x22", transactions: [tx] },
-		eth_getBlockReceipts: [{ logs: [] }],
-	};
-	const handled: Hex[] = [];
-	const event = defineEvent({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 10, toBlock: 10, address, function: "0xabcdef12" }],
-		handler(block) {
-			handled.push(block.eth_getBlockByNumber.hash);
-			return [];
-		},
-		storage: { async upsert() {}, async delete() {} },
-	});
-	const indexer = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
-	});
-	const scenarios = [
-		{ name: "inclusive boundaries without surviving logs", block, matches: true },
-		{ name: "wrong chain", block: { ...block, eth_chainId: "0x2" }, matches: false },
-		{ name: "before range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0x9" } }, matches: false },
-		{ name: "after range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0xb" } }, matches: false },
-		{ name: "empty block", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [] } }, matches: false },
-		{
-			name: "wrong recipient",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, to: otherAddress }] } },
-			matches: false,
-		},
-		{
-			name: "address is sender only",
-			block: {
-				...block,
-				eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, from: address, to: otherAddress }] },
-			},
-			matches: false,
-		},
-		{
-			name: "wrong selector",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x12345678" }] } },
-			matches: false,
-		},
-		{
-			name: "empty calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x" }] } },
-			matches: false,
-		},
-		{
-			name: "short calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0xab" }] } },
-			matches: false,
-		},
-		{
-			name: "selector later in calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x00000000abcdef12" }] } },
-			matches: false,
-		},
-		{
-			name: "contract creation",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, to: null }] } },
-			matches: false,
-		},
-	];
-	for (const scenario of scenarios) {
-		handled.length = 0;
-		const response = await indexer.request({
-			method: "private_writeEvents",
-			params: [{ events: [event.id], blocks: [scenario.block as unknown as Block] }],
-		});
-		expect(response.failures, scenario.name).toStrictEqual([]);
-		expect(handled, scenario.name).toStrictEqual(scenario.matches ? [block.eth_getBlockByNumber.hash] : []);
-	}
-});
-
-test.concurrent("private_writeEvents filters event + function", async () => {
-	const address: Hex = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-	const otherAddress: Hex = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-	const topic: Hex = `0x${"ab".repeat(32)}`;
-	const otherTopic: Hex = `0x${"cd".repeat(32)}`;
-	const tx = { from: otherAddress, to: address, input: "0xabcdef120000", transactionIndex: "0xa" };
-	// The recipient and emitter deliberately differ, as with a router calling a token.
-	const log = { address: otherAddress, topics: [topic], transactionIndex: "0xa" };
-	const block = {
-		eth_chainId: "0x1",
-		eth_getBlockByNumber: { number: "0xa", hash: "0x11", parentHash: "0x22", transactions: [tx] },
-		eth_getBlockReceipts: [{ logs: [log] }],
-	};
-	const handled: Hex[] = [];
-	const event = defineEvent({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 10, toBlock: 10, event: `0x${topic.slice(2).toUpperCase()}`, function: "0xABCDEF12" }],
-		handler(block) {
-			handled.push(block.eth_getBlockByNumber.hash);
-			return [];
-		},
-		storage: { async upsert() {}, async delete() {} },
-	});
-	const indexer = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
-	});
-	const scenarios = [
-		{ name: "inclusive boundaries with different recipient and emitter", block, matches: true },
-		{ name: "wrong chain", block: { ...block, eth_chainId: "0x2" }, matches: false },
-		{ name: "before range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0x9" } }, matches: false },
-		{ name: "after range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0xb" } }, matches: false },
-		{
-			name: "empty block",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [] }, eth_getBlockReceipts: [] },
-			matches: false,
-		},
-		{
-			name: "topic in wrong position",
-			block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, topics: [otherTopic, topic] }] }] },
-			matches: false,
-		},
-		{ name: "no topics", block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, topics: [] }] }] }, matches: false },
-		{ name: "no surviving logs", block: { ...block, eth_getBlockReceipts: [{ logs: [] }] }, matches: false },
-		{
-			name: "different transactions",
-			block: {
-				...block,
-				eth_getBlockByNumber: {
-					...block.eth_getBlockByNumber,
-					transactions: [tx, { ...tx, input: "0x12345678", transactionIndex: "0xb" }],
-				},
-				eth_getBlockReceipts: [{ logs: [{ ...log, transactionIndex: "0xb" }] }],
-			},
-			matches: false,
-		},
-		{ name: "index casing", block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, transactionIndex: "0xA" }] }] }, matches: true },
-		{
-			name: "wrong selector",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x12345678" }] } },
-			matches: false,
-		},
-		{
-			name: "empty calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x" }] } },
-			matches: false,
-		},
-		{
-			name: "short calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0xab" }] } },
-			matches: false,
-		},
-		{
-			name: "selector later in calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x00000000abcdef12" }] } },
-			matches: false,
-		},
-		{
-			name: "contract creation",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, to: null }] } },
-			matches: false,
-		},
-	];
-	for (const scenario of scenarios) {
-		handled.length = 0;
-		const response = await indexer.request({
-			method: "private_writeEvents",
-			params: [{ events: [event.id], blocks: [scenario.block as unknown as Block] }],
-		});
-		expect(response.failures, scenario.name).toStrictEqual([]);
-		expect(handled, scenario.name).toStrictEqual(scenario.matches ? [block.eth_getBlockByNumber.hash] : []);
-	}
-});
-
-test.concurrent("private_writeEvents filters event-only", async () => {
-	const address: Hex = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-	const topic: Hex = `0x${"ab".repeat(32)}`;
-	const otherTopic: Hex = `0x${"cd".repeat(32)}`;
-	const log = { address, topics: [topic], transactionIndex: "0xa" };
-	const block = {
-		eth_chainId: "0x1",
-		eth_getBlockByNumber: { number: "0xa", hash: "0x11", parentHash: "0x22", transactions: [] },
-		eth_getBlockReceipts: [{ logs: [log] }],
-	};
-	const handled: Hex[] = [];
-	const event = defineEvent({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 10, toBlock: 10, event: topic }],
-		handler(block) {
-			handled.push(block.eth_getBlockByNumber.hash);
-			return [];
-		},
-		storage: { async upsert() {}, async delete() {} },
-	});
-	const indexer = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
-	});
-	const scenarios = [
-		{ name: "inclusive boundaries", block, matches: true },
-		{ name: "wrong chain", block: { ...block, eth_chainId: "0x2" }, matches: false },
-		{ name: "before range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0x9" } }, matches: false },
-		{ name: "after range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0xb" } }, matches: false },
-		{ name: "empty block", block: { ...block, eth_getBlockReceipts: [] }, matches: false },
-		{
-			name: "topic in wrong position",
-			block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, topics: [otherTopic, topic] }] }] },
-			matches: false,
-		},
-		{ name: "no topics", block: { ...block, eth_getBlockReceipts: [{ logs: [{ ...log, topics: [] }] }] }, matches: false },
-	];
-	for (const scenario of scenarios) {
-		handled.length = 0;
-		const response = await indexer.request({
-			method: "private_writeEvents",
-			params: [{ events: [event.id], blocks: [scenario.block as unknown as Block] }],
-		});
-		expect(response.failures, scenario.name).toStrictEqual([]);
-		expect(handled, scenario.name).toStrictEqual(scenario.matches ? [block.eth_getBlockByNumber.hash] : []);
-	}
-});
-
-test.concurrent("private_writeEvents filters function-only", async () => {
-	const address: Hex = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-	const otherAddress: Hex = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-	const tx = { from: otherAddress, to: address, input: "0xabcdef120000", transactionIndex: "0xa" };
-	const block = {
-		eth_chainId: "0x1",
-		eth_getBlockByNumber: { number: "0xa", hash: "0x11", parentHash: "0x22", transactions: [tx] },
-		eth_getBlockReceipts: [{ logs: [] }],
-	};
-	const handled: Hex[] = [];
-	const event = defineEvent({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 10, toBlock: 10, function: "0xabcdef12" }],
-		handler(block) {
-			handled.push(block.eth_getBlockByNumber.hash);
-			return [];
-		},
-		storage: { async upsert() {}, async delete() {} },
-	});
-	const indexer = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
-	});
-	const scenarios = [
-		{ name: "inclusive boundaries without surviving logs", block, matches: true },
-		{ name: "wrong chain", block: { ...block, eth_chainId: "0x2" }, matches: false },
-		{ name: "before range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0x9" } }, matches: false },
-		{ name: "after range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0xb" } }, matches: false },
-		{ name: "empty block", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [] } }, matches: false },
-		{
-			name: "wrong selector",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x12345678" }] } },
-			matches: false,
-		},
-		{
-			name: "empty calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x" }] } },
-			matches: false,
-		},
-		{
-			name: "short calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0xab" }] } },
-			matches: false,
-		},
-		{
-			name: "selector later in calldata",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, input: "0x00000000abcdef12" }] } },
-			matches: false,
-		},
-		{
-			name: "contract creation",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, to: null }] } },
-			matches: false,
-		},
-	];
-	for (const scenario of scenarios) {
-		handled.length = 0;
-		const response = await indexer.request({
-			method: "private_writeEvents",
-			params: [{ events: [event.id], blocks: [scenario.block as unknown as Block] }],
-		});
-		expect(response.failures, scenario.name).toStrictEqual([]);
-		expect(handled, scenario.name).toStrictEqual(scenario.matches ? [block.eth_getBlockByNumber.hash] : []);
-	}
-});
-
-test.concurrent("private_writeEvents filters address-only", async () => {
-	const address: Hex = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-	const otherAddress: Hex = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-	const tx = { from: otherAddress, to: address, input: "0x", transactionIndex: "0xa" };
-	const block = {
-		eth_chainId: "0x1",
-		eth_getBlockByNumber: { number: "0xa", hash: "0x11", parentHash: "0x22", transactions: [tx] },
-		eth_getBlockReceipts: [],
-	};
-	const handled: Hex[] = [];
-	const event = defineEvent({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 10, toBlock: 10, address }],
-		handler(block) {
-			handled.push(block.eth_getBlockByNumber.hash);
-			return [];
-		},
-		storage: { async upsert() {}, async delete() {} },
-	});
-	const indexer = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
-	});
-	const scenarios = [
-		{ name: "recipient at inclusive boundaries", block, matches: true },
-		{
-			name: "sender",
-			block: {
-				...block,
-				eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, from: address, to: otherAddress }] },
-			},
-			matches: true,
-		},
-		{ name: "wrong chain", block: { ...block, eth_chainId: "0x2" }, matches: false },
-		{ name: "before range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0x9" } }, matches: false },
-		{ name: "after range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0xb" } }, matches: false },
-		{ name: "empty block", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [] } }, matches: false },
-		{
-			name: "unrelated address",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, to: otherAddress }] } },
-			matches: false,
-		},
-		{
-			name: "unrelated creation",
-			block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, transactions: [{ ...tx, to: null }] } },
-			matches: false,
-		},
-	];
-	for (const scenario of scenarios) {
-		handled.length = 0;
-		const response = await indexer.request({
-			method: "private_writeEvents",
-			params: [{ events: [event.id], blocks: [scenario.block as unknown as Block] }],
-		});
-		expect(response.failures, scenario.name).toStrictEqual([]);
-		expect(handled, scenario.name).toStrictEqual(scenario.matches ? [block.eth_getBlockByNumber.hash] : []);
-	}
-});
-
-test.concurrent("private_writeEvents filters with no optional fields", async () => {
-	const block = {
-		eth_chainId: "0x1",
-		eth_getBlockByNumber: { number: "0xa", hash: "0x11", parentHash: "0x22", transactions: [] },
-		eth_getBlockReceipts: [],
-	};
-	const handled: Hex[] = [];
-	const event = defineEvent({
-		id: "test",
-		filters: [{ chain: 1, fromBlock: 10, toBlock: 10 }],
-		handler(block) {
-			handled.push(block.eth_getBlockByNumber.hash);
-			return [];
-		},
-		storage: { async upsert() {}, async delete() {} },
-	});
-	const indexer = defineIndexer({
-		quiet: true,
-		getBlock: test_getBlock,
-		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
-	});
-	const scenarios = [
-		{ name: "empty block at inclusive boundaries", block, matches: true },
-		{ name: "wrong chain", block: { ...block, eth_chainId: "0x2" }, matches: false },
-		{ name: "before range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0x9" } }, matches: false },
-		{ name: "after range", block: { ...block, eth_getBlockByNumber: { ...block.eth_getBlockByNumber, number: "0xb" } }, matches: false },
-	];
-	for (const scenario of scenarios) {
-		handled.length = 0;
-		const response = await indexer.request({
-			method: "private_writeEvents",
-			params: [{ events: [event.id], blocks: [scenario.block as unknown as Block] }],
-		});
-		expect(response.failures, scenario.name).toStrictEqual([]);
-		expect(handled, scenario.name).toStrictEqual(scenario.matches ? [block.eth_getBlockByNumber.hash] : []);
-	}
-});
 
 test.concurrent("correctly infers the event type", () => {
 	const event = defineEvent({
@@ -1851,6 +1271,7 @@ test.concurrent("private_writeEvents indexes only the events requested", async (
 
 	const event1 = defineEvent({
 		id: "event1",
+		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [`event1-${block.eth_getBlockByNumber.hash}`],
 		storage: {
 			async upsert(events) {
@@ -1858,25 +1279,24 @@ test.concurrent("private_writeEvents indexes only the events requested", async (
 			},
 			async delete() {},
 		},
-		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
 	const event2 = defineEvent({
 		id: "event2",
+		filters: [{ chain: 1, fromBlock: 0 }],
+		storage: { upsert: async () => {}, delete: async () => {} },
 		handler: () => {
 			event2HandlerCalled = true;
 			return [];
 		},
-		storage: { upsert: async () => {}, delete: async () => {} },
-		filters: [{ chain: 1, fromBlock: 0 }],
 	});
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event1, event2],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event1, event2],
-		actions: [],
 	});
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
@@ -1891,7 +1311,18 @@ test.concurrent("private_writeEvents indexes only the events requested", async (
 		],
 	});
 
-	expect(response.failures).toStrictEqual([]);
+	expect(response.results).toStrictEqual([
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x0",
+			event_id: "event1",
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			created_at: expect.any(Number),
+		},
+	]);
+
 	expect(upserted).toStrictEqual([`event1-${block0.eth_getBlockByNumber.hash}`]);
 	expect(event2HandlerCalled).toBe(false);
 });
@@ -1924,10 +1355,10 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event1, event2],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event1, event2],
-		actions: [],
 	});
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
@@ -1942,7 +1373,26 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 		],
 	});
 
-	expect(response.failures).toStrictEqual([]);
+	expect(response.results).toStrictEqual([
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x0",
+			event_id: "event1",
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			created_at: expect.any(Number),
+		},
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x0",
+			event_id: "event2",
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			created_at: expect.any(Number),
+		},
+	]);
 
 	expect(count).toBe(1);
 
@@ -1952,17 +1402,17 @@ test.concurrent("private_writeEvents deduplicates events with the same storage a
 test.concurrent("private_writeEvents records events", async () => {
 	const event = defineEvent({
 		id: "test",
-		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0 }],
 		handler: (block) => [JSON.stringify(block)],
+		storage: { upsert: async () => {}, delete: async () => {} },
 	});
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
 	});
 
 	const block22994233 = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
@@ -1977,14 +1427,79 @@ test.concurrent("private_writeEvents records events", async () => {
 		],
 	});
 
-	expect(response.failures).toStrictEqual([]);
+	expect(response.results).toStrictEqual([
+		{
+			status: "ok",
+			chain: "0x1",
+			event_id: "test",
+			number: "0x15edd39",
+			hash: "0x0393419cabd72fe7736c333bed50df0d4c616c6be1f4d2048adb29643112d9ad",
+			parent_hash: "0x669f942b62f752555953f31e89400cd95251691cf26f8ecdb220a91dd74fc1ee",
+			created_at: expect.any(Number),
+		},
+	]);
+});
+
+test.concurrent("private_writeEvents ignores blocks outside the defined filter range", async () => {
+	let handlerCalled = false;
+	let upsertCalled = false;
+
+	const event = defineEvent({
+		id: "test",
+		filters: [{ chain: 1, fromBlock: 1, toBlock: 2 }],
+		handler: () => {
+			handlerCalled = true;
+			return ["test"];
+		},
+		storage: {
+			async upsert() {
+				upsertCalled = true;
+			},
+			async delete() {},
+		},
+	});
+
+	const indexer = defineIndexer({
+		quiet: true,
+		actions: [],
+		events: [event],
+		getBlock: test_getBlock,
+		metadataStorage: test_metadataStorage(),
+	});
+
+	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
+
+	const response = await indexer.request({
+		method: "private_writeEvents",
+		params: [
+			{
+				events: ["test"],
+				blocks: [block0],
+			},
+		],
+	});
+
+	expect(response.results).toStrictEqual([
+		{
+			status: "ignored",
+			chain: "0x1",
+			number: "0x0",
+			event_id: "test",
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			created_at: expect.any(Number),
+		},
+	]);
+
+	expect(upsertCalled).toBe(false);
+	expect(handlerCalled).toBe(false);
 });
 
 test.concurrent("private_writeEvents ignores events not explicitly requested", async () => {
 	const event = defineEvent({
 		id: "test",
-		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
+		storage: { upsert: async () => {}, delete: async () => {} },
 		handler(block) {
 			if (hexToNumber(block.eth_getBlockByNumber.number) === 1) {
 				throw new Error("Test error message");
@@ -1996,10 +1511,10 @@ test.concurrent("private_writeEvents ignores events not explicitly requested", a
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
 	});
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
@@ -2016,14 +1531,14 @@ test.concurrent("private_writeEvents ignores events not explicitly requested", a
 		],
 	});
 
-	expect(response.failures).toEqual([]);
+	expect(response.results).toEqual([]);
 });
 
 test.concurrent("private_writeEvents returns handler errors", async () => {
 	const event = defineEvent({
 		id: "test",
-		storage: { upsert: async () => {}, delete: async () => {} },
 		filters: [{ chain: 1, fromBlock: 0, toBlock: 2 }],
+		storage: { upsert: async () => {}, delete: async () => {} },
 		handler(block) {
 			if (hexToNumber(block.eth_getBlockByNumber.number) === 1) {
 				throw new Error("Test error message");
@@ -2035,10 +1550,10 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
 	});
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
@@ -2055,14 +1570,32 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 		],
 	});
 
-	expect(response.failures).toStrictEqual([
+	expect(response.results).toStrictEqual([
 		{
 			status: "handler_error",
+			chain: "0x1",
+			number: "0x1",
 			event_id: "test",
-			chain: expect.any(String),
-			hash: expect.any(String),
-			number: expect.any(String),
-			parent_hash: expect.any(String),
+			hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			created_at: expect.any(Number),
+		},
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x0",
+			event_id: "test",
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			created_at: expect.any(Number),
+		},
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x2",
+			event_id: "test",
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
 			created_at: expect.any(Number),
 		},
 	]);
@@ -2083,10 +1616,10 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
 	});
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
@@ -2103,32 +1636,32 @@ test.concurrent("private_writeEvents returns errors thrown during upsert", async
 		],
 	});
 
-	expect(response.failures).toStrictEqual([
+	expect(response.results).toStrictEqual([
 		{
 			status: "upsert_error",
+			chain: "0x1",
+			number: "0x0",
 			event_id: "test",
-			chain: expect.any(String),
-			hash: expect.any(String),
-			number: expect.any(String),
-			parent_hash: expect.any(String),
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
 			created_at: expect.any(Number),
 		},
 		{
 			status: "upsert_error",
+			chain: "0x1",
+			number: "0x1",
 			event_id: "test",
-			chain: expect.any(String),
-			hash: expect.any(String),
-			number: expect.any(String),
-			parent_hash: expect.any(String),
+			hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 			created_at: expect.any(Number),
 		},
 		{
 			status: "upsert_error",
+			chain: "0x1",
+			number: "0x2",
 			event_id: "test",
-			chain: expect.any(String),
-			hash: expect.any(String),
-			number: expect.any(String),
-			parent_hash: expect.any(String),
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
 			created_at: expect.any(Number),
 		},
 	]);
@@ -2152,10 +1685,10 @@ test.concurrent("private_writeEvents retries upsert errors", async () => {
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
 	});
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
@@ -2172,32 +1705,32 @@ test.concurrent("private_writeEvents retries upsert errors", async () => {
 		],
 	});
 
-	expect(response.failures).toStrictEqual([
+	expect(response.results).toStrictEqual([
 		{
 			status: "upsert_error",
+			chain: "0x1",
+			number: "0x0",
 			event_id: "test",
-			chain: expect.any(String),
-			hash: expect.any(String),
-			number: expect.any(String),
-			parent_hash: expect.any(String),
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
 			created_at: expect.any(Number),
 		},
 		{
 			status: "upsert_error",
+			chain: "0x1",
+			number: "0x1",
 			event_id: "test",
-			chain: expect.any(String),
-			hash: expect.any(String),
-			number: expect.any(String),
-			parent_hash: expect.any(String),
+			hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 			created_at: expect.any(Number),
 		},
 		{
 			status: "upsert_error",
+			chain: "0x1",
+			number: "0x2",
 			event_id: "test",
-			chain: expect.any(String),
-			hash: expect.any(String),
-			number: expect.any(String),
-			parent_hash: expect.any(String),
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
 			created_at: expect.any(Number),
 		},
 	]);
@@ -2222,10 +1755,10 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
 	});
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
@@ -2242,32 +1775,32 @@ test.concurrent("private_writeEvents only returns the handler error if both hand
 		],
 	});
 
-	expect(response.failures).toStrictEqual([
+	expect(response.results).toStrictEqual([
 		{
 			status: "handler_error",
+			chain: "0x1",
+			number: "0x0",
 			event_id: "test",
-			chain: expect.any(String),
-			hash: expect.any(String),
-			number: expect.any(String),
-			parent_hash: expect.any(String),
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
 			created_at: expect.any(Number),
 		},
 		{
 			status: "handler_error",
+			chain: "0x1",
+			number: "0x1",
 			event_id: "test",
-			chain: expect.any(String),
-			hash: expect.any(String),
-			number: expect.any(String),
-			parent_hash: expect.any(String),
+			hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 			created_at: expect.any(Number),
 		},
 		{
 			status: "handler_error",
+			chain: "0x1",
+			number: "0x2",
 			event_id: "test",
-			chain: expect.any(String),
-			hash: expect.any(String),
-			number: expect.any(String),
-			parent_hash: expect.any(String),
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
 			created_at: expect.any(Number),
 		},
 	]);
@@ -2322,23 +1855,23 @@ test.concurrent("private_writeEvents returns incomplete errors in handler", asyn
 		],
 	});
 
-	expect(response.failures).toStrictEqual([
+	expect(response.results).toStrictEqual([
 		{
 			status: "incomplete_error",
-			event_id: "test",
 			chain: "0x1",
 			number: "0x1",
-			hash: expect.any(String),
-			parent_hash: expect.any(String),
+			event_id: "test",
+			hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 			created_at: expect.any(Number),
 		},
 		{
 			status: "incomplete_error",
-			event_id: "test",
 			chain: "0x1",
 			number: "0x2",
-			hash: expect.any(String),
-			parent_hash: expect.any(String),
+			event_id: "test",
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
 			created_at: expect.any(Number),
 		},
 	]);
@@ -2399,23 +1932,23 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in hand
 		],
 	});
 
-	expect(response.failures).toStrictEqual([
+	expect(response.results).toStrictEqual([
 		{
 			status: "incomplete_error",
-			event_id: "test",
 			chain: "0x1",
 			number: "0x1",
-			hash: expect.any(String),
-			parent_hash: expect.any(String),
+			event_id: "test",
+			hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 			created_at: expect.any(Number),
 		},
 		{
 			status: "incomplete_error",
-			event_id: "test",
 			chain: "0x1",
 			number: "0x2",
-			hash: expect.any(String),
-			parent_hash: expect.any(String),
+			event_id: "test",
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
 			created_at: expect.any(Number),
 		},
 	]);
@@ -2439,10 +1972,10 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
 	});
 
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
@@ -2475,23 +2008,23 @@ test.concurrent("private_writeEvents returns incomplete errors in upsert", async
 		],
 	});
 
-	expect(response.failures).toStrictEqual([
+	expect(response.results).toStrictEqual([
 		{
 			status: "incomplete_error",
-			event_id: "test",
 			chain: "0x1",
 			number: "0x1",
-			hash: expect.any(String),
-			parent_hash: expect.any(String),
+			event_id: "test",
+			hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 			created_at: expect.any(Number),
 		},
 		{
 			status: "incomplete_error",
-			event_id: "test",
 			chain: "0x1",
 			number: "0x2",
-			hash: expect.any(String),
-			parent_hash: expect.any(String),
+			event_id: "test",
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
 			created_at: expect.any(Number),
 		},
 	]);
@@ -2518,10 +2051,10 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
 	});
 
 	const block1 = await test_getBlock({ chain: "0x1", number: numberToHex(1) });
@@ -2554,23 +2087,23 @@ test.concurrent("private_writeEvents returns swallowed incomplete errors in upse
 		],
 	});
 
-	expect(response.failures).toStrictEqual([
+	expect(response.results).toStrictEqual([
 		{
 			status: "incomplete_error",
-			event_id: "test",
 			chain: "0x1",
 			number: "0x1",
-			hash: expect.any(String),
-			parent_hash: expect.any(String),
+			event_id: "test",
+			hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 			created_at: expect.any(Number),
 		},
 		{
 			status: "incomplete_error",
-			event_id: "test",
 			chain: "0x1",
 			number: "0x2",
-			hash: expect.any(String),
-			parent_hash: expect.any(String),
+			event_id: "test",
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
 			created_at: expect.any(Number),
 		},
 	]);
@@ -2585,11 +2118,11 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 	});
 
 	const indexer = defineIndexer({
-		quiet: true,
+		quiet: false,
+		actions: [],
+		events: [event],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
 	});
 
 	const response = await indexer.request({
@@ -2604,6 +2137,7 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 							number: "0x1",
 							difficulty: null,
 							hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+							parentHash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 						},
 					},
 					{
@@ -2612,6 +2146,7 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 							number: "0x2",
 							difficulty: null,
 							hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+							parentHash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 						},
 					},
 				] as any,
@@ -2619,7 +2154,26 @@ test.concurrent("private_writeEvents doesn't return an error when accessing a pr
 		],
 	});
 
-	expect(response.failures).toEqual([]);
+	expect(response.results).toStrictEqual([
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x1",
+			event_id: "test",
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			created_at: expect.any(Number),
+		},
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x2",
+			event_id: "test",
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			created_at: expect.any(Number),
+		},
+	]);
 });
 
 test.concurrent("private_writeEvents never upserts if handler returns empty event list", async () => {
@@ -2637,10 +2191,10 @@ test.concurrent("private_writeEvents never upserts if handler returns empty even
 
 	const indexer = defineIndexer({
 		quiet: true,
+		actions: [],
+		events: [event],
 		getBlock: test_getBlock,
 		metadataStorage: test_metadataStorage(),
-		events: [event],
-		actions: [],
 	});
 
 	const block0 = await test_getBlock({ chain: "0x1", number: numberToHex(0) });
@@ -2657,7 +2211,35 @@ test.concurrent("private_writeEvents never upserts if handler returns empty even
 		],
 	});
 
-	expect(response.failures).toStrictEqual([]); // Empty array implies successes
+	expect(response.results).toStrictEqual([
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x0",
+			event_id: "test",
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			created_at: expect.any(Number),
+		},
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x1",
+			event_id: "test",
+			hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			created_at: expect.any(Number),
+		},
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x2",
+			event_id: "test",
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			created_at: expect.any(Number),
+		},
+	]);
 });
 
 test.concurrent("private_writeEventsAndGetKeys indexes only the events requested", async () => {

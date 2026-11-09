@@ -2012,20 +2012,20 @@ function defineIndexer(opts: Indexer) {
 
 	const private_writeEvents: IndexerRpc["request"]["private_writeEvents"] = async (params) => {
 		if (allEvents.length === 0) {
-			return { failures: [] };
+			return { results: [] };
 		}
 
 		const relevantEvents = allEvents.filter((event) => params.events.includes(event.id));
 
 		if (relevantEvents.length === 0) {
-			return { failures: [] };
+			return { results: [] };
 		}
 
 		if (params.events.length === 0) {
-			return { failures: [] };
+			return { results: [] };
 		}
 
-		const failures: Record<string, Result> = {};
+		const results: Record<string, Result> = {};
 
 		// Proxy the object so we can safely determine whenever the user accesses a key that wasn't provided
 		let accessedUndefinedKey = false;
@@ -2040,20 +2040,27 @@ function defineIndexer(opts: Indexer) {
 			throw new Error(IncompleteBlockError);
 		});
 
-		const promises = eventsGroupedByStorageMap.entries().map(async ([storage, grouped_events]) => {
+		const promises = eventsGroupedByStorageMap.entries().map(async ([storage, groupedEvents]) => {
+			const requestedEvents = groupedEvents.filter((event) => params.events.includes(event.id));
+
 			// For all events that share the same storage adapter we push to the batch
 			const batch: any[] = [];
 
-			for (const event of grouped_events) {
-				// Ensure event is requested for write
-				if (!params.events.includes(event.id)) {
-					continue;
-				}
-
+			for (const event of requestedEvents) {
 				for (const block of proxiedBlocks) {
 					try {
 						// Ignore blocks that don't match any of the defined event filters
 						if (!event.filters.some((filter) => matchFilter(block, filter))) {
+							results[event.id + block.eth_getBlockByNumber.number] ??= {
+								status: "ignored",
+								event_id: event.id,
+								chain: block.eth_chainId,
+								hash: block.eth_getBlockByNumber.hash,
+								number: block.eth_getBlockByNumber.number,
+								parent_hash: block.eth_getBlockByNumber.parentHash,
+								created_at: Date.now(),
+							};
+
 							continue;
 						}
 
@@ -2076,7 +2083,7 @@ function defineIndexer(opts: Indexer) {
 							}
 						}
 
-						failures[event.id + block.eth_getBlockByNumber.number] ??= {
+						results[event.id + block.eth_getBlockByNumber.number] ??= {
 							status,
 							event_id: event.id,
 							chain: block.eth_chainId,
@@ -2089,60 +2096,59 @@ function defineIndexer(opts: Indexer) {
 				}
 			}
 
-			if (batch.length === 0) {
-				return;
-			}
+			if (batch.length > 0) {
+				try {
+					await retry(() => storage.upsert(batch), 2);
 
-			const start = Date.now();
-
-			try {
-				await retry(() => storage.upsert(batch), 2);
-
-				if (accessedUndefinedKey) {
-					throw new Error(IncompleteBlockError);
-				}
-			} catch (error) {
-				const status = catchException(error, IncompleteBlockError) ? "incomplete_error" : "upsert_error";
-
-				// Log upsert errors for user
-				if (status === "upsert_error") {
-					if (error instanceof Error) {
-						log.error(error.message);
+					if (accessedUndefinedKey) {
+						throw new Error(IncompleteBlockError);
 					}
-				}
+				} catch (error) {
+					const status = catchException(error, IncompleteBlockError) ? "incomplete_error" : "upsert_error";
 
-				for (const event of relevantEvents) {
-					for (const block of proxiedBlocks) {
-						// Ignore blocks that don't match any of the defined event filters
-						if (!event.filters.some((filter) => matchFilter(block, filter))) {
-							continue;
+					// Log upsert errors for user
+					if (status === "upsert_error") {
+						if (error instanceof Error) {
+							log.error(error.message);
 						}
+					}
 
-						failures[event.id + block.eth_getBlockByNumber.number] ??= {
-							status,
-							event_id: event.id,
-							chain: block.eth_chainId,
-							hash: block.eth_getBlockByNumber.hash,
-							number: block.eth_getBlockByNumber.number,
-							parent_hash: block.eth_getBlockByNumber.parentHash,
-							created_at: Date.now(),
-						};
+					for (const event of requestedEvents) {
+						for (const block of proxiedBlocks) {
+							results[event.id + block.eth_getBlockByNumber.number] ??= {
+								status,
+								event_id: event.id,
+								chain: block.eth_chainId,
+								hash: block.eth_getBlockByNumber.hash,
+								number: block.eth_getBlockByNumber.number,
+								parent_hash: block.eth_getBlockByNumber.parentHash,
+								created_at: Date.now(),
+							};
+						}
 					}
 				}
 			}
 
-			const stop = Date.now() - start;
-
-			for (const event of relevantEvents) {
-				log.debug(`Recorded ${batch.length} ${event.id} in ${stop}ms`);
+			for (const event of requestedEvents) {
+				for (const block of proxiedBlocks) {
+					results[event.id + block.eth_getBlockByNumber.number] ??= {
+						status: "ok",
+						event_id: event.id,
+						chain: block.eth_chainId,
+						hash: block.eth_getBlockByNumber.hash,
+						number: block.eth_getBlockByNumber.number,
+						parent_hash: block.eth_getBlockByNumber.parentHash,
+						created_at: Date.now(),
+					};
+				}
 			}
 		});
 
 		await Promise.all(promises);
 
-		const failuresArray = Object.values(failures);
+		const resultsArray = Object.values(results);
 
-		return { failures: failuresArray };
+		return { results: resultsArray };
 	};
 
 	// Important to note this method doesn't return an exhaustive list of every key read. It is always possible for the user
