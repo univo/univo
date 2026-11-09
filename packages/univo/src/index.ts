@@ -2041,15 +2041,12 @@ function defineIndexer(opts: Indexer) {
 		});
 
 		const promises = eventsGroupedByStorageMap.entries().map(async ([storage, groupedEvents]) => {
+			const requestedEvents = groupedEvents.filter((event) => params.events.includes(event.id));
+
 			// For all events that share the same storage adapter we push to the batch
 			const batch: any[] = [];
 
-			for (const event of groupedEvents) {
-				// Ensure event is requested for write
-				if (!params.events.includes(event.id)) {
-					continue;
-				}
-
+			for (const event of requestedEvents) {
 				for (const block of proxiedBlocks) {
 					try {
 						// Ignore blocks that don't match any of the defined event filters
@@ -2116,7 +2113,7 @@ function defineIndexer(opts: Indexer) {
 						}
 					}
 
-					for (const event of relevantEvents) {
+					for (const event of requestedEvents) {
 						for (const block of proxiedBlocks) {
 							results[event.id + block.eth_getBlockByNumber.number] ??= {
 								status,
@@ -2132,7 +2129,7 @@ function defineIndexer(opts: Indexer) {
 				}
 			}
 
-			for (const event of relevantEvents) {
+			for (const event of requestedEvents) {
 				for (const block of proxiedBlocks) {
 					results[event.id + block.eth_getBlockByNumber.number] ??= {
 						status: "ok",
