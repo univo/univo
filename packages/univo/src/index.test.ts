@@ -1525,6 +1525,24 @@ test.concurrent("private_writeEvents returns handler errors", async () => {
 			parent_hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
 			created_at: expect.any(Number),
 		},
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x0",
+			event_id: "test",
+			hash: "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+			parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			created_at: expect.any(Number),
+		},
+		{
+			status: "ok",
+			chain: "0x1",
+			number: "0x2",
+			event_id: "test",
+			hash: "0xb495a1d7e6663152ae92708da4843337b958146015a2802f4193a410044698c9",
+			parent_hash: "0x88e96d4537bea4d9c05d12549907b32561d3bf31f45aae734cdc119f13406cb6",
+			created_at: expect.any(Number),
+		},
 	]);
 });
 
