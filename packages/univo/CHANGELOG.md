@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.5...v0.4.6
+
+[compare changes](https://github.com/univo/univo/compare/v0.4.5...v0.4.6)
+
+### 🚀 Enhancements
+
+- **indexer:** Make finalization batch size configurable ([#111](https://github.com/univo/univo/pull/111))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.4.4...v0.4.5
 
 [compare changes](https://github.com/univo/univo/compare/v0.4.4...v0.4.5)
