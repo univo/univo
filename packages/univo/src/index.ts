@@ -1476,7 +1476,7 @@ function defineIndexer(opts: Indexer) {
 	// metadata storage adapter is. It should actually be slightly less than 1000 to accomodate for multiple blocks
 	// at the same height
 
-	const FINALIZATION_BATCH_SIZE = 32;
+	const FINALIZATION_BATCH_SIZE = 512;
 	const LEASE_DURATION_MS = 60 * 1000;
 
 	const public_finalize: IndexerRpc["request"]["public_finalize"] = async (chain) => {
