@@ -363,8 +363,21 @@ function realtime(realtime: RealtimeOptions) {
 			// operates under 60s leases. This means that any new requests while finalization is in-flight
 			// will fail anyway so this mutex is just an optimisation and doesn't break correctness.
 
+			let indexerFinalizedHeight: number | undefined;
+			let chainFinalizedHeight = hexToNumber(chainFinalizedBlock.number);
+
 			async function finalize() {
 				try {
+					if (indexerFinalizedHeight !== undefined && indexerFinalizedHeight >= chainFinalizedHeight) {
+						return;
+					}
+
+					indexerFinalizedHeight = await realtime.indexer.request({ params: [chain], method: "public_getFinalizedHeight" });
+
+					if (isDisposed() || indexerFinalizedHeight >= chainFinalizedHeight) {
+						return;
+					}
+
 					log.debug("Finalizing indexer...");
 
 					await realtime.indexer.request({ params: [chain], method: "public_finalize" });
@@ -379,15 +392,7 @@ function realtime(realtime: RealtimeOptions) {
 
 			const mutex_finalize = mutex(finalize);
 
-			// When the realtime client starts up we optimistically attempt to finalize
-			// the indexer. Without this, the realtime client only finalizes the indexer
-			// when the chain finalized height next progresses.
-
-			void mutex_finalize();
-
 			// Begin polling for finalized height
-
-			let chainFinalizedHeight = hexToNumber(chainFinalizedBlock.number);
 
 			async function poll() {
 				try {
@@ -465,11 +470,17 @@ function realtime(realtime: RealtimeOptions) {
 						number: finalizedBlock.number,
 						parent_hash: finalizedBlock.parentHash,
 					});
-
-					await mutex_finalize();
 				} catch (error) {
 					if (error instanceof Error) {
 						log.error(`Failed to reconcile finalized head: ${error.message}`);
+					}
+				} finally {
+					// Once we have processed any finalized heads we should now finalize. It's important that
+					// this happens after so that our finalization process can take the fast-path by recognising
+					// that all blocks were processed successfully
+
+					if (!isDisposed()) {
+						await mutex_finalize();
 					}
 				}
 			}
