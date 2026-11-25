@@ -777,7 +777,7 @@ function defineIndexer(opts: Indexer) {
 		return Array.from(value).flatMap((byte) => [byte >> 4, byte & 0x0f]);
 	}
 
-	function serializeReceipt(receipt: RpcTransactionReceipt) {
+	function serializeReceipt(receipt: RpcTransactionReceipt & { depositNonce?: Hex | null; depositReceiptVersion?: Hex | null }) {
 		const outcome = receipt.status === undefined ? hexToBytes(receipt.root!) : quantityToBytes(receipt.status);
 
 		const fields = [
@@ -787,13 +787,21 @@ function defineIndexer(opts: Indexer) {
 			receipt.logs.map((log) => [hexToBytes(log.address), log.topics.map(hexToBytes), hexToBytes(log.data)]),
 		];
 
-		const encoded = toRlp(fields, "bytes");
-
 		if (!isHex(receipt.type)) {
 			throw new Error(`Unsupported receipt type ${receipt.type}`);
 		}
 
 		const type = hexToBigInt(receipt.type);
+
+		// OP Stack deposit receipts include the nonce and version in the receipts trie only after
+		// Canyon. Regolith receipts expose depositNonce too, but it was not included in their root.
+		// Match op-geth's Receipts.EncodeIndex rather than its wire receipt encoding.
+
+		if (type === 0x7en && receipt.depositReceiptVersion != null) {
+			fields.push(quantityToBytes(receipt.depositNonce ?? 0n), quantityToBytes(receipt.depositReceiptVersion));
+		}
+
+		const encoded = toRlp(fields, "bytes");
 
 		return type === 0n ? encoded : concatBytes([Uint8Array.of(Number(type)), encoded]);
 	}
