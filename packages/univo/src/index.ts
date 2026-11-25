@@ -778,7 +778,13 @@ function defineIndexer(opts: Indexer) {
 	}
 
 	function serializeReceipt(receipt: RpcTransactionReceipt & { depositNonce?: Hex | null; depositReceiptVersion?: Hex | null }) {
-		const outcome = receipt.status === undefined ? hexToBytes(receipt.root!) : quantityToBytes(receipt.status);
+		if (!isHex(receipt.type)) {
+			throw new Error(`Unsupported receipt type ${receipt.type}`);
+		}
+
+		// Arbitrum Classic receipts commit to the post-state marker 0x00, not their RPC status.
+		const arbitrumLegacy = hexToBigInt(receipt.type) === 0x78n;
+		const outcome = arbitrumLegacy ? Uint8Array.of(0) : receipt.status === undefined ? hexToBytes(receipt.root!) : quantityToBytes(receipt.status);
 
 		const fields = [
 			outcome,
@@ -786,10 +792,6 @@ function defineIndexer(opts: Indexer) {
 			hexToBytes(receipt.logsBloom),
 			receipt.logs.map((log) => [hexToBytes(log.address), log.topics.map(hexToBytes), hexToBytes(log.data)]),
 		];
-
-		if (!isHex(receipt.type)) {
-			throw new Error(`Unsupported receipt type ${receipt.type}`);
-		}
 
 		const type = hexToBigInt(receipt.type);
 
@@ -803,10 +805,33 @@ function defineIndexer(opts: Indexer) {
 
 		const encoded = toRlp(fields, "bytes");
 
-		return type === 0n ? encoded : concatBytes([Uint8Array.of(Number(type)), encoded]);
+		return type === 0n || arbitrumLegacy ? encoded : concatBytes([Uint8Array.of(Number(type)), encoded]);
 	}
 
-	function serializeTransaction(tx: RpcTransaction & { sourceHash?: Hex; mint?: Hex | null; isSystemTx?: boolean }) {
+	function serializeTransaction(
+		tx: RpcTransaction & {
+			sourceHash?: Hex;
+			mint?: Hex | null;
+			isSystemTx?: boolean;
+			requestId?: Hex;
+			ticketId?: Hex;
+			refundTo?: Hex;
+			maxRefund?: Hex;
+			submissionFeeRefund?: Hex;
+			l1BaseFee?: Hex;
+			depositValue?: Hex;
+			retryTo?: Hex | null;
+			retryValue?: Hex;
+			retryData?: Hex;
+			beneficiary?: Hex;
+			maxSubmissionFee?: Hex;
+		},
+	) {
+		// OP Stack post-execution metadata uses a raw payload, not an RLP list.
+		if (hexToBigInt(tx.type) === 0x7dn) {
+			return concatHex(["0x7d", tx.input]);
+		}
+
 		// OP Stack deposits are unsigned: sourceHash, from, to, mint, value, gas, isSystemTx, data.
 		// A missing mint and a contract-creation recipient are encoded as empty byte strings.
 		if (hexToBigInt(tx.type) === 0x7en) {
@@ -828,6 +853,93 @@ function defineIndexer(opts: Indexer) {
 		// ArbitrumInternalTx encodes only ChainId and Data, without a signature or gas fields.
 		if (hexToBigInt(tx.type) === 0x6an) {
 			return concatHex(["0x6a", toRlp([quantityToBytes(tx.chainId!), hexToBytes(tx.input)])]);
+		}
+
+		// Match Nitro's TxData field order. Arbitrum-specific transactions are unsigned.
+		switch (hexToBigInt(tx.type)) {
+			case 0x64n:
+				return concatHex([
+					"0x64",
+					toRlp([quantityToBytes(tx.chainId!), hexToBytes(tx.requestId!), hexToBytes(tx.from), hexToBytes(tx.to!), quantityToBytes(tx.value)]),
+				]);
+			case 0x65n:
+				return concatHex([
+					"0x65",
+					toRlp([
+						quantityToBytes(tx.chainId!),
+						hexToBytes(tx.from),
+						quantityToBytes(tx.nonce),
+						quantityToBytes(tx.maxFeePerGas ?? tx.gasPrice!),
+						quantityToBytes(tx.gas),
+						hexToBytes(tx.to ?? "0x"),
+						quantityToBytes(tx.value),
+						hexToBytes(tx.input),
+					]),
+				]);
+			case 0x66n:
+				return concatHex([
+					"0x66",
+					toRlp([
+						quantityToBytes(tx.chainId!),
+						hexToBytes(tx.requestId!),
+						hexToBytes(tx.from),
+						quantityToBytes(tx.maxFeePerGas!),
+						quantityToBytes(tx.gas),
+						hexToBytes(tx.to ?? "0x"),
+						quantityToBytes(tx.value),
+						hexToBytes(tx.input),
+					]),
+				]);
+			case 0x68n:
+				return concatHex([
+					"0x68",
+					toRlp([
+						quantityToBytes(tx.chainId!),
+						quantityToBytes(tx.nonce),
+						hexToBytes(tx.from),
+						quantityToBytes(tx.maxFeePerGas!),
+						quantityToBytes(tx.gas),
+						hexToBytes(tx.to ?? "0x"),
+						quantityToBytes(tx.value),
+						hexToBytes(tx.input),
+						hexToBytes(tx.ticketId!),
+						hexToBytes(tx.refundTo!),
+						quantityToBytes(tx.maxRefund!),
+						quantityToBytes(tx.submissionFeeRefund!),
+					]),
+				]);
+			case 0x69n:
+				return concatHex([
+					"0x69",
+					toRlp([
+						quantityToBytes(tx.chainId!),
+						hexToBytes(tx.requestId!),
+						hexToBytes(tx.from),
+						quantityToBytes(tx.l1BaseFee!),
+						quantityToBytes(tx.depositValue!),
+						quantityToBytes(tx.maxFeePerGas!),
+						quantityToBytes(tx.gas),
+						hexToBytes(tx.retryTo ?? "0x"),
+						quantityToBytes(tx.retryValue!),
+						hexToBytes(tx.beneficiary!),
+						quantityToBytes(tx.maxSubmissionFee!),
+						hexToBytes(tx.refundTo!),
+						hexToBytes(tx.retryData!),
+					]),
+				]);
+			case 0x78n:
+				// Classic commits only the embedded Ethereum legacy transaction, without a type prefix.
+				return toRlp([
+					quantityToBytes(tx.nonce),
+					quantityToBytes(tx.gasPrice!),
+					quantityToBytes(tx.gas),
+					hexToBytes(tx.to ?? "0x"),
+					quantityToBytes(tx.value),
+					hexToBytes(tx.input),
+					quantityToBytes(tx.v),
+					quantityToBytes(tx.r),
+					quantityToBytes(tx.s),
+				]);
 		}
 
 		// Preserve authorization tuples verbatim, including invalid authorizations skipped by EIP-7702.
@@ -879,7 +991,7 @@ function defineIndexer(opts: Indexer) {
 		);
 	}
 
-	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n, 0x6an, 0x7en]);
+	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n, 0x64n, 0x65n, 0x66n, 0x68n, 0x69n, 0x6an, 0x78n, 0x7dn, 0x7en]);
 
 	/**
 	 * Reconstructs the transactions trie and verifies it matches the block's transactions root.
@@ -905,7 +1017,9 @@ function defineIndexer(opts: Indexer) {
 		const transactions = block.eth_getBlockByNumber.transactions.map((tx) => {
 			const serialized = serializeTransaction(tx);
 
-			if (!isHexEqual(tx.hash, keccak256(serialized))) {
+			// Classic uses a hash override that cannot be derived from RPC transaction fields.
+			// Its serialized contents are still verified against the block's transactions root.
+			if (hexToBigInt(tx.type) !== 0x78n && !isHexEqual(tx.hash, keccak256(serialized))) {
 				throw new Error(`Transaction ${tx.hash} failed serialization check`);
 			}
 
@@ -964,7 +1078,16 @@ function defineIndexer(opts: Indexer) {
 		let cumulativeGasUsed = 0n;
 
 		for (const receipt of block.eth_getBlockReceipts) {
-			cumulativeGasUsed += hexToBigInt(receipt.gasUsed);
+			// Classic's gasUsed includes L1 charges, but cumulativeGasUsed and the block do not.
+			const gasUsedForL1 = (receipt as RpcTransactionReceipt & { gasUsedForL1?: Hex }).gasUsedForL1;
+			const l1Gas = isHex(receipt.type) && hexToBigInt(receipt.type) === 0x78n ? hexToBigInt(gasUsedForL1!) : 0n;
+			const gasUsed = hexToBigInt(receipt.gasUsed) - l1Gas;
+
+			if (gasUsed < 0n) {
+				throw new Error("Block returned gas used smaller than L1 gas used");
+			}
+
+			cumulativeGasUsed += gasUsed;
 
 			if (hexToBigInt(receipt.cumulativeGasUsed) !== cumulativeGasUsed) {
 				throw new Error("Block returned inconsistent cumulative gas used");
