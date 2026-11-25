@@ -782,9 +782,7 @@ function defineIndexer(opts: Indexer) {
 			throw new Error(`Unsupported receipt type ${receipt.type}`);
 		}
 
-		// Arbitrum Classic receipts commit to the post-state marker 0x00, not their RPC status.
-		const arbitrumLegacy = hexToBigInt(receipt.type) === 0x78n;
-		const outcome = arbitrumLegacy ? Uint8Array.of(0) : receipt.status === undefined ? hexToBytes(receipt.root!) : quantityToBytes(receipt.status);
+		const outcome = quantityToBytes(receipt.status);
 
 		const fields = [
 			outcome,
@@ -795,17 +793,18 @@ function defineIndexer(opts: Indexer) {
 
 		const type = hexToBigInt(receipt.type);
 
-		// OP Stack deposit receipts include the nonce and version in the receipts trie only after
-		// Canyon. Regolith receipts expose depositNonce too, but it was not included in their root.
-		// Match op-geth's Receipts.EncodeIndex rather than its wire receipt encoding.
+		// Current OP Stack deposit receipts commit to both the deposit nonce and receipt version.
+		if (type === 0x7en) {
+			if (receipt.depositNonce == null || receipt.depositReceiptVersion == null) {
+				throw new Error("Block returned deposit receipt without nonce or version");
+			}
 
-		if (type === 0x7en && receipt.depositReceiptVersion != null) {
-			fields.push(quantityToBytes(receipt.depositNonce ?? 0n), quantityToBytes(receipt.depositReceiptVersion));
+			fields.push(quantityToBytes(receipt.depositNonce), quantityToBytes(receipt.depositReceiptVersion));
 		}
 
 		const encoded = toRlp(fields, "bytes");
 
-		return type === 0n || arbitrumLegacy ? encoded : concatBytes([Uint8Array.of(Number(type)), encoded]);
+		return type === 0n ? encoded : concatBytes([Uint8Array.of(Number(type)), encoded]);
 	}
 
 	function serializeTransaction(
@@ -927,19 +926,6 @@ function defineIndexer(opts: Indexer) {
 						hexToBytes(tx.retryData!),
 					]),
 				]);
-			case 0x78n:
-				// Classic commits only the embedded Ethereum legacy transaction, without a type prefix.
-				return toRlp([
-					quantityToBytes(tx.nonce),
-					quantityToBytes(tx.gasPrice!),
-					quantityToBytes(tx.gas),
-					hexToBytes(tx.to ?? "0x"),
-					quantityToBytes(tx.value),
-					hexToBytes(tx.input),
-					quantityToBytes(tx.v),
-					quantityToBytes(tx.r),
-					quantityToBytes(tx.s),
-				]);
 		}
 
 		// Preserve authorization tuples verbatim, including invalid authorizations skipped by EIP-7702.
@@ -973,8 +959,8 @@ function defineIndexer(opts: Indexer) {
 
 		const { input, ...formatted } = formatTransaction(tx);
 
-		// Some RPC providers attach the network chain ID to pre-EIP-155 transactions. Their v value
-		// remains authoritative; retaining chainId would incorrectly replay-protect the serialization.
+		// Unprotected legacy transactions can still be included today (e.g. contract deployments).
+		// Some providers attach chainId anyway; v remains authoritative for their serialization.
 
 		if (formatted.type === "legacy" && (formatted.v === 27n || formatted.v === 28n)) {
 			formatted.chainId = undefined;
@@ -991,7 +977,7 @@ function defineIndexer(opts: Indexer) {
 		);
 	}
 
-	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n, 0x64n, 0x65n, 0x66n, 0x68n, 0x69n, 0x6an, 0x78n, 0x7dn, 0x7en]);
+	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n, 0x64n, 0x65n, 0x66n, 0x68n, 0x69n, 0x6an, 0x7dn, 0x7en]);
 
 	/**
 	 * Reconstructs the transactions trie and verifies it matches the block's transactions root.
@@ -1017,9 +1003,7 @@ function defineIndexer(opts: Indexer) {
 		const transactions = block.eth_getBlockByNumber.transactions.map((tx) => {
 			const serialized = serializeTransaction(tx);
 
-			// Classic uses a hash override that cannot be derived from RPC transaction fields.
-			// Its serialized contents are still verified against the block's transactions root.
-			if (hexToBigInt(tx.type) !== 0x78n && !isHexEqual(tx.hash, keccak256(serialized))) {
+			if (!isHexEqual(tx.hash, keccak256(serialized))) {
 				throw new Error(`Transaction ${tx.hash} failed serialization check`);
 			}
 
@@ -1078,16 +1062,7 @@ function defineIndexer(opts: Indexer) {
 		let cumulativeGasUsed = 0n;
 
 		for (const receipt of block.eth_getBlockReceipts) {
-			// Classic's gasUsed includes L1 charges, but cumulativeGasUsed and the block do not.
-			const gasUsedForL1 = (receipt as RpcTransactionReceipt & { gasUsedForL1?: Hex }).gasUsedForL1;
-			const l1Gas = isHex(receipt.type) && hexToBigInt(receipt.type) === 0x78n ? hexToBigInt(gasUsedForL1!) : 0n;
-			const gasUsed = hexToBigInt(receipt.gasUsed) - l1Gas;
-
-			if (gasUsed < 0n) {
-				throw new Error("Block returned gas used smaller than L1 gas used");
-			}
-
-			cumulativeGasUsed += gasUsed;
+			cumulativeGasUsed += hexToBigInt(receipt.gasUsed);
 
 			if (hexToBigInt(receipt.cumulativeGasUsed) !== cumulativeGasUsed) {
 				throw new Error("Block returned inconsistent cumulative gas used");
