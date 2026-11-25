@@ -806,7 +806,25 @@ function defineIndexer(opts: Indexer) {
 		return type === 0n ? encoded : concatBytes([Uint8Array.of(Number(type)), encoded]);
 	}
 
-	function serializeTransaction(tx: RpcTransaction) {
+	function serializeTransaction(tx: RpcTransaction & { sourceHash?: Hex; mint?: Hex | null; isSystemTx?: boolean }) {
+		// OP Stack deposits are unsigned: sourceHash, from, to, mint, value, gas, isSystemTx, data.
+		// A missing mint and a contract-creation recipient are encoded as empty byte strings.
+		if (hexToBigInt(tx.type) === 0x7en) {
+			return concatHex([
+				"0x7e",
+				toRlp([
+					hexToBytes(tx.sourceHash!),
+					hexToBytes(tx.from),
+					hexToBytes(tx.to ?? "0x"),
+					quantityToBytes(tx.mint ?? 0n),
+					quantityToBytes(tx.value),
+					quantityToBytes(tx.gas),
+					quantityToBytes(tx.isSystemTx ? 1n : 0n),
+					hexToBytes(tx.input),
+				]),
+			]);
+		}
+
 		// ArbitrumInternalTx encodes only ChainId and Data, without a signature or gas fields.
 		if (hexToBigInt(tx.type) === 0x6an) {
 			return concatHex(["0x6a", toRlp([quantityToBytes(tx.chainId!), hexToBytes(tx.input)])]);
@@ -861,7 +879,7 @@ function defineIndexer(opts: Indexer) {
 		);
 	}
 
-	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n, 0x6an]);
+	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n, 0x6an, 0x7en]);
 
 	/**
 	 * Reconstructs the transactions trie and verifies it matches the block's transactions root.
