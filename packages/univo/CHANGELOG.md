@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.4.4...v0.4.5
+
+[compare changes](https://github.com/univo/univo/compare/v0.4.4...v0.4.5)
+
+### 🔥 Performance
+
+- **indexer:** Safely increase finalization batch size ([#108](https://github.com/univo/univo/pull/108))
+
+### 🩹 Fixes
+
+- **serialization:** Support Arbitrum and Base serialization edge cases ([#109](https://github.com/univo/univo/pull/109))
+
+### 🏡 Chore
+
+- **readme:** Update README ([#107](https://github.com/univo/univo/pull/107))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.4.3...v0.4.4
 
 [compare changes](https://github.com/univo/univo/compare/v0.4.3...v0.4.4)
