@@ -398,14 +398,6 @@ type AnyAction = Omit<Action<any>, "event" | "handler"> & {
 
 type Indexer = {
 	/**
-	 * Silences all logs including errors.
-	 *
-	 * Logs are emitted based on the environment LOG_LEVEL. Set `quiet: true` to surpress all logs.
-	 * Available log options are `DEBUG`, `INFO`, `WARN`, and `ERROR`.
-	 */
-	quiet?: boolean;
-
-	/**
 	 * Events
 	 */
 	events: AnyEvent[];
@@ -445,9 +437,31 @@ type Indexer = {
 	 * verify the block hash is consistent with the other known methods.
 	 */
 	getBlock: (block: { chain: `0x${string}`; number: `0x${string}` | "finalized" }) => Promise<Block>;
+
+	/**
+	 * Silences all logs including errors.
+	 *
+	 * Logs are emitted based on the environment LOG_LEVEL. Set `quiet: true` to surpress all logs.
+	 * Available log options are `DEBUG`, `INFO`, `WARN`, and `ERROR`.
+	 */
+	quiet?: boolean;
+
+	/**
+	 * Maximum number of blocks to finalize per batch. Defaults to 32.
+	 * Must be a positive integer.
+	 */
+	maxFinalizationBatchSize?: number;
 };
 
 function defineIndexer(opts: Indexer) {
+	// Validate indexer configuration
+
+	const FINALIZATION_BATCH_SIZE = opts.maxFinalizationBatchSize ?? 32;
+
+	if (!Number.isSafeInteger(FINALIZATION_BATCH_SIZE) || FINALIZATION_BATCH_SIZE <= 0) {
+		throw new Error("maxFinalizationBatchSize must be a positive safe integer.");
+	}
+
 	const log = createLogger({ quiet: opts.quiet, prefix: "[indexer]" });
 
 	// We batch events based on the provided storage function. This is an optimisation that allows distinct
@@ -859,7 +873,13 @@ function defineIndexer(opts: Indexer) {
 			case 0x64n:
 				return concatHex([
 					"0x64",
-					toRlp([quantityToBytes(tx.chainId!), hexToBytes(tx.requestId!), hexToBytes(tx.from), hexToBytes(tx.to!), quantityToBytes(tx.value)]),
+					toRlp([
+						quantityToBytes(tx.chainId!),
+						hexToBytes(tx.requestId!),
+						hexToBytes(tx.from),
+						hexToBytes(tx.to!),
+						quantityToBytes(tx.value),
+					]),
 				]);
 			case 0x65n:
 				return concatHex([
@@ -1596,16 +1616,13 @@ function defineIndexer(opts: Indexer) {
 		await Promise.all(promises);
 	}
 
-	// TODO
-	// These should be exposed as configuration options. At the moment the key limit preventing us from finalizing
-	// larger batches of blocks is for the case where we are recovering from downtime. The goal is for us to guarantee
-	// that we can process a single batch within the lease, otherwise we will likely never be able to commit. If a user
-	// is recovering from downtime they should set this to a smaller batch size to ensure that we process within a
-	// single lease, but in steady operation this should really be 1000 or whatever the max LIST size returned by the
-	// metadata storage adapter is. It should actually be slightly less than 1000 to accomodate for multiple blocks
-	// at the same height
+	// At the moment the key limit preventing us from finalizing larger batches of blocks is for the case where we are
+	// recovering from downtime. The goal is for us to guarantee that we can process a single batch within the lease,
+	// otherwise we will likely never be able to commit. If a user is recovering from downtime they should set this to
+	// a smaller batch size to ensure that we process within a single lease, but in steady operation this should really
+	// be 1000 or whatever the max LIST size returned by the metadata storage adapter is. It should actually be slightly
+	// less than 1000 to accomodate for multiple blocks at the same height
 
-	const FINALIZATION_BATCH_SIZE = 512;
 	const LEASE_DURATION_MS = 60 * 1000;
 
 	const public_finalize: IndexerRpc["request"]["public_finalize"] = async (chain) => {
