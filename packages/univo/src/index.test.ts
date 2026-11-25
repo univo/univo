@@ -264,10 +264,49 @@ test.concurrent("accepts provider chain id on pre-EIP-155 transactions", async (
 	]);
 });
 
+test.concurrent("verifies an Arbitrum block containing an internal transaction", async () => {
+	const block = await test_getBlock({
+		chain: "0xa4b1",
+		number: numberToHex(527266051),
+	});
+
+	expect(block.eth_getBlockByNumber.transactions[0].hash).toBe("0x6728c561b375ae55bffebef28dd7cc0c5d2ad067c96cb2068db526c242474be3");
+
+	const indexer = defineIndexer({
+		quiet: true,
+		getBlock: async () => block,
+		metadataStorage: test_metadataStorage(),
+		events: [],
+		actions: [],
+	});
+
+	await expect(indexer.request({ method: "public_getFinalizedHeight", params: ["0xa4b1"] })).resolves.toBe(527266051);
+});
+
+test.concurrent("verifies a Base block containing a post-Canyon deposit receipt", async () => {
+	const block = await test_getBlock({
+		chain: "0x2105",
+		number: numberToHex(10000000),
+	});
+
+	expect(block.eth_getBlockReceipts[0].type).toBe("0x7e");
+	expect(block.eth_getBlockReceipts[0].depositReceiptVersion).toBe("0x1");
+
+	const indexer = defineIndexer({
+		quiet: true,
+		getBlock: async () => block,
+		metadataStorage: test_metadataStorage(),
+		events: [],
+		actions: [],
+	});
+
+	await expect(indexer.request({ method: "public_getFinalizedHeight", params: ["0x2105"] })).resolves.toBe(10000000);
+});
+
 test.concurrent("skips transaction verification for unsupported transaction types", async () => {
 	const block = await test_getBlock({ chain: "0x1", number: numberToHex(22994233) });
 
-	block.eth_getBlockByNumber.transactions[0].type = "0x6a";
+	block.eth_getBlockByNumber.transactions[0].type = "0x7f";
 
 	const event = defineEvent({
 		id: "event",

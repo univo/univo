@@ -807,6 +807,11 @@ function defineIndexer(opts: Indexer) {
 	}
 
 	function serializeTransaction(tx: RpcTransaction) {
+		// ArbitrumInternalTx encodes only ChainId and Data, without a signature or gas fields.
+		if (hexToBigInt(tx.type) === 0x6an) {
+			return concatHex(["0x6a", toRlp([quantityToBytes(tx.chainId!), hexToBytes(tx.input)])]);
+		}
+
 		// Preserve authorization tuples verbatim, including invalid authorizations skipped by EIP-7702.
 		if (tx.type === "0x4") {
 			return concatHex([
@@ -856,7 +861,7 @@ function defineIndexer(opts: Indexer) {
 		);
 	}
 
-	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n]);
+	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n, 0x6an]);
 
 	/**
 	 * Reconstructs the transactions trie and verifies it matches the block's transactions root.
