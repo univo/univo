@@ -380,11 +380,10 @@ function realtime(realtime: RealtimeOptions) {
 
 					log.debug("Finalizing indexer...");
 
-					// We add an extended abort signal here. When the indexer is running in a serverless environment
-					// like the explorer we need the connections to stay alive so that it perform work. The default
-					// timeout of 60s means that we are constantly restarting work unnecessarily. If the serverless
-					// function does hit some execution limit and close the connection it will cause a natural retry
-					// here anyway
+					// Allow long-running finalization to complete without the default 60s client timeout.
+					// Some serverless environments stop processing when the connection closes.
+					// Platform execution limits may terminate the request earlier; subsequent polls
+					// recheck progress and retry any remaining work.
 
 					const signal = AbortSignal.timeout(12 * 60 * 1000);
 
