@@ -777,8 +777,12 @@ function defineIndexer(opts: Indexer) {
 		return Array.from(value).flatMap((byte) => [byte >> 4, byte & 0x0f]);
 	}
 
-	function serializeReceipt(receipt: RpcTransactionReceipt) {
-		const outcome = receipt.status === undefined ? hexToBytes(receipt.root!) : quantityToBytes(receipt.status);
+	function serializeReceipt(receipt: RpcTransactionReceipt & { depositNonce?: Hex | null; depositReceiptVersion?: Hex | null }) {
+		if (!isHex(receipt.type)) {
+			throw new Error(`Unsupported receipt type ${receipt.type}`);
+		}
+
+		const outcome = quantityToBytes(receipt.status);
 
 		const fields = [
 			outcome,
@@ -787,18 +791,143 @@ function defineIndexer(opts: Indexer) {
 			receipt.logs.map((log) => [hexToBytes(log.address), log.topics.map(hexToBytes), hexToBytes(log.data)]),
 		];
 
-		const encoded = toRlp(fields, "bytes");
+		const type = hexToBigInt(receipt.type);
 
-		if (!isHex(receipt.type)) {
-			throw new Error(`Unsupported receipt type ${receipt.type}`);
+		// Current OP Stack deposit receipts commit to both the deposit nonce and receipt version.
+		if (type === 0x7en) {
+			if (receipt.depositNonce == null || receipt.depositReceiptVersion == null) {
+				throw new Error("Block returned deposit receipt without nonce or version");
+			}
+
+			fields.push(quantityToBytes(receipt.depositNonce), quantityToBytes(receipt.depositReceiptVersion));
 		}
 
-		const type = hexToBigInt(receipt.type);
+		const encoded = toRlp(fields, "bytes");
 
 		return type === 0n ? encoded : concatBytes([Uint8Array.of(Number(type)), encoded]);
 	}
 
-	function serializeTransaction(tx: RpcTransaction) {
+	function serializeTransaction(
+		tx: RpcTransaction & {
+			sourceHash?: Hex;
+			mint?: Hex | null;
+			isSystemTx?: boolean;
+			requestId?: Hex;
+			ticketId?: Hex;
+			refundTo?: Hex;
+			maxRefund?: Hex;
+			submissionFeeRefund?: Hex;
+			l1BaseFee?: Hex;
+			depositValue?: Hex;
+			retryTo?: Hex | null;
+			retryValue?: Hex;
+			retryData?: Hex;
+			beneficiary?: Hex;
+			maxSubmissionFee?: Hex;
+		},
+	) {
+		// OP Stack post-execution metadata uses a raw payload, not an RLP list.
+		if (hexToBigInt(tx.type) === 0x7dn) {
+			return concatHex(["0x7d", tx.input]);
+		}
+
+		// OP Stack deposits are unsigned: sourceHash, from, to, mint, value, gas, isSystemTx, data.
+		// A missing mint and a contract-creation recipient are encoded as empty byte strings.
+		if (hexToBigInt(tx.type) === 0x7en) {
+			return concatHex([
+				"0x7e",
+				toRlp([
+					hexToBytes(tx.sourceHash!),
+					hexToBytes(tx.from),
+					hexToBytes(tx.to ?? "0x"),
+					quantityToBytes(tx.mint ?? 0n),
+					quantityToBytes(tx.value),
+					quantityToBytes(tx.gas),
+					quantityToBytes(tx.isSystemTx ? 1n : 0n),
+					hexToBytes(tx.input),
+				]),
+			]);
+		}
+
+		// ArbitrumInternalTx encodes only ChainId and Data, without a signature or gas fields.
+		if (hexToBigInt(tx.type) === 0x6an) {
+			return concatHex(["0x6a", toRlp([quantityToBytes(tx.chainId!), hexToBytes(tx.input)])]);
+		}
+
+		// Match Nitro's TxData field order. Arbitrum-specific transactions are unsigned.
+		switch (hexToBigInt(tx.type)) {
+			case 0x64n:
+				return concatHex([
+					"0x64",
+					toRlp([quantityToBytes(tx.chainId!), hexToBytes(tx.requestId!), hexToBytes(tx.from), hexToBytes(tx.to!), quantityToBytes(tx.value)]),
+				]);
+			case 0x65n:
+				return concatHex([
+					"0x65",
+					toRlp([
+						quantityToBytes(tx.chainId!),
+						hexToBytes(tx.from),
+						quantityToBytes(tx.nonce),
+						quantityToBytes(tx.maxFeePerGas ?? tx.gasPrice!),
+						quantityToBytes(tx.gas),
+						hexToBytes(tx.to ?? "0x"),
+						quantityToBytes(tx.value),
+						hexToBytes(tx.input),
+					]),
+				]);
+			case 0x66n:
+				return concatHex([
+					"0x66",
+					toRlp([
+						quantityToBytes(tx.chainId!),
+						hexToBytes(tx.requestId!),
+						hexToBytes(tx.from),
+						quantityToBytes(tx.maxFeePerGas!),
+						quantityToBytes(tx.gas),
+						hexToBytes(tx.to ?? "0x"),
+						quantityToBytes(tx.value),
+						hexToBytes(tx.input),
+					]),
+				]);
+			case 0x68n:
+				return concatHex([
+					"0x68",
+					toRlp([
+						quantityToBytes(tx.chainId!),
+						quantityToBytes(tx.nonce),
+						hexToBytes(tx.from),
+						quantityToBytes(tx.maxFeePerGas!),
+						quantityToBytes(tx.gas),
+						hexToBytes(tx.to ?? "0x"),
+						quantityToBytes(tx.value),
+						hexToBytes(tx.input),
+						hexToBytes(tx.ticketId!),
+						hexToBytes(tx.refundTo!),
+						quantityToBytes(tx.maxRefund!),
+						quantityToBytes(tx.submissionFeeRefund!),
+					]),
+				]);
+			case 0x69n:
+				return concatHex([
+					"0x69",
+					toRlp([
+						quantityToBytes(tx.chainId!),
+						hexToBytes(tx.requestId!),
+						hexToBytes(tx.from),
+						quantityToBytes(tx.l1BaseFee!),
+						quantityToBytes(tx.depositValue!),
+						quantityToBytes(tx.maxFeePerGas!),
+						quantityToBytes(tx.gas),
+						hexToBytes(tx.retryTo ?? "0x"),
+						quantityToBytes(tx.retryValue!),
+						hexToBytes(tx.beneficiary!),
+						quantityToBytes(tx.maxSubmissionFee!),
+						hexToBytes(tx.refundTo!),
+						hexToBytes(tx.retryData!),
+					]),
+				]);
+		}
+
 		// Preserve authorization tuples verbatim, including invalid authorizations skipped by EIP-7702.
 		if (tx.type === "0x4") {
 			return concatHex([
@@ -830,8 +959,8 @@ function defineIndexer(opts: Indexer) {
 
 		const { input, ...formatted } = formatTransaction(tx);
 
-		// Some RPC providers attach the network chain ID to pre-EIP-155 transactions. Their v value
-		// remains authoritative; retaining chainId would incorrectly replay-protect the serialization.
+		// Unprotected legacy transactions can still be included today (e.g. contract deployments).
+		// Some providers attach chainId anyway; v remains authoritative for their serialization.
 
 		if (formatted.type === "legacy" && (formatted.v === 27n || formatted.v === 28n)) {
 			formatted.chainId = undefined;
@@ -848,7 +977,7 @@ function defineIndexer(opts: Indexer) {
 		);
 	}
 
-	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n]);
+	const SUPPORTED_TRANSACTION_TYPES = new Set([0n, 1n, 2n, 3n, 4n, 0x64n, 0x65n, 0x66n, 0x68n, 0x69n, 0x6an, 0x7dn, 0x7en]);
 
 	/**
 	 * Reconstructs the transactions trie and verifies it matches the block's transactions root.
