@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.6...v0.4.7
+
+[compare changes](https://github.com/univo/univo/compare/v0.4.6...v0.4.7)
+
+### 🩹 Fixes
+
+- **realtime:** Improve indexer finalization strategy ([#113](https://github.com/univo/univo/pull/113))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.4.5...v0.4.6
 
 [compare changes](https://github.com/univo/univo/compare/v0.4.5...v0.4.6)
