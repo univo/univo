@@ -1724,13 +1724,10 @@ function defineIndexer(opts: Indexer) {
 			// future finalized block with our last indexer finalized height we can prove that all
 			// blocks between these two "anchor" points are also canonical.
 
-			// TODO
-			// Unless recovering from down time, it's likely that nextFinalizedBlock is just the
-			// chainFinalizedBlock loaded earlier. An RPC cost optimisation would be to detect
-			// this in the common case and prevent duplicate loading
-
 			const [nextFinalizedBlock, blocksProcessed] = await Promise.all([
-				getBlockFromChain({ chain, number: numberToHex(nextFinalizedHeight) }),
+				nextFinalizedHeight === chainFinalizedHeight
+					? chainFinalizedBlock
+					: getBlockFromChain({ chain, number: numberToHex(nextFinalizedHeight) }),
 				getBlocksProcessedAndGarbageCollect(chain, indexerFinalizedBlockHeight),
 			]);
 
@@ -1994,26 +1991,32 @@ function defineIndexer(opts: Indexer) {
 				return hexToNumber(number) <= finalizedHeight;
 			});
 
-			if (garbageCollectionKeys.length === 0) {
-				return blocks.keys.map((key) => {
-					const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
-						string,
-						string,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-					];
-
-					return { chain, number, hash, parent_hash };
-				});
+			if (garbageCollectionKeys.length > 0) {
+				await opts.metadataStorage.adapter.delete(garbageCollectionKeys);
 			}
 
-			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
-				await opts.metadataStorage.adapter.delete(key);
-			});
+			// A fast-path optimization we can perform here is to return surviving entries immediately
+			// when no garbage was deleted or the page is complete. This avoids performing another LIST
+			// call that would return the same set of keys
 
-			await Promise.all(garbageCollectionPromises);
+			if (garbageCollectionKeys.length === 0 || (blocks.keys.length < 1000 && blocks.cursor === undefined)) {
+				const deletedKeys = new Set(garbageCollectionKeys);
+
+				return blocks.keys
+					.filter((key) => !deletedKeys.has(key))
+					.map((key) => {
+						const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
+							string,
+							string,
+							`0x${string}`,
+							`0x${string}`,
+							`0x${string}`,
+							`0x${string}`,
+						];
+
+						return { chain, number, hash, parent_hash };
+					});
+			}
 		}
 	}
 
@@ -2042,28 +2045,34 @@ function defineIndexer(opts: Indexer) {
 				return hexToNumber(number) <= finalizedHeight;
 			});
 
-			if (garbageCollectionKeys.length === 0) {
-				return commits.keys.map((key) => {
-					const [_, __, ___, number, hash, parent_hash, type, id] = key.split("/") as [
-						string,
-						string,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						"action" | undefined,
-						string | undefined,
-					];
-
-					return { chain, number, hash, parent_hash, type, id };
-				});
+			if (garbageCollectionKeys.length > 0) {
+				await opts.metadataStorage.adapter.delete(garbageCollectionKeys);
 			}
 
-			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
-				await opts.metadataStorage.adapter.delete(key);
-			});
+			// A fast-path optimization we can perform here is to return surviving entries immediately
+			// when no garbage was deleted or the page is complete. This avoids performing another LIST
+			// call that would return the same set of keys
 
-			await Promise.all(garbageCollectionPromises);
+			if (garbageCollectionKeys.length === 0 || (commits.keys.length < 1000 && commits.cursor === undefined)) {
+				const deletedKeys = new Set(garbageCollectionKeys);
+
+				return commits.keys
+					.filter((key) => !deletedKeys.has(key))
+					.map((key) => {
+						const [_, __, ___, number, hash, parent_hash, type, id] = key.split("/") as [
+							string,
+							string,
+							`0x${string}`,
+							`0x${string}`,
+							`0x${string}`,
+							`0x${string}`,
+							"action" | undefined,
+							string | undefined,
+						];
+
+						return { chain, number, hash, parent_hash, type, id };
+					});
+			}
 		}
 	}
 

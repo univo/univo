@@ -56,14 +56,16 @@ function memory() {
 			return { keys, cursor };
 		},
 
-		async delete(path) {
-			const key = path.replace(/^\/+/, "");
+		async delete(paths) {
+			const keys = paths.map((path) => path.replace(/^\/+/, ""));
 
-			if (key.length === 0) {
+			if (keys.some((key) => key.length === 0)) {
 				throw new Error("Storage path must not be empty");
 			}
 
-			objects.delete(key);
+			for (const key of keys) {
+				objects.delete(key);
+			}
 		},
 	});
 }
