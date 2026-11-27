@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.8...v0.4.9
+
+[compare changes](https://github.com/univo/univo/compare/v0.4.8...v0.4.9)
+
+### 🩹 Fixes
+
+- **indexer:** Fix incorrectly filtered action commits ([#117](https://github.com/univo/univo/pull/117))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.4.7...v0.4.8
 
 [compare changes](https://github.com/univo/univo/compare/v0.4.7...v0.4.8)
