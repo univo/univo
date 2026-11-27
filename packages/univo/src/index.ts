@@ -1724,13 +1724,10 @@ function defineIndexer(opts: Indexer) {
 			// future finalized block with our last indexer finalized height we can prove that all
 			// blocks between these two "anchor" points are also canonical.
 
-			// TODO
-			// Unless recovering from down time, it's likely that nextFinalizedBlock is just the
-			// chainFinalizedBlock loaded earlier. An RPC cost optimisation would be to detect
-			// this in the common case and prevent duplicate loading
-
 			const [nextFinalizedBlock, blocksProcessed] = await Promise.all([
-				getBlockFromChain({ chain, number: numberToHex(nextFinalizedHeight) }),
+				nextFinalizedHeight === chainFinalizedHeight
+					? chainFinalizedBlock
+					: getBlockFromChain({ chain, number: numberToHex(nextFinalizedHeight) }),
 				getBlocksProcessedAndGarbageCollect(chain, indexerFinalizedBlockHeight),
 			]);
 
