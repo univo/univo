@@ -1994,26 +1994,34 @@ function defineIndexer(opts: Indexer) {
 				return hexToNumber(number) <= finalizedHeight;
 			});
 
-			if (garbageCollectionKeys.length === 0) {
-				return blocks.keys.map((key) => {
-					const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
-						string,
-						string,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-					];
-
-					return { chain, number, hash, parent_hash };
-				});
-			}
-
 			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
 				await opts.metadataStorage.adapter.delete(key);
 			});
 
 			await Promise.all(garbageCollectionPromises);
+
+			// A fast-path optimization we can perform here is to return surviving entries immediately
+			// when no garbage was deleted or the page is complete. This avoids performing another LIST
+			// call that would return the same set of keys
+
+			if (garbageCollectionKeys.length === 0 || (blocks.keys.length < 1000 && blocks.cursor === undefined)) {
+				const deletedKeys = new Set(garbageCollectionKeys);
+
+				return blocks.keys
+					.filter((key) => !deletedKeys.has(key))
+					.map((key) => {
+						const [_, __, ___, number, hash, parent_hash] = key.split("/") as [
+							string,
+							string,
+							`0x${string}`,
+							`0x${string}`,
+							`0x${string}`,
+							`0x${string}`,
+						];
+
+						return { chain, number, hash, parent_hash };
+					});
+			}
 		}
 	}
 
@@ -2042,28 +2050,36 @@ function defineIndexer(opts: Indexer) {
 				return hexToNumber(number) <= finalizedHeight;
 			});
 
-			if (garbageCollectionKeys.length === 0) {
-				return commits.keys.map((key) => {
-					const [_, __, ___, number, hash, parent_hash, type, id] = key.split("/") as [
-						string,
-						string,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						`0x${string}`,
-						"action" | undefined,
-						string | undefined,
-					];
-
-					return { chain, number, hash, parent_hash, type, id };
-				});
-			}
-
 			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
 				await opts.metadataStorage.adapter.delete(key);
 			});
 
 			await Promise.all(garbageCollectionPromises);
+
+			// A fast-path optimization we can perform here is to return surviving entries immediately
+			// when no garbage was deleted or the page is complete. This avoids performing another LIST
+			// call that would return the same set of keys
+
+			if (garbageCollectionKeys.length === 0 || (commits.keys.length < 1000 && commits.cursor === undefined)) {
+				const deletedKeys = new Set(garbageCollectionKeys);
+
+				return commits.keys
+					.filter((key) => !deletedKeys.has(key))
+					.map((key) => {
+						const [_, __, ___, number, hash, parent_hash, type, id] = key.split("/") as [
+							string,
+							string,
+							`0x${string}`,
+							`0x${string}`,
+							`0x${string}`,
+							`0x${string}`,
+							"action" | undefined,
+							string | undefined,
+						];
+
+						return { chain, number, hash, parent_hash, type, id };
+					});
+			}
 		}
 	}
 
