@@ -1408,10 +1408,17 @@ function defineIndexer(opts: Indexer) {
 	const public_writeFinalizedHead: IndexerRpc["request"]["public_writeFinalizedHead"] = async (head) => {
 		log.debug("Received finalized head...");
 
-		// If the indexer hasn't defined any actions then there isn't actually any work to complete
-		// on finalization, so this is an optimistic abort case to reduce costs.
+		const relevantActions = allActions.filter((action) => {
+			return action.event.filters.some((filter) => {
+				return (
+					filter.chain === hexToNumber(head.chain) &&
+					hexToNumber(head.number) >= filter.fromBlock &&
+					(filter.toBlock === undefined || hexToNumber(head.number) <= filter.toBlock)
+				);
+			});
+		});
 
-		if (allActions.length === 0) {
+		if (relevantActions.length === 0) {
 			return;
 		}
 
@@ -1516,7 +1523,7 @@ function defineIndexer(opts: Indexer) {
 
 		// Given the head is not finalized by the indexer but finalized onchain, perform the finalization work
 
-		await writeFinalizedBlock(block, allActions);
+		await writeFinalizedBlock(block, relevantActions);
 	};
 
 	async function getBlockFromMetadata(head: Head) {
@@ -1562,10 +1569,17 @@ function defineIndexer(opts: Indexer) {
 	}
 
 	async function writeFinalizedBlock(block: Block, actions: AnyAction[]) {
-		// If the indexer hasn't defined any actions then there isn't actually any work to complete
-		// on finalization, so this is an optimistic abort case to reduce costs.
+		const relevantActions = actions.filter((action) => {
+			return action.event.filters.some((filter) => {
+				return (
+					filter.chain === hexToNumber(block.eth_chainId) &&
+					hexToNumber(block.eth_getBlockByNumber.number) >= filter.fromBlock &&
+					(filter.toBlock === undefined || hexToNumber(block.eth_getBlockByNumber.number) <= filter.toBlock)
+				);
+			});
+		});
 
-		if (actions.length === 0) {
+		if (relevantActions.length === 0) {
 			return;
 		}
 
@@ -1575,7 +1589,7 @@ function defineIndexer(opts: Indexer) {
 		const parentHash = normalizeHex(block.eth_getBlockByNumber.parentHash);
 		const prefix = `commits/v1/${chain}/${number}/${hash}/${parentHash}`;
 
-		const promises = actions.map(async (action) => {
+		const promises = relevantActions.map(async (action) => {
 			// Even if the there were no events for this block that would invoke the action it's important that we still
 			// mark the action as successful with a commit so that we don't cause the block to be processed again
 
@@ -1866,6 +1880,18 @@ function defineIndexer(opts: Indexer) {
 				});
 
 				const actionsWithoutCommit = allActions.filter((action) => {
+					const applicable = action.event.filters.some((filter) => {
+						return (
+							filter.chain === hexToNumber(canonicalHead.chain) &&
+							hexToNumber(canonicalHead.number) >= filter.fromBlock &&
+							(filter.toBlock === undefined || hexToNumber(canonicalHead.number) <= filter.toBlock)
+						);
+					});
+
+					if (!applicable) {
+						return false;
+					}
+
 					const commitExists = commits.some((commit) => {
 						return (
 							commit.id === action.id &&
