@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.7...v0.4.8
+
+[compare changes](https://github.com/univo/univo/compare/v0.4.7...v0.4.8)
+
+### 🔥 Performance
+
+- **indexer:** Improve finalization speed ([#115](https://github.com/univo/univo/pull/115))
+
+### ❤️ Contributors
+
+- Sam Potter ([@sam-potter](https://github.com/sam-potter))
+
 ## v0.4.6...v0.4.7
 
 [compare changes](https://github.com/univo/univo/compare/v0.4.6...v0.4.7)
