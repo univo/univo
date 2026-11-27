@@ -12,14 +12,16 @@ function r2(opts: R2Options) {
 	return defineAdapter({
 		id: "r2-binding",
 
-		async delete(path) {
-			const key = path.replace(/^\/+/, "");
+		async delete(paths) {
+			const keys = paths.map((path) => path.replace(/^\/+/, ""));
 
-			if (key.length === 0) {
+			if (keys.some((key) => key.length === 0)) {
 				throw new Error("Storage path must not be empty");
 			}
 
-			await binding.delete(key);
+			for (let index = 0; index < keys.length; index += 1000) {
+				await binding.delete(keys.slice(index, index + 1000));
+			}
 		},
 
 		async get(path) {

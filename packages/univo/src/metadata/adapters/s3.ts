@@ -44,20 +44,24 @@ function s3(opts: S3Options) {
 	return defineAdapter({
 		id: "s3",
 
-		async delete(path) {
-			const key = path.replace(/^\/+/, "");
+		async delete(paths) {
+			const keys = paths.map((path) => path.replace(/^\/+/, ""));
 
-			if (key.length === 0) {
+			if (keys.some((key) => key.length === 0)) {
 				throw new Error("Storage path must not be empty");
 			}
 
-			const target = url(key);
+			await Promise.all(
+				keys.map(async (key) => {
+					const target = url(key);
 
-			const res = await client.fetch(target, { method: "DELETE" });
+					const res = await client.fetch(target, { method: "DELETE" });
 
-			if (!res.ok || res.status < 200 || res.status >= 300) {
-				throw new Error(`S3 DELETE ${target.pathname} failed with ${res.status} ${res.statusText}`);
-			}
+					if (!res.ok || res.status < 200 || res.status >= 300) {
+						throw new Error(`S3 DELETE ${target.pathname} failed with ${res.status} ${res.statusText}`);
+					}
+				}),
+			);
 		},
 
 		async get(path) {

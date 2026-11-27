@@ -1991,11 +1991,9 @@ function defineIndexer(opts: Indexer) {
 				return hexToNumber(number) <= finalizedHeight;
 			});
 
-			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
-				await opts.metadataStorage.adapter.delete(key);
-			});
-
-			await Promise.all(garbageCollectionPromises);
+			if (garbageCollectionKeys.length > 0) {
+				await opts.metadataStorage.adapter.delete(garbageCollectionKeys);
+			}
 
 			// A fast-path optimization we can perform here is to return surviving entries immediately
 			// when no garbage was deleted or the page is complete. This avoids performing another LIST
@@ -2047,11 +2045,9 @@ function defineIndexer(opts: Indexer) {
 				return hexToNumber(number) <= finalizedHeight;
 			});
 
-			const garbageCollectionPromises = garbageCollectionKeys.map(async (key) => {
-				await opts.metadataStorage.adapter.delete(key);
-			});
-
-			await Promise.all(garbageCollectionPromises);
+			if (garbageCollectionKeys.length > 0) {
+				await opts.metadataStorage.adapter.delete(garbageCollectionKeys);
+			}
 
 			// A fast-path optimization we can perform here is to return surviving entries immediately
 			// when no garbage was deleted or the page is complete. This avoids performing another LIST
